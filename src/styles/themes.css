@@ -1,0 +1,696 @@
+:root[data-platform="macos"] {
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+}
+
+:root[data-platform="windows"] {
+  --font-ui: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --radius-sm: 5px;
+  --radius-md: 8px;
+}
+
+:root[data-platform="linux"] {
+  --font-ui: Cantarell, Ubuntu, system-ui, sans-serif;
+}
+
+:root[data-theme="native"][data-color-scheme="dark"],
+:root[data-theme="cyberpunk"] {
+  color-scheme: dark;
+}
+
+:root[data-theme="native"][data-color-scheme="dark"] {
+  --app-bg: #17181b;
+  --chrome-bg: rgba(36, 37, 42, 0.95);
+  --chrome-raised: rgba(255, 255, 255, 0.075);
+  --surface: #222329;
+  --surface-2: #1b1c20;
+  --surface-3: #303137;
+  --surface-hover: rgba(255, 255, 255, 0.075);
+  --surface-active: rgba(255, 255, 255, 0.12);
+  --overlay: rgba(36, 37, 42, 0.98);
+  --text: #eeeeef;
+  --text-strong: #ffffff;
+  --muted: #aaaab1;
+  --subtle: #777880;
+  --border: rgba(255, 255, 255, 0.11);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --accent: #8b89ff;
+  --accent-hover: #9f9dff;
+  --accent-soft: rgba(139, 137, 255, 0.17);
+  --shadow-md: 0 16px 44px rgba(0, 0, 0, 0.48), 0 3px 10px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 28px 90px rgba(0, 0, 0, 0.58);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="native"][data-color-scheme="system"] {
+    color-scheme: dark;
+    --app-bg: #17181b;
+    --chrome-bg: rgba(36, 37, 42, 0.95);
+    --chrome-raised: rgba(255, 255, 255, 0.075);
+    --surface: #222329;
+    --surface-2: #1b1c20;
+    --surface-3: #303137;
+    --surface-hover: rgba(255, 255, 255, 0.075);
+    --surface-active: rgba(255, 255, 255, 0.12);
+    --overlay: rgba(36, 37, 42, 0.98);
+    --text: #eeeeef;
+    --text-strong: #ffffff;
+    --muted: #aaaab1;
+    --subtle: #777880;
+    --border: rgba(255, 255, 255, 0.11);
+    --border-strong: rgba(255, 255, 255, 0.2);
+    --accent: #8b89ff;
+    --accent-soft: rgba(139, 137, 255, 0.17);
+  }
+}
+
+:root[data-theme="sedative"] {
+  color-scheme: light;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "SF Pro Text", system-ui, sans-serif;
+  --font-display: var(--font-ui);
+  --app-bg: #e8ecee;
+  --chrome-bg: #f2f4f5;
+  --chrome-raised: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #edf0f2;
+  --surface-3: #e3e8ea;
+  --surface-hover: #e8edef;
+  --surface-active: #dfe5e8;
+  --overlay: #f8f9fa;
+  --text: #30373b;
+  --text-strong: #22292d;
+  --muted: #7a858b;
+  --subtle: #a0a9ae;
+  --border: rgba(53, 67, 75, 0.055);
+  --border-strong: rgba(53, 67, 75, 0.09);
+  --accent: #6f8390;
+  --accent-hover: #627783;
+  --accent-soft: #e1e8eb;
+  --accent-contrast: #ffffff;
+  --danger: #c96d72;
+  --success: #7a9b89;
+  --warning: #aa9270;
+  --focus-ring: rgba(111, 131, 144, 0.48);
+  --shadow-sm: 0 5px 18px rgba(58, 72, 80, 0.055);
+  --shadow-md: 0 14px 42px rgba(58, 72, 80, 0.075);
+  --shadow-lg: 0 26px 80px rgba(58, 72, 80, 0.11);
+  --radius-xs: 999px;
+  --radius-sm: 999px;
+  --radius-md: 28px;
+  --radius-lg: 34px;
+  --radius-xl: 42px;
+  --titlebar-height: 48px;
+  --toolbar-height: 61px;
+  --statusbar-height: 25px;
+  --tab-height: 39px;
+  --control-height: 43px;
+  --icon-button-size: 39px;
+  --motion-fast: 160ms;
+  --motion-medium: 240ms;
+  --ease: cubic-bezier(0.22, 0.75, 0.25, 1);
+}
+
+:root[data-theme="sedative"][data-density="compact"] {
+  --titlebar-height: 42px;
+  --toolbar-height: 53px;
+  --statusbar-height: 22px;
+  --tab-height: 34px;
+  --control-height: 37px;
+  --icon-button-size: 34px;
+}
+
+:root[data-theme="sedative"] .browser-window,
+:root[data-theme="sedative"] .browser-workspace {
+  background: var(--chrome-bg);
+}
+
+:root[data-theme="sedative"] .titlebar,
+:root[data-theme="sedative"] .navigation-bar,
+:root[data-theme="sedative"] .vertical-sidebar,
+:root[data-theme="sedative"] .browser-statusbar,
+:root[data-theme="sedative"] .settings-sidebar {
+  border: 0;
+  background: var(--chrome-bg);
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+:root[data-theme="sedative"] .titlebar {
+  align-items: center;
+  padding-block: 4px;
+}
+
+:root[data-theme="sedative"] .tab-strip--horizontal {
+  align-items: center;
+  padding: 0 8px 0 0;
+}
+
+:root[data-theme="sedative"] .tab-strip--horizontal .tab-strip__items {
+  align-items: center;
+}
+
+:root[data-theme="sedative"] .browser-tab {
+  border: 0;
+  border-radius: 999px;
+}
+
+:root[data-theme="sedative"] .browser-tab--horizontal {
+  height: var(--tab-height);
+  padding-inline: 13px 7px;
+  border-radius: 999px;
+}
+
+:root[data-theme="sedative"] .browser-tab.is-active {
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="sedative"] .browser-tab--horizontal.is-active::after {
+  display: none;
+}
+
+:root[data-theme="sedative"] .browser-tab__close,
+:root[data-theme="sedative"] .icon-button,
+:root[data-theme="sedative"] .profile-trigger,
+:root[data-theme="sedative"] .model-pill,
+:root[data-theme="sedative"] .address-bar,
+:root[data-theme="sedative"] .generation-composer,
+:root[data-theme="sedative"] .generation-composer__model,
+:root[data-theme="sedative"] .generation-composer__submit,
+:root[data-theme="sedative"] .prompt-starters button,
+:root[data-theme="sedative"] .button,
+:root[data-theme="sedative"] .menu__item,
+:root[data-theme="sedative"] .address-suggestion,
+:root[data-theme="sedative"] .popover__footer-action,
+:root[data-theme="sedative"] .remote-surface-tools,
+:root[data-theme="sedative"] .remote-surface-tools button,
+:root[data-theme="sedative"] .settings-search,
+:root[data-theme="sedative"] .model-search,
+:root[data-theme="sedative"] .settings-sidebar nav a,
+:root[data-theme="sedative"] .segmented-control,
+:root[data-theme="sedative"] .segmented-control button,
+:root[data-theme="sedative"] .layout-options > button,
+:root[data-theme="sedative"] .settings-model-list > button,
+:root[data-theme="sedative"] .profile-settings-list > button,
+:root[data-theme="sedative"] .readonly-field {
+  border-radius: 999px;
+}
+
+:root[data-theme="sedative"] .icon-button,
+:root[data-theme="sedative"] .profile-trigger {
+  background: var(--chrome-raised);
+}
+
+:root[data-theme="sedative"] .new-tab-button {
+  border: 0;
+  background: var(--surface-3);
+}
+
+:root[data-theme="sedative"] .navigation-bar {
+  gap: 9px;
+  padding-inline: 13px;
+}
+
+:root[data-theme="sedative"] .address-bar,
+:root[data-theme="sedative"] .model-pill {
+  border: 0;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="sedative"] .address-bar.is-focused {
+  border: 0;
+  box-shadow: var(--shadow-sm), 0 0 0 4px var(--accent-soft);
+}
+
+:root[data-theme="sedative"] .model-pill__mark,
+:root[data-theme="sedative"] .address-suggestion__icon,
+:root[data-theme="sedative"] .settings-model-list__icon,
+:root[data-theme="sedative"] .connection-card__mark,
+:root[data-theme="sedative"] .codex-dialog__icon {
+  border-radius: 50%;
+}
+
+:root[data-theme="sedative"] .model-pill__status,
+:root[data-theme="sedative"] .status-orb {
+  box-shadow: none;
+}
+
+:root[data-theme="sedative"] .avatar {
+  background: var(--accent);
+}
+
+:root[data-theme="sedative"] .browser-workspace {
+  gap: 10px;
+  padding: 6px 10px 10px;
+}
+
+:root[data-theme="sedative"] .vertical-sidebar {
+  border-radius: 30px;
+  background: var(--surface-2);
+}
+
+:root[data-theme="sedative"] .vertical-sidebar__footer {
+  border: 0;
+  border-radius: 24px;
+  background: var(--surface);
+}
+
+:root[data-theme="sedative"] .vertical-sidebar__resize:hover {
+  border-radius: 999px;
+  background: var(--accent-soft);
+}
+
+:root[data-theme="sedative"] .content-viewport {
+  overflow: hidden;
+  border-radius: 32px;
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="sedative"] .browser-statusbar {
+  padding-inline: 17px;
+}
+
+:root[data-theme="sedative"] .new-tab-page,
+:root[data-theme="sedative"] .settings-page {
+  background: var(--surface-2);
+}
+
+:root[data-theme="sedative"] .new-tab-page__aura {
+  display: none;
+}
+
+:root[data-theme="sedative"] .new-tab-page__mark {
+  width: 54px;
+  height: 54px;
+  border: 0;
+  border-radius: 50%;
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="sedative"] .new-tab-page h1 {
+  font-weight: 610;
+  letter-spacing: -0.055em;
+}
+
+:root[data-theme="sedative"] .new-tab-page__eyebrow,
+:root[data-theme="sedative"] .settings-heading > span {
+  color: var(--muted);
+  font-weight: 620;
+  letter-spacing: 0.025em;
+  text-transform: none;
+}
+
+:root[data-theme="sedative"] .generation-composer {
+  min-height: 66px;
+  padding: 10px 11px 10px 20px;
+  border: 0;
+  border-radius: 999px;
+  box-shadow: var(--shadow-md);
+}
+
+:root[data-theme="sedative"] .generation-composer:focus-within {
+  border: 0;
+  box-shadow: var(--shadow-md), 0 0 0 5px var(--accent-soft);
+}
+
+:root[data-theme="sedative"] .generation-composer__submit {
+  width: 44px;
+  height: 44px;
+  flex-basis: 44px;
+  border-radius: 50%;
+}
+
+:root[data-theme="sedative"] .prompt-starters {
+  gap: 9px;
+  margin-top: 19px;
+}
+
+:root[data-theme="sedative"] .prompt-starters button {
+  padding: 9px 14px;
+  border: 0;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="sedative"] .address-suggestions,
+:root[data-theme="sedative"] .popover,
+:root[data-theme="sedative"] .menu {
+  border: 0;
+  border-radius: 28px;
+  background: var(--overlay);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: none;
+}
+
+:root[data-theme="sedative"] .tooltip {
+  border: 0;
+  border-radius: 999px;
+  background: var(--overlay);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="sedative"] .address-suggestions,
+:root[data-theme="sedative"] .model-popover {
+  padding: 10px;
+}
+
+:root[data-theme="sedative"] .address-suggestion__icon,
+:root[data-theme="sedative"] .model-row__icon {
+  border: 0;
+}
+
+:root[data-theme="sedative"] .model-row {
+  border-radius: 999px;
+}
+
+:root[data-theme="sedative"] .model-row.is-active {
+  background: var(--accent-soft);
+  box-shadow: none;
+}
+
+:root[data-theme="sedative"] .menu {
+  padding: 8px;
+}
+
+:root[data-theme="sedative"] .menu__item {
+  min-height: 38px;
+  padding-inline: 12px;
+}
+
+:root[data-theme="sedative"] .menu__item[data-highlighted] {
+  color: var(--text-strong);
+  background: var(--accent-soft);
+}
+
+:root[data-theme="sedative"] .menu__item[data-highlighted] kbd,
+:root[data-theme="sedative"] .menu__item[data-highlighted] .menu__value {
+  color: var(--muted);
+}
+
+:root[data-theme="sedative"] .menu__separator,
+:root[data-theme="sedative"] .address-suggestions__hint {
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme="sedative"] .popover__footer-action {
+  width: 100%;
+  margin: 4px 0 0;
+  border: 0;
+  background: var(--surface-2);
+}
+
+:root[data-theme="sedative"] .address-suggestions__hint kbd,
+:root[data-theme="sedative"] .new-tab-page__principles kbd {
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+:root[data-theme="sedative"] .dialog {
+  border: 0;
+  border-radius: 36px;
+  background: var(--overlay);
+  box-shadow: var(--shadow-lg);
+}
+
+:root[data-theme="sedative"] .connection-status,
+:root[data-theme="sedative"] .setting-row,
+:root[data-theme="sedative"] .connection-card,
+:root[data-theme="sedative"] .settings-callout,
+:root[data-theme="sedative"] .privacy-grid article,
+:root[data-theme="sedative"] .architecture-card {
+  border: 0;
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+:root[data-theme="sedative"] .connection-card {
+  background: var(--surface);
+}
+
+:root[data-theme="sedative"] .setting-row {
+  min-height: 78px;
+  padding-inline: 21px;
+}
+
+:root[data-theme="sedative"] .settings-sidebar {
+  margin: 10px 0 10px 10px;
+  border-radius: 30px;
+  background: var(--surface);
+}
+
+:root[data-theme="sedative"] .settings-sidebar nav {
+  gap: 5px;
+}
+
+:root[data-theme="sedative"] .settings-sidebar nav a.is-active {
+  background: var(--accent-soft);
+}
+
+:root[data-theme="sedative"] .settings-content {
+  padding-top: 58px;
+}
+
+:root[data-theme="sedative"] .settings-heading h1 {
+  font-weight: 620;
+}
+
+:root[data-theme="sedative"] .theme-grid {
+  gap: 15px;
+}
+
+:root[data-theme="sedative"] .theme-card {
+  padding: 11px;
+  border: 0;
+  border-radius: 30px;
+  background: var(--surface);
+  box-shadow: none;
+}
+
+:root[data-theme="sedative"] .theme-card:hover {
+  border: 0;
+  background: color-mix(in srgb, var(--surface) 70%, var(--surface-3));
+}
+
+:root[data-theme="sedative"] .theme-card.is-active {
+  border: 0;
+  box-shadow: 0 0 0 5px var(--accent-soft);
+}
+
+:root[data-theme="sedative"] .layout-options,
+:root[data-theme="sedative"] .settings-model-list,
+:root[data-theme="sedative"] .profile-settings-list {
+  gap: 10px;
+}
+
+:root[data-theme="sedative"] .layout-options > button,
+:root[data-theme="sedative"] .settings-model-list > button,
+:root[data-theme="sedative"] .profile-settings-list > button {
+  min-height: 76px;
+  padding-inline: 19px;
+  border: 0;
+  background: var(--surface);
+}
+
+:root[data-theme="sedative"] .layout-options > button.is-active,
+:root[data-theme="sedative"] .settings-model-list > button.is-active,
+:root[data-theme="sedative"] .profile-settings-list > button.is-active {
+  border: 0;
+  box-shadow: 0 0 0 5px var(--accent-soft);
+}
+
+:root[data-theme="sedative"] .profile-settings-list__add {
+  border-style: solid !important;
+  background: var(--surface-2);
+}
+
+:root[data-theme="sedative"] .segmented-control {
+  border: 0;
+  background: var(--surface-3);
+}
+
+:root[data-theme="sedative"] .segmented-control button.is-active {
+  box-shadow: none;
+}
+
+:root[data-theme="sedative"] .switch {
+  border: 0;
+}
+
+:root[data-theme="sedative"] .architecture-card > div {
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+:root[data-theme="sedative"] .surface-chip,
+:root[data-theme="sedative"] .remote-surface-tools {
+  border: 0;
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="sedative"] .surface-chip {
+  border-radius: 999px;
+}
+
+:root[data-theme="sedative"] .surface-error {
+  border: 0;
+  border-radius: 36px;
+  box-shadow: var(--shadow-lg);
+}
+
+:root[data-theme="ie-classic"] {
+  color-scheme: light;
+  --font-ui: "MS Sans Serif", Tahoma, "Segoe UI", sans-serif;
+  --font-display: Georgia, "Times New Roman", serif;
+  --app-bg: #008080;
+  --chrome-bg: #d4d0c8;
+  --chrome-raised: #d4d0c8;
+  --surface: #ffffff;
+  --surface-2: #d4d0c8;
+  --surface-3: #bcb8b0;
+  --surface-hover: #e5e2dc;
+  --surface-active: #bbb7af;
+  --overlay: #d4d0c8;
+  --text: #000000;
+  --text-strong: #000000;
+  --muted: #444444;
+  --subtle: #666666;
+  --border: #808080;
+  --border-strong: #000000;
+  --accent: #000080;
+  --accent-hover: #00006a;
+  --accent-soft: #c7c7e9;
+  --accent-contrast: #ffffff;
+  --focus-ring: #000000;
+  --shadow-sm: 1px 1px 0 #ffffff, -1px -1px 0 #808080;
+  --shadow-md: 2px 2px 0 #000000, 3px 3px 0 #808080;
+  --shadow-lg: 3px 3px 0 #000000, 5px 5px 0 #808080;
+  --radius-xs: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --radius-xl: 0px;
+  --motion-fast: 0ms;
+  --motion-medium: 0ms;
+}
+
+:root[data-theme="ie-classic"] .titlebar {
+  background: linear-gradient(90deg, #000080, #1084d0);
+  color: white;
+  border: 2px solid;
+  border-color: #ffffff #404040 #404040 #ffffff;
+}
+
+:root[data-theme="ie-classic"] .navigation-bar,
+:root[data-theme="ie-classic"] .vertical-sidebar,
+:root[data-theme="ie-classic"] .browser-statusbar {
+  border-color: #ffffff #666666 #666666 #ffffff;
+  box-shadow: inset 1px 1px #ffffff, inset -1px -1px #808080;
+}
+
+:root[data-theme="ie-classic"] .icon-button,
+:root[data-theme="ie-classic"] .profile-trigger,
+:root[data-theme="ie-classic"] .model-pill,
+:root[data-theme="ie-classic"] .button,
+:root[data-theme="ie-classic"] .menu__item,
+:root[data-theme="ie-classic"] .prompt-starters button {
+  border: 2px solid;
+  border-color: #ffffff #4b4b4b #4b4b4b #ffffff;
+  box-shadow: none;
+}
+
+:root[data-theme="ie-classic"] .icon-button:active,
+:root[data-theme="ie-classic"] .profile-trigger:active,
+:root[data-theme="ie-classic"] .button:active {
+  border-color: #4b4b4b #ffffff #ffffff #4b4b4b;
+  transform: translate(1px, 1px);
+}
+
+:root[data-theme="ie-classic"] .browser-tab.is-active {
+  background: white;
+  border: 2px solid;
+  border-color: #ffffff #555555 transparent #ffffff;
+}
+
+:root[data-theme="ie-classic"] .new-tab-page h1 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+
+:root[data-theme="ie-classic"] .new-tab-page__aura {
+  background: radial-gradient(circle, rgba(255,255,255,.9), transparent 55%);
+  filter: none;
+}
+
+:root[data-theme="cyberpunk"] {
+  --font-ui: "SFMono-Regular", "Cascadia Code", Consolas, monospace;
+  --font-display: var(--font-ui);
+  --app-bg: #04070b;
+  --chrome-bg: rgba(7, 13, 20, 0.97);
+  --chrome-raised: rgba(77, 244, 255, 0.06);
+  --surface: #09111a;
+  --surface-2: #060c13;
+  --surface-3: #10202b;
+  --surface-hover: rgba(77, 244, 255, 0.09);
+  --surface-active: rgba(77, 244, 255, 0.16);
+  --overlay: rgba(7, 14, 22, 0.985);
+  --text: #dffcff;
+  --text-strong: #ffffff;
+  --muted: #78a2a9;
+  --subtle: #48646b;
+  --border: rgba(77, 244, 255, 0.19);
+  --border-strong: rgba(77, 244, 255, 0.42);
+  --accent: #4df4ff;
+  --accent-hover: #8bf8ff;
+  --accent-soft: rgba(77, 244, 255, 0.12);
+  --accent-contrast: #001014;
+  --danger: #ff3f81;
+  --success: #5bff9d;
+  --warning: #ffcf4d;
+  --focus-ring: #4df4ff;
+  --shadow-sm: 0 0 0 1px rgba(77, 244, 255, 0.08), 0 0 16px rgba(77, 244, 255, 0.05);
+  --shadow-md: 0 0 0 1px rgba(77, 244, 255, 0.24), 0 18px 64px rgba(0, 0, 0, 0.74), 0 0 32px rgba(77, 244, 255, 0.08);
+  --shadow-lg: 0 0 0 1px rgba(77, 244, 255, 0.28), 0 30px 110px rgba(0, 0, 0, 0.84), 0 0 46px rgba(77, 244, 255, 0.1);
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 7px;
+  --radius-xl: 9px;
+}
+
+:root[data-theme="cyberpunk"] .browser-window::after {
+  content: "";
+  position: fixed;
+  z-index: 9999;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.14;
+  background: repeating-linear-gradient(0deg, transparent 0 3px, rgba(255,255,255,.025) 3px 4px);
+  mix-blend-mode: screen;
+}
+
+:root[data-theme="cyberpunk"] .titlebar__brand,
+:root[data-theme="cyberpunk"] .settings-heading > span,
+:root[data-theme="cyberpunk"] .new-tab-page__eyebrow {
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="cyberpunk"] .new-tab-page__aura {
+  background: radial-gradient(circle at 50% 30%, rgba(77,244,255,.19), transparent 37%), radial-gradient(circle at 64% 45%, rgba(255,63,129,.1), transparent 30%);
+}
+
+:root[data-theme="cyberpunk"] .address-bar.is-focused,
+:root[data-theme="cyberpunk"] .generation-composer:focus-within {
+  box-shadow: inset 0 0 0 1px var(--accent), 0 0 20px rgba(77,244,255,.12);
+}
+
+@media (prefers-contrast: more) {
+  :root { --border: currentColor; --border-strong: currentColor; }
+  button:focus-visible, input:focus-visible, [role="tab"]:focus-visible { outline-width: 3px; }
+}

@@ -1,0 +1,14 @@
+node_modules
+dist
+target
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+output/playwright/
+.playwright-cli/
+coverage/
+generation-worker/sidecars/
+generation-worker/.*.bun-build
+src-tauri/gen/

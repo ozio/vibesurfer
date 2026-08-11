@@ -1,0 +1,48 @@
+@layer reset, tokens, components, themes, utilities;
+
+@import "./tokens.css" layer(tokens);
+@import "./components.css" layer(components);
+@import "./themes.css" layer(themes);
+@import "./ie-classic.css" layer(themes);
+
+@layer reset {
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body, #root { width: 100%; height: 100%; margin: 0; }
+  html { color-scheme: light dark; background: var(--app-bg); }
+  body {
+    min-width: 720px;
+    overflow: hidden;
+    color: var(--text);
+    background: var(--app-bg);
+    font-family: var(--font-ui);
+    font-size: 13px;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    user-select: none;
+  }
+  button, input { color: inherit; font: inherit; }
+  button { border: 0; cursor: default; }
+  a { cursor: default; }
+  input { user-select: text; }
+  svg { display: block; width: 16px; height: 16px; stroke-width: 1.8; }
+  kbd { font: 500 11px/1 var(--font-ui); }
+  :focus { outline: none; }
+  :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+}
+
+@layer utilities {
+  .reduce-motion *, .reduce-motion *::before, .reduce-motion *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

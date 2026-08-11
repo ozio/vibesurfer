@@ -1,0 +1,44 @@
+{
+  "name": "@vibesurfer/generation-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated JSONL generation sidecar for VibeSurfer",
+  "type": "module",
+  "bin": {
+    "vibesurfer-generation-worker": "dist/index.js"
+  },
+  "exports": {
+    ".": "./dist/public.js",
+    "./protocol": "./dist/protocol/types.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "sidecar:build": "node scripts/build-sidecar.mjs",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify": "npm run check && npm run test && npm run build"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.37",
+    "@ai-sdk/google": "4.0.41",
+    "@ai-sdk/openai": "4.0.37",
+    "@ai-sdk/openai-compatible": "3.0.29",
+    "@ai-sdk/provider": "4.0.7",
+    "ai": "7.0.59",
+    "parse5": "8.0.1",
+    "tailwindcss": "4.3.3",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "tsx": "4.23.12",
+    "typescript": "7.0.2",
+    "vitest": "4.1.10"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
