@@ -1,3 +1,4 @@
+mod codex_adapter;
 mod protocol;
 mod secrets;
 mod storage;
@@ -10,6 +11,7 @@ use std::{
     sync::Arc,
 };
 
+use codex_adapter::CodexCatalog;
 use protocol::{
     ArtifactRecord, GenerationStartRequest, GenerationStartResult, ProviderConnectionRecord,
     ProviderVerifyRequest, RuntimeStatus, SiteWorldRecord, WORKER_PROTOCOL_VERSION,
@@ -308,6 +310,26 @@ fn codex_auth_status() -> CodexAuthStatus {
 }
 
 #[tauri::command]
+async fn codex_model_catalog() -> Result<CodexCatalog, String> {
+    let discovery = discover_codex();
+    if !discovery.status.authenticated {
+        return Err(discovery.status.message);
+    }
+    let program = discovery
+        .program
+        .ok_or_else(|| "No compatible Codex installation was found.".to_owned())?;
+    if !codex_adapter::supports_hardened_exec(&program) {
+        return Err(
+            "This Codex installation is signed in, but it is too old for safe page generation. Update ChatGPT or Codex and try again."
+                .into(),
+        );
+    }
+    codex_adapter::load_catalog(&program)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn start_codex_login() -> Result<(), String> {
     let discovery = discover_codex();
     let program = discovery
@@ -595,6 +617,37 @@ async fn start_generation(
     app: AppHandle,
     runtime: State<'_, AppRuntime>,
 ) -> Result<GenerationStartResult, String> {
+    let is_codex = input
+        .request
+        .pointer("/provider/kind")
+        .and_then(Value::as_str)
+        == Some("codex");
+    let codex_program = if is_codex {
+        if input.credential_ref.is_some() {
+            return Err("Codex generation uses the system ChatGPT session, not an API key.".into());
+        }
+        let discovery = discover_codex();
+        if !discovery.status.authenticated {
+            return Err(discovery.status.message);
+        }
+        let program = discovery
+            .program
+            .ok_or_else(|| "No compatible Codex installation was found.".to_owned())?;
+        if !codex_adapter::supports_hardened_exec(&program) {
+            return Err(
+                "This Codex installation is signed in, but it is too old for safe page generation. Update ChatGPT or Codex and try again."
+                    .into(),
+            );
+        }
+        let catalog = codex_adapter::load_catalog(&program)
+            .await
+            .map_err(|error| error.to_string())?;
+        codex_adapter::bind_generation_request(&mut input.request, &catalog)?;
+        Some(program)
+    } else {
+        None
+    };
+
     if let Some(secret_ref) = input.credential_ref.clone() {
         let requested_provider = input.request.get("provider").cloned().ok_or_else(|| {
             "provider configuration is required for a credentialed request".to_owned()
@@ -617,7 +670,14 @@ async fn start_generation(
         .map_err(|error| error.to_string())?;
     let job_id = runtime
         .worker
-        .start_generation(app, runtime.storage.clone(), input, credential, on_event)
+        .start_generation(
+            app,
+            runtime.storage.clone(),
+            input,
+            credential,
+            codex_program,
+            on_event,
+        )
         .await
         .map_err(|error| error.to_string())?;
     Ok(GenerationStartResult { job_id })
@@ -648,6 +708,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             codex_auth_status,
+            codex_model_catalog,
             start_codex_login,
             runtime_status,
             put_provider_secret,

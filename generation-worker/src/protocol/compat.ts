@@ -77,6 +77,8 @@ export interface NormalizedProvider {
   connection: PublicProviderConnection;
   credentials?: ProviderCredentials;
   modelId: string;
+  reasoningEffort?: string;
+  serviceTier?: string;
 }
 
 export function normalizeProvider(
@@ -91,6 +93,8 @@ export function normalizeProvider(
   const modelIds = Array.isArray(provider.modelIds) ? provider.modelIds : [];
   const firstModelId = modelIds.map(string).find(Boolean);
   const modelId = string(provider.modelId ?? fallbackModelId) ?? firstModelId ?? "mock-v1";
+  const reasoningEffort = string(provider.reasoningEffort ?? provider.effort);
+  const serviceTier = string(provider.serviceTier ?? provider.speed);
   const connection = PublicProviderConnectionSchema.parse({
     id,
     kind,
@@ -103,6 +107,8 @@ export function normalizeProvider(
     connection,
     ...(credential ? { credentials: { apiKey: credential } } : {}),
     modelId,
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+    ...(serviceTier ? { serviceTier } : {}),
   };
 }
 
@@ -234,6 +240,10 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
     provider: {
       connectionId: normalizedProvider.connection.id,
       modelId: normalizedProvider.modelId,
+      ...(normalizedProvider.reasoningEffort
+        ? { reasoningEffort: normalizedProvider.reasoningEffort }
+        : {}),
+      ...(normalizedProvider.serviceTier ? { serviceTier: normalizedProvider.serviceTier } : {}),
     },
     editableInstruction: string(request.editableInstruction ?? settings.customInstruction) ?? "",
     settings: {

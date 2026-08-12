@@ -222,6 +222,8 @@ export interface GenerationJob {
   artifactId?: string;
   providerId?: string;
   modelId: string;
+  reasoningEffort?: string;
+  serviceTier?: string;
   mode: GenerationMode;
   status: GenerationJobStatus;
   phase: GenerationPhase;
@@ -274,6 +276,35 @@ export interface ProviderConnection {
   maskedSecretSuffix?: string;
   modelIds: string[];
   lastVerifiedAt?: string;
+}
+
+export interface CodexReasoningEffortOption {
+  reasoningEffort: string;
+  description: string;
+}
+
+export interface CodexServiceTierOption {
+  id: string;
+  name: string;
+  description: string;
+}
+
+/** A model advertised by the signed-in Codex App Server session. */
+export interface CodexModel {
+  id: string;
+  model: string;
+  displayName: string;
+  isDefault: boolean;
+  defaultReasoningEffort?: string;
+  supportedReasoningEfforts: CodexReasoningEffortOption[];
+  serviceTiers: CodexServiceTierOption[];
+}
+
+/** Persisted user choices for jobs routed through the ChatGPT Codex session. */
+export interface CodexGenerationSelection {
+  modelId?: string;
+  reasoningEffort?: string;
+  serviceTier?: string;
 }
 
 export type ImageProviderMode = "off" | "tag-placeholder" | "stock-api" | "generated" | "local-library";

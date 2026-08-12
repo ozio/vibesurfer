@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { AiSdkModelExecutor } from "../src/providers/executor.js";
+import { CodexModelExecutor } from "../src/providers/codex.js";
 import {
   InMemoryProviderRegistry,
   ProviderConfigurationError,
-  ProviderRouteRequiredError,
 } from "../src/providers/registry.js";
 
 describe("provider registry", () => {
@@ -43,7 +43,7 @@ describe("provider registry", () => {
     expect(() => registry.resolve("openai-no-key", "model", "seed")).toThrow(ProviderConfigurationError);
   });
 
-  it("keeps credentials out of its public listing and routes Codex back to the host", () => {
+  it("keeps credentials out of its public listing and creates the system Codex adapter", () => {
     const registry = new InMemoryProviderRegistry();
     registry.upsert(
       {
@@ -56,6 +56,13 @@ describe("provider registry", () => {
       { apiKey: "super-secret" },
     );
     expect(JSON.stringify(registry.list())).not.toContain("super-secret");
-    expect(() => registry.resolve("codex", "codex-model", "seed")).toThrow(ProviderRouteRequiredError);
+    const executor = registry.resolve("codex", {
+      connectionId: "codex",
+      modelId: "codex-model",
+      reasoningEffort: "high",
+      serviceTier: "fast",
+    }, "seed");
+    expect(executor).toBeInstanceOf(CodexModelExecutor);
+    expect(executor.actualProviderKind).toBe("codex");
   });
 });

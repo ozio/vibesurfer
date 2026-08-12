@@ -100,6 +100,7 @@ impl WorkerManager {
         storage: Arc<Storage>,
         input: GenerationStartRequest,
         credential: Option<Zeroizing<String>>,
+        codex_program: Option<PathBuf>,
         channel: Channel<Value>,
     ) -> Result<String, WorkerError> {
         let job_id = input
@@ -125,6 +126,7 @@ impl WorkerManager {
                 &input.profile_id,
                 &input.request,
                 credential.as_ref().map(|value| value.as_str()),
+                codex_program.as_deref(),
                 channel.clone(),
                 control_rx,
             )
@@ -175,7 +177,7 @@ impl WorkerManager {
         credential: &str,
     ) -> Result<Value, WorkerError> {
         let command = Self::discover(app)?;
-        let mut child = spawn_worker(&command)?;
+        let mut child = spawn_worker(&command, None)?;
         let mut stdin = child
             .stdin
             .take()
@@ -292,6 +294,7 @@ async fn run_generation(
     profile_id: &str,
     request: &Value,
     credential: Option<&str>,
+    codex_program: Option<&Path>,
     channel: Channel<Value>,
     mut control_rx: mpsc::Receiver<WorkerControl>,
 ) -> Result<(), WorkerError> {
@@ -299,7 +302,7 @@ async fn run_generation(
         .mark_job_started(job_id, profile_id, request)
         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
     let command = WorkerManager::discover(app)?;
-    let mut child = spawn_worker(&command)?;
+    let mut child = spawn_worker(&command, codex_program)?;
     let mut stdin = child
         .stdin
         .take()
@@ -445,9 +448,17 @@ async fn wait_for_deadline(deadline: Option<Instant>) {
     }
 }
 
-fn spawn_worker(command: &WorkerCommand) -> Result<tokio::process::Child, WorkerError> {
-    Command::new(&command.program)
-        .args(&command.arguments)
+fn spawn_worker(
+    command: &WorkerCommand,
+    codex_program: Option<&Path>,
+) -> Result<tokio::process::Child, WorkerError> {
+    let mut process = Command::new(&command.program);
+    process.args(&command.arguments);
+    process.env_remove("VIBESURFER_CODEX_PATH");
+    if let Some(program) = codex_program {
+        process.env("VIBESURFER_CODEX_PATH", program);
+    }
+    process
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

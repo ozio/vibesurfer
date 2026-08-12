@@ -74,15 +74,17 @@ The generation worker supports these provider kinds:
 - `anthropic`;
 - `google`;
 - `openai-compatible` — requires an HTTPS base URL;
-- `codex` — a routing boundary only; see below.
+- `codex` — reuses a compatible system ChatGPT/Codex session without exposing its credentials to the renderer.
 
 Add BYOK connections under **Settings → Models & credentials** in the desktop app. A raw key crosses the React-to-Rust boundary once, is stored by the platform credential service, and never enters Zustand, local storage, artifact HTML, a command-line argument, or a protocol log. Rust retrieves it for the selected profile and passes it only in the in-memory stdin message for the worker request.
 
 If a normal API provider has no credential, generation fails with `provider-not-configured`; the desktop runtime does not pretend that the mock provider was the requested cloud model.
 
-### Codex App Server boundary
+### Codex system-session boundary
 
-The existing Codex sign-in bridge can reuse an authenticated system Codex session, report account status, and start the official `codex login` flow. On macOS it probes a compatible CLI bundled with ChatGPT before falling back to `codex` on `PATH`, so an obsolete global CLI cannot hide a valid ChatGPT session. `VIBESURFER_CODEX_PATH` can explicitly name another CLI. It does **not** route page generation through a Codex account yet. `codex` is deliberately not treated as an OpenAI API key provider: the worker returns `provider-route-required`, and the Rust host must eventually send that job through a dedicated Codex App Server adapter. Use mock or a BYOK provider for generation in this build.
+The Codex bridge reuses an authenticated system ChatGPT session, reports account status, loads the account's current model/effort/service-tier catalog through the official App Server protocol, and can start the official `codex login` flow. On macOS it probes a compatible CLI bundled with ChatGPT before falling back to `codex` on `PATH`, so an obsolete global CLI cannot hide a valid ChatGPT session. `VIBESURFER_CODEX_PATH` can explicitly name another CLI.
+
+For generation, Rust revalidates the signed-in binary and canonicalizes the selected model, reasoning effort, and speed before giving the worker only the absolute executable path. No API key or auth payload crosses the renderer/worker protocol. Each structured stage runs through `codex exec` with user config/rules ignored, an ephemeral read-only empty workspace, network and tools disabled, schema and instructions in mode-0600 temporary files, and a sanitized environment. A future second auth layer may add an app-owned device-code session; the current connection deliberately leaves the system ChatGPT account and its credentials under Codex/ChatGPT ownership.
 
 ## Page compilation
 

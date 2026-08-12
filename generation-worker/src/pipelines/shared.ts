@@ -103,6 +103,12 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
       generationId: input.request.jobId,
       providerId: input.executor.providerId,
       modelId: input.executor.modelId,
+      ...(input.request.provider.reasoningEffort
+        ? { reasoningEffort: input.request.provider.reasoningEffort }
+        : {}),
+      ...(input.request.provider.serviceTier
+        ? { serviceTier: input.request.provider.serviceTier }
+        : {}),
       actualProviderKind: input.executor.actualProviderKind,
       mode: input.request.mode,
       promptVersion: GENERATION_PROMPT_VERSION,

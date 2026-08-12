@@ -239,7 +239,7 @@ export class WorkerRuntime {
     try {
       const executor = this.registry.resolve(
         request.provider.connectionId,
-        request.provider.modelId,
+        request.provider,
         `${request.jobId}:${request.url}`,
       );
       await sendJob({

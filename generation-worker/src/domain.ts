@@ -133,6 +133,18 @@ export const ProviderReferenceSchema = z
   .object({
     connectionId: z.string().min(1).max(100),
     modelId: z.string().min(1).max(200),
+    reasoningEffort: z
+      .string()
+      .min(1)
+      .max(80)
+      .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/)
+      .optional(),
+    serviceTier: z
+      .string()
+      .min(1)
+      .max(80)
+      .regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/)
+      .optional(),
   })
   .strict();
 export type ProviderReference = z.infer<typeof ProviderReferenceSchema>;

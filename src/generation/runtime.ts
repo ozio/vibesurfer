@@ -120,6 +120,8 @@ export function buildGenerationRequest(state: BrowserState, job: GenerationJob):
         id: provider.connection?.id ?? provider.kind,
         kind: provider.kind,
         modelId: stripProviderPrefix(job.modelId),
+        ...(job.reasoningEffort ? { reasoningEffort: job.reasoningEffort } : {}),
+        ...(job.serviceTier ? { serviceTier: job.serviceTier } : {}),
         ...(provider.connection?.baseUrl ? { baseUrl: provider.connection.baseUrl } : {}),
       },
       modelId: stripProviderPrefix(job.modelId),

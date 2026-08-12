@@ -24,7 +24,7 @@ trusted React chrome
 Rust host
     | supervised JSONL over stdin/stdout
 TypeScript generation worker
-    | provider SDK requests
+    | provider SDK requests or hardened system Codex subprocess
 model providers
 
 trusted React chrome
@@ -36,6 +36,13 @@ The Rust host owns secrets, persistent artifacts, process supervision and
 profile boundaries. The worker receives a credential only in memory for the
 request that needs it. Neither the React persistence layer nor generated page
 content receives credentials.
+
+For the system Codex route, Rust discovers an authenticated compatible binary,
+validates its App Server model catalog, canonicalizes model/effort/service-tier,
+and passes only the absolute executable path to that job's worker process. The
+worker invokes it with user configuration and rules ignored, an ephemeral
+read-only empty workspace, network/tools disabled, and a sanitized environment;
+ChatGPT credentials remain owned and read by Codex itself.
 
 Generated documents run with `sandbox="allow-scripts"`, without same-origin,
 popup, download, top-navigation or form privileges. The only executable script

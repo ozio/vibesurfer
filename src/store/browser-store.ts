@@ -13,6 +13,8 @@ import type {
   BrowserPreferences,
   BrowserTab,
   CodexConnection,
+  CodexGenerationSelection,
+  CodexModel,
   Density,
   GenerationError,
   GenerationJob,
@@ -60,6 +62,8 @@ export interface BrowserState {
   activeProfileId: string;
   preferences: BrowserPreferences;
   codex: CodexConnection;
+  codexModels: CodexModel[];
+  codexSelection: CodexGenerationSelection;
   artifacts: Record<string, PageArtifact>;
   generationJobs: Record<string, GenerationJob>;
   siteWorlds: Record<string, SiteWorld>;
@@ -107,6 +111,8 @@ export interface BrowserState {
   setDensity: (density: Density) => void;
   patchPreferences: (patch: Partial<BrowserPreferences>) => void;
   patchCodex: (patch: Partial<CodexConnection>) => void;
+  setCodexModels: (models: CodexModel[]) => void;
+  patchCodexSelection: (patch: Partial<CodexGenerationSelection>) => void;
 }
 
 export const DEFAULT_BROWSER_PREFERENCES: BrowserPreferences = {
@@ -150,6 +156,8 @@ export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
   },
 };
 
+export const DEFAULT_CODEX_SELECTION: CodexGenerationSelection = {};
+
 const initialTabs: BrowserTab[] = [
   makeTab({
     id: "welcome",
@@ -182,6 +190,8 @@ export const useBrowserStore = create<BrowserState>()(
         available: false,
         message: "Not connected",
       },
+      codexModels: [],
+      codexSelection: DEFAULT_CODEX_SELECTION,
       artifacts: {},
       generationJobs: {},
       siteWorlds: {},
@@ -755,10 +765,32 @@ export const useBrowserStore = create<BrowserState>()(
       setDensity: (density) => set((state) => ({ preferences: { ...state.preferences, density } })),
       patchPreferences: (patch) => set((state) => ({ preferences: { ...state.preferences, ...patch } })),
       patchCodex: (patch) => set((state) => ({ codex: { ...state.codex, ...patch } })),
+      setCodexModels: (codexModels) =>
+        set((state) => ({
+          codexModels,
+          codexSelection: normalizeCodexSelection(state.codexSelection, codexModels),
+        })),
+      patchCodexSelection: (patch) =>
+        set((state) => {
+          const changesModel = Object.prototype.hasOwnProperty.call(patch, "modelId")
+            && patch.modelId !== state.codexSelection.modelId;
+          const candidate = changesModel
+            ? {
+                modelId: patch.modelId,
+                reasoningEffort: Object.prototype.hasOwnProperty.call(patch, "reasoningEffort")
+                  ? patch.reasoningEffort
+                  : undefined,
+                serviceTier: Object.prototype.hasOwnProperty.call(patch, "serviceTier")
+                  ? patch.serviceTier
+                  : undefined,
+              }
+            : { ...state.codexSelection, ...patch };
+          return { codexSelection: normalizeCodexSelection(candidate, state.codexModels) };
+        }),
     }),
     {
       name: "vibesurfer-browser-state",
-      version: 4,
+      version: 5,
       migrate: (persistedState, version) => migrateBrowserState(persistedState, version) as BrowserState,
       partialize: (state) => ({
         tabs: state.preferences.reopenSession ? state.tabs : initialTabs,
@@ -766,6 +798,7 @@ export const useBrowserStore = create<BrowserState>()(
         activeModelId: state.activeModelId,
         activeProfileId: state.activeProfileId,
         preferences: state.preferences,
+        codexSelection: state.codexSelection,
         artifacts: state.preferences.reopenSession && persistArtifactsInUiStorage() ? state.artifacts : {},
         generationJobs: state.preferences.reopenSession ? state.generationJobs : {},
         siteWorlds: state.preferences.reopenSession ? state.siteWorlds : {},
@@ -823,6 +856,8 @@ function prepareNavigation(
         now,
       );
   const mode = state.generationSettings.defaultMode;
+  const configuredModelId = modelForMode(state.activeModelId, state.generationSettings, mode);
+  const generationModel = resolveGenerationModel(configuredModelId, state.codexSelection, state.codexModels);
   const intent: NavigationIntent = {
     trigger: options.trigger,
     disposition: options.disposition,
@@ -840,8 +875,10 @@ function prepareNavigation(
     siteWorldId: siteWorld?.id,
     sourceArtifactId: options.sourceArtifactId,
     sourceHistoryEntryId: options.sourceHistoryEntryId,
-    providerId: providerIdForModel(state.activeModelId),
-    modelId: modelForMode(state.activeModelId, state.generationSettings, mode),
+    providerId: providerIdForModel(generationModel.modelId),
+    modelId: generationModel.modelId,
+    reasoningEffort: generationModel.reasoningEffort,
+    serviceTier: generationModel.serviceTier,
     mode,
     status: "queued",
     phase: "queued",
@@ -864,6 +901,25 @@ function modelForMode(activeModelId: string, settings: GenerationSettings, mode:
 function providerIdForModel(modelId: string) {
   const separator = modelId.indexOf(":");
   return separator > 0 ? modelId.slice(0, separator) : undefined;
+}
+
+function resolveGenerationModel(
+  configuredModelId: string,
+  selection: CodexGenerationSelection,
+  models: CodexModel[],
+): { modelId: string; reasoningEffort?: string; serviceTier?: string } {
+  if (configuredModelId !== "codex:chatgpt") return { modelId: configuredModelId };
+
+  const normalized = normalizeCodexSelection(selection, models);
+  const selected = findCodexModel(models, normalized.modelId);
+  const actualModelId = selected?.model ?? normalized.modelId;
+  if (!actualModelId) return { modelId: configuredModelId };
+
+  return {
+    modelId: actualModelId.startsWith("codex:") ? actualModelId : `codex:${actualModelId}`,
+    reasoningEffort: normalized.reasoningEffort,
+    serviceTier: normalized.serviceTier,
+  };
 }
 
 function findOrCreateSiteWorld(siteWorlds: Record<string, SiteWorld>, origin: string, now: string) {
@@ -1167,6 +1223,7 @@ export function migrateBrowserState(persistedState: unknown, _version = 0): Part
   const requestedActiveTabId = stringValue(source.activeTabId);
   const remappedActiveTabId = tabIdRemap.get(requestedActiveTabId) ?? requestedActiveTabId;
   const activeTabId = tabs.some((tab) => tab.id === remappedActiveTabId) ? remappedActiveTabId : tabs[0].id;
+  const codexSelection = migrateCodexSelection(source.codexSelection);
 
   return {
     tabs,
@@ -1174,6 +1231,8 @@ export function migrateBrowserState(persistedState: unknown, _version = 0): Part
     activeModelId,
     activeProfileId,
     preferences,
+    codexModels: [],
+    codexSelection,
     artifacts,
     generationJobs,
     siteWorlds,
@@ -1311,6 +1370,53 @@ function migrateGenerationSettings(value: unknown): GenerationSettings {
   };
 }
 
+function migrateCodexSelection(value: unknown): CodexGenerationSelection {
+  if (!isRecord(value)) return DEFAULT_CODEX_SELECTION;
+  return {
+    modelId: nonEmptyString(value.modelId),
+    reasoningEffort: nonEmptyString(value.reasoningEffort),
+    serviceTier: nonEmptyString(value.serviceTier),
+  };
+}
+
+function normalizeCodexSelection(
+  value: CodexGenerationSelection,
+  models: CodexModel[],
+): CodexGenerationSelection {
+  const persisted = {
+    modelId: nonEmptyString(value.modelId),
+    reasoningEffort: nonEmptyString(value.reasoningEffort),
+    serviceTier: nonEmptyString(value.serviceTier),
+  };
+  if (models.length === 0) return persisted;
+
+  const model = findCodexModel(models, persisted.modelId)
+    ?? models.find((candidate) => candidate.isDefault)
+    ?? models[0];
+  const supportedEfforts = new Set(model.supportedReasoningEfforts.map((option) => option.reasoningEffort));
+  const reasoningEffort = persisted.reasoningEffort && supportedEfforts.has(persisted.reasoningEffort)
+    ? persisted.reasoningEffort
+    : supportedEfforts.has(model.defaultReasoningEffort ?? "")
+      ? model.defaultReasoningEffort
+      : undefined;
+  const supportedTiers = new Set(model.serviceTiers.map((tier) => tier.id));
+  const serviceTier = persisted.serviceTier && supportedTiers.has(persisted.serviceTier)
+    ? persisted.serviceTier
+    : undefined;
+
+  return {
+    modelId: model.id,
+    reasoningEffort,
+    serviceTier,
+  };
+}
+
+function findCodexModel(models: CodexModel[], modelId?: string) {
+  return modelId
+    ? models.find((candidate) => candidate.id === modelId || candidate.model === modelId)
+    : undefined;
+}
+
 function virtualLocationValue(value: unknown) {
   if (!isRecord(value)) return undefined;
   const url = optionalString(value.url);
@@ -1345,6 +1451,12 @@ function stringValue(value: unknown) {
 
 function optionalString(value: unknown) {
   return typeof value === "string" ? value : undefined;
+}
+
+function nonEmptyString(value: unknown) {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
 }
 
 function numberValue(value: unknown) {

@@ -289,6 +289,8 @@ function ModelSettings() {
   const activeModelId = useBrowserStore((state) => state.activeModelId);
   const setModel = useBrowserStore((state) => state.setModel);
   const codex = useBrowserStore((state) => state.codex);
+  const codexModels = useBrowserStore((state) => state.codexModels);
+  const codexSelection = useBrowserStore((state) => state.codexSelection);
   const allProviderConnections = useBrowserStore((state) => state.providerConnections);
   const activeProfileId = useBrowserStore((state) => state.activeProfileId);
   const upsertProviderConnection = useBrowserStore((state) => state.upsertProviderConnection);
@@ -326,14 +328,24 @@ function ModelSettings() {
     () => providerConnections.flatMap((connection) => connection.modelIds.map((id) => ({ id, connection }))),
     [providerConnections],
   );
+  const selectedCodexModel = codexModels.find(
+    (model) => model.id === codexSelection.modelId || model.model === codexSelection.modelId,
+  ) ?? codexModels.find((model) => model.isDefault) ?? codexModels[0];
+  const codexSummary = selectedCodexModel
+    ? [
+        selectedCodexModel.displayName,
+        selectedCodexModel.serviceTiers.find((tier) => tier.id === codexSelection.serviceTier)?.name ?? "Standard",
+        codexSelection.reasoningEffort ? `${displayEffort(codexSelection.reasoningEffort)} effort` : "Default effort",
+      ].join(" · ")
+    : "Choose a model, speed, and reasoning effort";
 
   return (
     <>
-      <SettingsHeading eyebrow="Inference" title="Models & credentials" description="Choose a model, connect Codex, or keep your own provider key in the operating-system credential vault." />
+      <SettingsHeading eyebrow="Inference" title="Models & credentials" description="Choose a generation source, use your system ChatGPT session, or keep your own provider key in the operating-system credential vault." />
       <section className="connection-card">
         <span className="connection-card__mark"><Sparkles aria-hidden="true" /></span>
-        <span><strong>Codex sign-in (adapter preview)</strong><small>{codex.state === "signed-in" ? `${codex.message} · generation routing is not enabled in this build.` : "The official sign-in bridge is available; use a BYOK provider for page generation today."}</small></span>
-        <button className="button" type="button" onClick={() => window.dispatchEvent(new Event("vibesurfer:open-codex"))}>{codex.state === "signed-in" ? "Connected" : "Check sign-in"}</button>
+        <span><strong>Codex (ChatGPT)</strong><small>{codex.state === "signed-in" ? `System ChatGPT session · ${codexSummary}` : "Use the ChatGPT session already available on this Mac."}</small></span>
+        <button className="button" type="button" onClick={() => window.dispatchEvent(new Event("vibesurfer:open-codex"))}>{codex.state === "signed-in" ? "Configure" : "Check sign-in"}</button>
       </section>
       <div className="runtime-strip" aria-label="Generation runtime status">
         <span className={runtime?.workerAvailable || !isTauri() ? "is-ready" : undefined} />
@@ -349,11 +361,11 @@ function ModelSettings() {
               type="button"
               disabled={!model.available}
               className={activeModelId === model.id ? "is-active" : ""}
-              onClick={() => model.requiresCodex && codex.state !== "signed-in" ? window.dispatchEvent(new Event("vibesurfer:open-codex")) : setModel(model.id)}
+              onClick={() => model.requiresCodex ? window.dispatchEvent(new Event("vibesurfer:open-codex")) : setModel(model.id)}
             >
               <span className="settings-model-list__icon">{model.group === "local" ? <MonitorCog aria-hidden="true" /> : <Sparkles aria-hidden="true" />}</span>
               <span><strong>{model.name}</strong><small>{model.provider} · {model.description}</small></span>
-              {!model.available ? <em>Not configured</em> : activeModelId === model.id ? <Check aria-hidden="true" /> : null}
+              {!model.available ? <em>Not configured</em> : activeModelId === model.id ? <Check aria-hidden="true" /> : model.requiresCodex ? <em>Configure</em> : null}
             </button>
           ))}
           {customModels.map(({ id, connection }) => (
@@ -584,6 +596,10 @@ function clampNumber(value: string, minimum: number, maximum: number): number {
 function displayModelId(modelId: string): string {
   const separator = modelId.indexOf(":");
   return separator >= 0 ? modelId.slice(separator + 1) : modelId;
+}
+
+function displayEffort(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 function safeHttpsUrl(value: string): boolean {

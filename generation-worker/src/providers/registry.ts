@@ -5,7 +5,9 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import type { ProviderV4 } from "@ai-sdk/provider";
 import { createProviderRegistry } from "ai";
 
+import type { ProviderReference } from "../domain.js";
 import type { ProviderCredentials, PublicConnectionStatus, PublicProviderConnection } from "../protocol/types.js";
+import { CodexModelExecutor } from "./codex.js";
 import { AiSdkModelExecutor, type ModelExecutor } from "./executor.js";
 import { DeterministicMockExecutor } from "./mock.js";
 
@@ -80,15 +82,24 @@ export class InMemoryProviderRegistry {
     }));
   }
 
-  resolve(connectionId: string, modelId: string, seed: string): ModelExecutor {
+  resolve(connectionId: string, referenceOrModel: string | ProviderReference, seed: string): ModelExecutor {
     const record = this.#connections.get(connectionId);
     if (!record) {
       throw new ProviderConfigurationError("The selected provider connection does not exist.");
     }
 
+    const reference = typeof referenceOrModel === "string"
+      ? { connectionId, modelId: referenceOrModel }
+      : referenceOrModel;
+    const modelId = reference.modelId;
     const apiKey = record.credentials?.apiKey;
     if (record.public.kind === "codex") {
-      throw new ProviderRouteRequiredError();
+      return new CodexModelExecutor({
+        providerId: connectionId,
+        modelId,
+        ...(reference.reasoningEffort ? { reasoningEffort: reference.reasoningEffort } : {}),
+        ...(reference.serviceTier ? { serviceTier: reference.serviceTier } : {}),
+      });
     }
     if (record.public.kind === "mock") {
       return new DeterministicMockExecutor({

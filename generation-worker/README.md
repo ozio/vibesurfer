@@ -32,7 +32,7 @@ The worker responds:
 {"type":"initialized","requestId":"init-1","protocolVersion":1,"workerVersion":"0.1.0","capabilities":{"modes":["quick","deep"],"providers":["mock","openai","anthropic","google","openai-compatible","codex"]}}
 ```
 
-`codex` is advertised only as a routing boundary. It is not treated as an OpenAI API provider. A Codex generation receives `provider-route-required`; the Rust host must route it through its separate Codex App Server adapter.
+`codex` is not treated as an OpenAI API-key provider. The Rust host authenticates and canonicalizes the request, then starts the worker with a host-owned absolute Codex executable path. The worker runs schema-constrained stages through that system session with user config/rules, tools, network access, and persistence disabled.
 
 ### Generate
 
@@ -123,7 +123,7 @@ Input continues to be read while model work is in flight. Cancellation aborts th
 {"type":"provider.verify","requestId":"verify-1","provider":{"id":"anthropic-personal","kind":"anthropic","modelId":"MODEL_ID"},"credential":"IN_MEMORY_ONLY"}
 ```
 
-The terminal response is `provider.verified` or `provider.failed`. Real providers receive one tiny schema-constrained request with a 25-second timeout. Mock verification is local. Codex returns `provider-route-required` so it can be verified by the host-owned App Server path.
+The terminal response is `provider.verified` or `provider.failed`. API-key providers receive one tiny schema-constrained request with a 25-second timeout, and mock verification is local. Codex account/catalog compatibility is verified by the Rust host rather than this credentialed command.
 
 The worker also supports versioned `provider.upsert`, `provider.remove`, `provider.list`, `ping`, and `shutdown` messages for a future shared-process host. Their credentials use the same memory-only rules.
 

@@ -99,7 +99,7 @@ describe("Rust host JSONL compatibility", () => {
     await runtime.close();
   });
 
-  it("returns provider-route-required for Codex and never echoes inline credentials", async () => {
+  it("uses the system Codex route without ever echoing inline credentials", async () => {
     const secret = "credential-that-must-never-appear";
     const outputs: Output[] = [];
     const terminal = terminalPromise(outputs, "generation.failed");
@@ -107,7 +107,7 @@ describe("Rust host JSONL compatibility", () => {
     await runtime.handleLine(JSON.stringify(hostGenerate({ jobId: "codex-job", kind: "codex", credential: secret })));
     await terminal.promise;
     expect(outputs.find((output) => output.type === "generation.failed")).toMatchObject({
-      error: { code: "provider-route-required", retryable: false },
+      error: { code: "provider-unavailable", retryable: true },
     });
     expect(JSON.stringify(outputs)).not.toContain(secret);
     await runtime.close();
