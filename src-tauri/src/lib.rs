@@ -3,7 +3,12 @@ mod secrets;
 mod storage;
 mod worker;
 
-use std::{process::Command, sync::Arc};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+    sync::Arc,
+};
 
 use protocol::{
     ArtifactRecord, GenerationStartRequest, GenerationStartResult, ProviderConnectionRecord,
@@ -23,13 +28,33 @@ struct AppRuntime {
     worker: WorkerManager,
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CodexAuthStatus {
     available: bool,
     healthy: bool,
     authenticated: bool,
     message: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CodexProbeState {
+    Authenticated,
+    SignedOut,
+    Unhealthy,
+    Unavailable,
+}
+
+#[derive(Debug)]
+struct CodexProbe {
+    state: CodexProbeState,
+    message: String,
+}
+
+#[derive(Debug)]
+struct CodexDiscovery {
+    status: CodexAuthStatus,
+    program: Option<PathBuf>,
 }
 
 #[derive(Serialize)]
@@ -117,35 +142,181 @@ fn delete_secret_before_provider_record(
     }
 }
 
-#[tauri::command]
-fn codex_auth_status() -> CodexAuthStatus {
-    match Command::new("codex").args(["login", "status"]).output() {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-            let message = if stdout.is_empty() { stderr } else { stdout };
-            let healthy =
-                output.status.success() || message.to_lowercase().contains("not logged in");
+fn push_unique_codex_candidate(candidates: &mut Vec<PathBuf>, candidate: PathBuf) {
+    if !candidates.iter().any(|existing| existing == &candidate) {
+        candidates.push(candidate);
+    }
+}
 
-            CodexAuthStatus {
-                available: true,
-                healthy,
-                authenticated: output.status.success(),
-                message,
+fn codex_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+
+    if let Some(program) = env::var_os("VIBESURFER_CODEX_PATH").filter(|value| !value.is_empty()) {
+        push_unique_codex_candidate(&mut candidates, PathBuf::from(program));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = env::var_os("HOME") {
+            let program =
+                PathBuf::from(home).join("Applications/ChatGPT.app/Contents/Resources/codex");
+            if program.is_file() {
+                push_unique_codex_candidate(&mut candidates, program);
             }
         }
-        Err(error) => CodexAuthStatus {
-            available: false,
-            healthy: false,
-            authenticated: false,
-            message: format!("Codex CLI is unavailable: {error}"),
+
+        let program = PathBuf::from("/Applications/ChatGPT.app/Contents/Resources/codex");
+        if program.is_file() {
+            push_unique_codex_candidate(&mut candidates, program);
+        }
+    }
+
+    push_unique_codex_candidate(&mut candidates, PathBuf::from("codex"));
+    candidates
+}
+
+fn codex_output_message(output: &std::process::Output) -> String {
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    if stdout.is_empty() {
+        stderr
+    } else {
+        stdout
+    }
+}
+
+fn probe_codex(program: &Path) -> CodexProbe {
+    match Command::new(program).args(["login", "status"]).output() {
+        Ok(output) => {
+            let message = codex_output_message(&output);
+            if output.status.success() {
+                CodexProbe {
+                    state: CodexProbeState::Authenticated,
+                    message: if message.is_empty() {
+                        "Logged in using Codex".into()
+                    } else {
+                        message
+                    },
+                }
+            } else if message.to_lowercase().contains("not logged in") {
+                CodexProbe {
+                    state: CodexProbeState::SignedOut,
+                    message,
+                }
+            } else {
+                CodexProbe {
+                    state: CodexProbeState::Unhealthy,
+                    message: if message.is_empty() {
+                        "Codex login status failed without an error message.".into()
+                    } else {
+                        message
+                    },
+                }
+            }
+        }
+        Err(error) => CodexProbe {
+            state: CodexProbeState::Unavailable,
+            message: error.to_string(),
         },
     }
 }
 
+fn discover_codex_with(
+    candidates: Vec<PathBuf>,
+    mut probe: impl FnMut(&Path) -> CodexProbe,
+) -> CodexDiscovery {
+    let mut signed_out = None;
+    let mut unhealthy = Vec::new();
+    let mut unavailable = Vec::new();
+
+    for program in candidates {
+        let result = probe(&program);
+        match result.state {
+            CodexProbeState::Authenticated => {
+                return CodexDiscovery {
+                    status: CodexAuthStatus {
+                        available: true,
+                        healthy: true,
+                        authenticated: true,
+                        message: result.message,
+                    },
+                    program: Some(program),
+                };
+            }
+            CodexProbeState::SignedOut => {
+                if signed_out.is_none() {
+                    signed_out = Some((program, result.message));
+                }
+            }
+            CodexProbeState::Unhealthy => {
+                unhealthy.push(format!("{}: {}", program.display(), result.message));
+            }
+            CodexProbeState::Unavailable => {
+                unavailable.push(format!("{}: {}", program.display(), result.message));
+            }
+        }
+    }
+
+    if let Some((program, message)) = signed_out {
+        return CodexDiscovery {
+            status: CodexAuthStatus {
+                available: true,
+                healthy: true,
+                authenticated: false,
+                message,
+            },
+            program: Some(program),
+        };
+    }
+
+    if let Some(message) = unhealthy.into_iter().next() {
+        return CodexDiscovery {
+            status: CodexAuthStatus {
+                available: true,
+                healthy: false,
+                authenticated: false,
+                message: format!(
+                    "No compatible Codex CLI could read the system session. {message}"
+                ),
+            },
+            program: None,
+        };
+    }
+
+    let detail = unavailable
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "no Codex CLI candidates were found".into());
+    CodexDiscovery {
+        status: CodexAuthStatus {
+            available: false,
+            healthy: false,
+            authenticated: false,
+            message: format!("Codex CLI is unavailable: {detail}"),
+        },
+        program: None,
+    }
+}
+
+fn discover_codex() -> CodexDiscovery {
+    discover_codex_with(codex_candidates(), probe_codex)
+}
+
+#[tauri::command]
+fn codex_auth_status() -> CodexAuthStatus {
+    discover_codex().status
+}
+
 #[tauri::command]
 fn start_codex_login() -> Result<(), String> {
-    Command::new("codex")
+    let discovery = discover_codex();
+    let program = discovery
+        .program
+        .ok_or_else(|| discovery.status.message.clone())?;
+    if discovery.status.authenticated {
+        return Ok(());
+    }
+    Command::new(program)
         .arg("login")
         .spawn()
         .map(|_| ())
@@ -509,9 +680,10 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        delete_secret_before_provider_record, provider_connection_id, provider_for_worker,
-        ProviderConnectionRecord,
+        delete_secret_before_provider_record, discover_codex_with, provider_connection_id,
+        provider_for_worker, CodexProbe, CodexProbeState, ProviderConnectionRecord,
     };
+    use std::path::{Path, PathBuf};
 
     fn provider_record() -> ProviderConnectionRecord {
         ProviderConnectionRecord {
@@ -595,5 +767,91 @@ mod tests {
         )
         .unwrap();
         assert_eq!(*order.borrow(), ["secret", "provider"]);
+    }
+
+    #[test]
+    fn codex_discovery_skips_incompatible_cli_for_authenticated_runtime() {
+        let discovery = discover_codex_with(
+            vec![PathBuf::from("old-codex"), PathBuf::from("chatgpt-codex")],
+            |program: &Path| {
+                if program == Path::new("old-codex") {
+                    CodexProbe {
+                        state: CodexProbeState::Unhealthy,
+                        message: "unknown variant `ultra`".into(),
+                    }
+                } else {
+                    CodexProbe {
+                        state: CodexProbeState::Authenticated,
+                        message: "Logged in using ChatGPT".into(),
+                    }
+                }
+            },
+        );
+
+        assert!(discovery.status.available);
+        assert!(discovery.status.healthy);
+        assert!(discovery.status.authenticated);
+        assert_eq!(discovery.program, Some(PathBuf::from("chatgpt-codex")));
+        assert_eq!(discovery.status.message, "Logged in using ChatGPT");
+    }
+
+    #[test]
+    fn codex_discovery_prefers_any_authenticated_runtime_over_signed_out_fallback() {
+        let discovery = discover_codex_with(
+            vec![PathBuf::from("signed-out"), PathBuf::from("signed-in")],
+            |program: &Path| CodexProbe {
+                state: if program == Path::new("signed-in") {
+                    CodexProbeState::Authenticated
+                } else {
+                    CodexProbeState::SignedOut
+                },
+                message: if program == Path::new("signed-in") {
+                    "Logged in using ChatGPT".into()
+                } else {
+                    "Not logged in".into()
+                },
+            },
+        );
+
+        assert!(discovery.status.authenticated);
+        assert_eq!(discovery.program, Some(PathBuf::from("signed-in")));
+    }
+
+    #[test]
+    fn codex_discovery_keeps_first_healthy_signed_out_runtime_for_login() {
+        let discovery = discover_codex_with(
+            vec![PathBuf::from("first"), PathBuf::from("broken")],
+            |program: &Path| CodexProbe {
+                state: if program == Path::new("first") {
+                    CodexProbeState::SignedOut
+                } else {
+                    CodexProbeState::Unhealthy
+                },
+                message: if program == Path::new("first") {
+                    "Not logged in".into()
+                } else {
+                    "configuration error".into()
+                },
+            },
+        );
+
+        assert!(discovery.status.available);
+        assert!(discovery.status.healthy);
+        assert!(!discovery.status.authenticated);
+        assert_eq!(discovery.program, Some(PathBuf::from("first")));
+    }
+
+    #[test]
+    fn codex_discovery_reports_incompatible_runtime_without_enabling_login() {
+        let discovery = discover_codex_with(vec![PathBuf::from("broken")], |_| CodexProbe {
+            state: CodexProbeState::Unhealthy,
+            message: "configuration error".into(),
+        });
+
+        assert!(discovery.status.available);
+        assert!(!discovery.status.healthy);
+        assert!(!discovery.status.authenticated);
+        assert!(discovery.program.is_none());
+        assert!(discovery.status.message.contains("configuration error"));
     }
 }

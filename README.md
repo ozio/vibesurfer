@@ -82,7 +82,7 @@ If a normal API provider has no credential, generation fails with `provider-not-
 
 ### Codex App Server boundary
 
-The existing Codex sign-in bridge can report account status and start the official `codex login` flow. It does **not** route page generation through a Codex account yet. `codex` is deliberately not treated as an OpenAI API key provider: the worker returns `provider-route-required`, and the Rust host must eventually send that job through a dedicated Codex App Server adapter. Use mock or a BYOK provider for generation in this build.
+The existing Codex sign-in bridge can reuse an authenticated system Codex session, report account status, and start the official `codex login` flow. On macOS it probes a compatible CLI bundled with ChatGPT before falling back to `codex` on `PATH`, so an obsolete global CLI cannot hide a valid ChatGPT session. `VIBESURFER_CODEX_PATH` can explicitly name another CLI. It does **not** route page generation through a Codex account yet. `codex` is deliberately not treated as an OpenAI API key provider: the worker returns `provider-route-required`, and the Rust host must eventually send that job through a dedicated Codex App Server adapter. Use mock or a BYOK provider for generation in this build.
 
 ## Page compilation
 
