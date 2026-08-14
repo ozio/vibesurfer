@@ -13,7 +13,9 @@ function hostGenerate(options: { jobId: string; kind?: string; latencyMs?: numbe
     jobId: options.jobId,
     request: {
       url: "https://example.com/",
-      mode: "quick",
+      profileId: "personal",
+      siteWorldId: `site-${options.jobId}`,
+      worldPromptSnapshot: { revision: 2, prompt: "A coherent test world." },
       provider: {
         id: options.kind ?? "mock",
         kind: options.kind ?? "mock",
@@ -23,9 +25,7 @@ function hostGenerate(options: { jobId: string; kind?: string; latencyMs?: numbe
       settings: {
         style: { tailwindEnabled: false, tailwindVersion: "4.3.3" },
         images: { enabled: false, provider: "off", safeContent: true, allowExternalRequests: false },
-        maxRequests: 4,
         maxOutputTokens: 20_000,
-        autoRepair: true,
       },
       navigationIntent: {
         trigger: "address-bar",
@@ -53,15 +53,35 @@ function terminalPromise(outputs: Output[], terminalType: string) {
 }
 
 describe("Rust host JSONL compatibility", () => {
-  it("normalizes prompt concepts and clamps Deep request budgets", () => {
+  it("normalizes profile, SiteWorld, prompt snapshot, and prompt concepts", () => {
     const input = hostGenerate({ jobId: "concept-job" }) as HostGenerateCommand;
-    input.request.mode = "deep";
     input.request.conceptPrompt = "A calm research space";
-    (input.request.settings as Record<string, unknown>).maxRequests = 8;
     const normalized = normalizeHostGeneration(input).command;
-    expect(normalized.mode).toBe("deep");
-    expect(normalized.settings.maxRequests).toBe(4);
+    expect(normalized.profileId).toBe("personal");
+    expect(normalized.siteWorldId).toBe("site-concept-job");
+    expect(normalized.worldPromptSnapshot).toEqual({ revision: 2, prompt: "A coherent test world." });
     expect(normalized.context.navigationIntent.anchorText).toBe("A calm research space");
+  });
+
+  it("defaults enabled host image settings to the LoremFlickr resolver", () => {
+    const input = hostGenerate({ jobId: "image-default-job" }) as HostGenerateCommand;
+    delete (input.request.settings as Record<string, unknown>).images;
+    const normalized = normalizeHostGeneration(input).command;
+    expect(normalized.settings.images).toEqual({
+      mode: "tag-placeholder",
+      fetchExternal: true,
+      safeContent: true,
+    });
+  });
+
+  it("keeps generated JavaScript disabled unless the host style setting opts in", () => {
+    const disabled = normalizeHostGeneration(hostGenerate({ jobId: "scripts-disabled" }) as HostGenerateCommand).command;
+    const enabledInput = hostGenerate({ jobId: "scripts-enabled" }) as HostGenerateCommand;
+    ((enabledInput.request.settings as Record<string, unknown>).style as Record<string, unknown>).allowGeneratedScripts = true;
+    const enabled = normalizeHostGeneration(enabledInput).command;
+
+    expect(disabled.settings.allowGeneratedScripts).toBe(false);
+    expect(enabled.settings.allowGeneratedScripts).toBe(true);
   });
 
   it("accepts initialize and nested generate, then emits host-shaped terminal events", async () => {
@@ -74,13 +94,21 @@ describe("Rust host JSONL compatibility", () => {
       protocolVersion: 1,
       client: { name: "vibesurfer", version: "0.1.0" },
     }));
-    await runtime.handleLine(JSON.stringify(hostGenerate({ jobId: "quick-job" })));
+    await runtime.handleLine(JSON.stringify(hostGenerate({ jobId: "directed-job" })));
     await terminal.promise;
 
     expect(outputs[0]).toMatchObject({ type: "initialized", protocolVersion: 1 });
-    expect(outputs.some((output) => output.type === "generation.started" && output.jobId === "quick-job")).toBe(true);
+    expect(outputs.some((output) => output.type === "generation.started" && output.jobId === "directed-job")).toBe(true);
+    const previewIndex = outputs.findIndex((output) => output.type === "generation.preview");
+    const completedIndex = outputs.findIndex((output) => output.type === "generation.completed");
+    expect(previewIndex).toBeGreaterThan(outputs.findIndex((output) => output.type === "generation.started"));
+    expect(previewIndex).toBeLessThan(completedIndex);
+    expect(outputs[previewIndex]).toMatchObject({
+      jobId: "directed-job",
+      html: expect.stringContaining("<!doctype html>"),
+    });
     const completed = outputs.find((output) => output.type === "generation.completed");
-    expect(completed).toMatchObject({ jobId: "quick-job", artifact: { siteId: expect.any(String), payload: expect.any(Object) } });
+    expect(completed).toMatchObject({ jobId: "directed-job", artifact: { siteId: "site-directed-job", payload: expect.any(Object), modelExchanges: [{ purpose: "page-director" }, { purpose: "page-builder" }] } });
     expect(outputs.filter((output) => typeof output.sequence === "number").map((output) => output.sequence)).toEqual(
       [...outputs.filter((output) => typeof output.sequence === "number").keys()].map((index) => index + 1),
     );

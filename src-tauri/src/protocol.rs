@@ -45,8 +45,11 @@ pub struct SiteWorldRecord {
     pub id: String,
     pub profile_id: String,
     pub origin: String,
+    pub state: String,
     pub revision: i64,
+    pub created_at: String,
     pub updated_at: String,
+    pub archived_at: Option<String>,
     pub payload: Value,
 }
 

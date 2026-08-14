@@ -8,9 +8,12 @@
   const MAX_PAGE_URL_LENGTH = 4_096;
   const MAX_RENDER_MESSAGE_BYTES = 4 * 1024 * 1024;
   const MAX_RENDER_HTML_LENGTH = MAX_RENDER_MESSAGE_BYTES;
+  const MAX_GENERATED_SCRIPT_COUNT = 16;
+  const MAX_GENERATED_SCRIPT_LENGTH = 256 * 1024;
+  const GENERATED_SCRIPT_NONCE = "dmliaWVzdXJmZXItYXJ0aWZhY3Q";
   const BOOTSTRAP_INTERVAL_MS = 150;
   const MAX_BOOTSTRAP_ATTEMPTS = 32;
-  const BLOCKED_ELEMENTS = "script,base,object,embed,iframe,frame,frameset,applet,portal,template,foreignObject,link,meta[http-equiv]";
+  const BLOCKED_ELEMENTS = "base,object,embed,iframe,frame,frameset,applet,portal,template,foreignObject,link,meta[http-equiv]";
   const URL_ATTRIBUTES = new Set(["href", "src", "action", "poster", "cite", "background"]);
   const REMOVED_ATTRIBUTES = new Set([
     "srcdoc", "ping", "download", "formaction", "formtarget", "nonce", "integrity",
@@ -49,8 +52,36 @@
     return /^data:(?:image\/(?:avif|gif|jpeg|jpg|png|svg\+xml|webp)|audio\/(?:mpeg|ogg|wav)|video\/(?:mp4|webm));/i.test(value);
   };
 
-  const sanitizeIncomingDocument = (incoming, baseUrl) => {
+  const safeImageAsset = (value) => {
+    if (safeEmbeddedAsset(value)) return true;
+    try {
+      const url = new URL(value);
+      const hostname = url.hostname.toLowerCase();
+      return url.protocol === "https:" && !url.username && !url.password
+        && (!url.port || url.port === "443")
+        && (hostname === "loremflickr.com" || hostname === "www.loremflickr.com"
+          || hostname === "staticflickr.com" || hostname.endsWith(".staticflickr.com"));
+    } catch {
+      return false;
+    }
+  };
+
+  const sanitizeIncomingDocument = (incoming, baseUrl, allowGeneratedScripts) => {
     for (const element of incoming.querySelectorAll(BLOCKED_ELEMENTS)) element.remove();
+    const scripts = [];
+    let scriptLength = 0;
+    for (const script of incoming.querySelectorAll("script")) {
+      const type = (script.getAttribute("type") || "").trim().toLowerCase();
+      const classicScript = !type || type === "text/javascript" || type === "application/javascript";
+      const source = script.textContent || "";
+      if (allowGeneratedScripts && !script.hasAttribute("src") && classicScript
+          && scripts.length < MAX_GENERATED_SCRIPT_COUNT
+          && scriptLength + source.length <= MAX_GENERATED_SCRIPT_LENGTH) {
+        scripts.push(source);
+        scriptLength += source.length;
+      }
+      script.remove();
+    }
     for (const style of incoming.querySelectorAll("style")) {
       style.textContent = sanitizeCss(style.textContent);
     }
@@ -82,15 +113,20 @@
           else element.removeAttribute(attribute.name);
           continue;
         }
+        if (element instanceof HTMLImageElement && safeImageAsset(value)) continue;
         if (!safeEmbeddedAsset(value)) element.removeAttribute(attribute.name);
       }
       if (element instanceof HTMLAnchorElement || element instanceof HTMLAreaElement) {
-        element.rel = "noopener noreferrer";
+        const rel = new Set(element.rel.toLowerCase().split(/\s+/).filter(Boolean));
+        rel.add("noopener");
+        rel.add("noreferrer");
+        element.rel = [...rel].filter((token) => ["license", "noopener", "noreferrer"].includes(token)).join(" ");
         const target = element.getAttribute("target");
         if (target && target !== "_blank" && target !== "_self") element.removeAttribute("target");
       }
       if (element instanceof HTMLFormElement) element.removeAttribute("target");
     }
+    return scripts;
   };
 
   const config = new URLSearchParams(location.hash.slice(1));
@@ -99,6 +135,14 @@
   let pageUrl = "https://artifact.invalid/";
   if (!artifactId || artifactId.length > MAX_ARTIFACT_ID_LENGTH) return;
   if (!nonce || nonce.length > MAX_NONCE_LENGTH || !/^[A-Za-z0-9_-]+$/.test(nonce)) return;
+  // The opaque frame needs the bridge identity only during trusted bootstrap.
+  // Remove it from the visible URL before any generated script can execute.
+  try {
+    history.replaceState(null, "", `${location.pathname}${location.search}`);
+  } catch {
+    // Sandboxed WebViews may reject history mutation; the bridge still keeps
+    // strict source, identity, and private-port validation as a fallback.
+  }
   const instanceBytes = new Uint8Array(18);
   crypto.getRandomValues(instanceBytes);
   let instanceBinary = "";
@@ -184,6 +228,23 @@
     });
   };
 
+  let hoveredHref = "";
+  const reportLinkHover = (target) => {
+    const anchor = target instanceof Element ? target.closest("a[href], area[href]") : null;
+    const resolved = anchor instanceof HTMLAnchorElement || anchor instanceof HTMLAreaElement
+      ? safeUrl(anchor.getAttribute("href"), pageUrl)
+      : null;
+    const href = resolved ? resolved.href : "";
+    if (href === hoveredHref) return;
+    hoveredHref = href;
+    send("link-hover", href ? { href } : {});
+  };
+
+  document.addEventListener("pointerover", (event) => reportLinkHover(event.target), true);
+  document.addEventListener("pointerout", (event) => reportLinkHover(event.relatedTarget), true);
+  document.addEventListener("focusin", (event) => reportLinkHover(event.target), true);
+  document.addEventListener("focusout", (event) => reportLinkHover(event.relatedTarget), true);
+
   const submitForm = (event, form, submitter = null) => {
     event.preventDefault();
     event.stopPropagation();
@@ -233,7 +294,34 @@
     if (anchor instanceof HTMLAnchorElement || anchor instanceof HTMLAreaElement) navigateAnchor(event, anchor);
   }, true);
 
+  document.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const payload = { x: event.clientX, y: event.clientY };
+    if (event.target instanceof Element) {
+      const anchor = event.target.closest("a[href], area[href]");
+      if (anchor instanceof HTMLAnchorElement || anchor instanceof HTMLAreaElement) {
+        const href = safeUrl(anchor.getAttribute("href"), pageUrl);
+        if (href) {
+          Object.assign(payload, {
+            href: href.href,
+            linkText: compact(anchor.textContent, 512),
+            ariaLabel: compact(anchor.getAttribute("aria-label"), 512),
+            context: contextFor(anchor),
+          });
+        }
+      }
+    }
+    send("context-menu", payload);
+  }, true);
+
   document.addEventListener("keydown", (event) => {
+    if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key === ",") {
+      event.preventDefault();
+      event.stopPropagation();
+      send("browser-command", { command: "open-settings" });
+      return;
+    }
     if (event.key !== "Enter" || event.isComposing || !(event.target instanceof HTMLElement)) return;
     if (event.target instanceof HTMLTextAreaElement || event.target.isContentEditable) return;
     if (!(event.target instanceof HTMLInputElement)
@@ -266,14 +354,24 @@
     }
   };
 
+  const executeGeneratedScripts = (sources) => {
+    for (const source of sources) {
+      const script = document.createElement("script");
+      script.setAttribute("nonce", GENERATED_SCRIPT_NONCE);
+      script.textContent = source;
+      document.body.append(script);
+      script.remove();
+    }
+  };
+
   const renderArtifact = (message) => {
-    if (rendered) return;
     if (!message || typeof message !== "object"
         || message.protocol !== PROTOCOL || message.version !== VERSION || message.type !== "render"
         || message.artifactId !== artifactId || message.nonce !== nonce
         || typeof message.pageUrl !== "string" || message.pageUrl.length > MAX_PAGE_URL_LENGTH
         || typeof message.title !== "string" || !message.title || message.title.length > 512
         || typeof message.html !== "string" || message.html.length > MAX_RENDER_HTML_LENGTH
+        || (message.executeScripts !== undefined && typeof message.executeScripts !== "boolean")
         || estimateBytes(message) > MAX_RENDER_MESSAGE_BYTES) {
       reportError("The artifact render payload was rejected.");
       return;
@@ -285,14 +383,18 @@
     }
 
     let incoming;
+    let generatedScripts;
     try {
       incoming = new DOMParser().parseFromString(message.html, "text/html");
-      sanitizeIncomingDocument(incoming, nextPageUrl.href);
+      generatedScripts = sanitizeIncomingDocument(incoming, nextPageUrl.href, message.executeScripts === true);
     } catch {
       reportError("The artifact document could not be parsed.");
       return;
     }
 
+    const scrollingElement = document.scrollingElement || document.documentElement;
+    const previousScrollLeft = rendered ? scrollingElement.scrollLeft : 0;
+    const previousScrollTop = rendered ? scrollingElement.scrollTop : 0;
     const headStyles = Array.from(incoming.head.querySelectorAll("style"), (style) => style.textContent || "");
     for (const oldStyle of document.head.querySelectorAll("style[data-vibesurfer-artifact-style]")) oldStyle.remove();
     for (const css of headStyles) {
@@ -308,10 +410,16 @@
     const fragment = document.createDocumentFragment();
     for (const child of Array.from(incoming.body.childNodes)) fragment.append(document.importNode(child, true));
     document.body.replaceChildren(fragment);
+    hoveredHref = "";
     pageUrl = nextPageUrl.href;
-    document.title = compact(message.title, 512) || "Generated artifact";
+    document.title = compact(message.title, 512) || "Untitled page";
+    if (message.executeScripts === true) executeGeneratedScripts(generatedScripts);
+    scrollingElement.scrollLeft = previousScrollLeft;
+    scrollingElement.scrollTop = previousScrollTop;
+    const wasRendered = rendered;
     rendered = true;
-    send("ready", { title: document.title });
+    if (!wasRendered) send("ready", { title: document.title });
+    else send("link-hover");
   };
 
   const acceptPort = (event) => {

@@ -1,10 +1,11 @@
-import { lazy, Suspense, useEffect, useMemo } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { modelCatalog, PROFILES } from "../data/catalog";
-import { detectPlatform, isTauri } from "../lib/platform";
+import { detectPlatform, isTauri, syncNativeWindowTheme } from "../lib/platform";
 import { useGenerationRuntime } from "../generation/use-generation-runtime";
 import { useBrowserStore } from "../store/browser-store";
 import { NavigationBar } from "../components/chrome/NavigationBar";
+import { BrowserStatusBar } from "../components/chrome/BrowserStatusBar";
 import { ClassicMenuBar, ClassicTabBar } from "../components/chrome/ClassicChrome";
 import { TabStrip } from "../components/chrome/TabStrip";
 import { TitleBar } from "../components/chrome/TitleBar";
@@ -28,15 +29,23 @@ export function BrowserApp() {
   const activateTab = useBrowserStore((state) => state.activateTab);
   const reload = useBrowserStore((state) => state.reload);
   const openSettings = useBrowserStore((state) => state.openSettings);
+  const openHistory = useBrowserStore((state) => state.openHistory);
+  const artifacts = useBrowserStore((state) => state.artifacts);
+  const generationJobs = useBrowserStore((state) => state.generationJobs);
   const navigate = useNavigate();
   const location = useLocation();
   const platform = useMemo(detectPlatform, []);
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const models = useMemo(() => modelCatalog(providerConnections, activeProfileId), [activeProfileId, providerConnections]);
   const model = models.find((item) => item.id === activeModelId) ?? models[0];
-  const artifactModel = models.find((item) => item.id === activeTab?.generatedWith)?.name;
   const profile = PROFILES.find((item) => item.id === activeProfileId) ?? PROFILES[0];
   const isClassicInternetExplorer = preferences.theme === "ie-classic";
+  const [hoveredLink, setHoveredLink] = useState<string>();
+  const activeArtifactId = activeTab?.artifactId ?? activeTab?.fallbackArtifactId;
+  const activeArtifact = activeArtifactId ? artifacts[activeArtifactId] : undefined;
+  const activeJob = activeTab?.generationJobId ? generationJobs[activeTab.generationJobId] : undefined;
+
+  useEffect(() => setHoveredLink(undefined), [activeTabId]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -50,6 +59,12 @@ export function BrowserApp() {
   }, [platform, preferences]);
 
   useEffect(() => {
+    void syncNativeWindowTheme(preferences.theme).catch((error: unknown) => {
+      console.warn("Could not apply the native window shape", error);
+    });
+  }, [preferences.theme]);
+
+  useEffect(() => {
     if (!activeTab) return;
     if (activeTab.kind === "settings") {
       const section = activeTab.location.split("/").pop() || "appearance";
@@ -59,6 +74,23 @@ export function BrowserApp() {
       navigate("/", { replace: true });
     }
   }, [activeTab, location.pathname, navigate]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const usePointerModality = () => {
+      root.dataset.inputModality = "pointer";
+    };
+    const useKeyboardModality = () => {
+      root.dataset.inputModality = "keyboard";
+    };
+    window.addEventListener("pointerdown", usePointerModality, true);
+    window.addEventListener("keydown", useKeyboardModality, true);
+    return () => {
+      window.removeEventListener("pointerdown", usePointerModality, true);
+      window.removeEventListener("keydown", useKeyboardModality, true);
+      delete root.dataset.inputModality;
+    };
+  }, []);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -79,7 +111,10 @@ export function BrowserApp() {
         reload(activeTabId);
       } else if (key === ",") {
         event.preventDefault();
-        openSettings("appearance");
+        openSettings("general");
+      } else if (key === "y") {
+        event.preventDefault();
+        openHistory();
       } else if (key === "tab") {
         event.preventDefault();
         const index = tabs.findIndex((tab) => tab.id === activeTabId);
@@ -89,7 +124,7 @@ export function BrowserApp() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activateTab, activeTabId, addTab, closeTab, openSettings, platform, reload, tabs]);
+  }, [activateTab, activeTabId, addTab, closeTab, openHistory, openSettings, platform, reload, tabs]);
 
   if (!activeTab) return null;
 
@@ -107,24 +142,19 @@ export function BrowserApp() {
         {preferences.tabLayout === "vertical" && <VerticalSidebar />}
         <div className="content-viewport">
           <Routes>
-            <Route path="/" element={activeTab.kind === "settings" ? <SettingsSurface /> : <PageSurface tab={activeTab} />} />
+            <Route path="/" element={activeTab.kind === "settings" ? <SettingsSurface /> : <PageSurface tab={activeTab} onLinkHover={setHoveredLink} />} />
             <Route path="/settings/:section?" element={<SettingsSurface />} />
           </Routes>
         </div>
       </div>
-      <footer className="browser-statusbar">
-        <div className="browser-statusbar__modern">
-          <span><i className="status-orb" /> {profile.name}</span>
-          <span>{activeTab.kind === "remote" ? "Live site opens externally" : activeTab.kind === "generated" ? `Generated with ${artifactModel ?? model.name}` : "Browser UI"}</span>
-          <span>{model.name}</span>
-        </div>
-        <div className="browser-statusbar__classic" aria-hidden="true">
-          <span><i className="classic-status-icon">e</i>Done</span>
-          <span className="classic-status-zone"><i className="classic-status-globe" />Internet</span>
-          <span className="classic-status-zoom">⌕&nbsp; 100%</span>
-          <i className="classic-resize-grip" />
-        </div>
-      </footer>
+      <BrowserStatusBar
+        location={activeTab.kind === "settings" ? "Settings" : activeTab.location}
+        hoveredLink={hoveredLink}
+        profileName={profile.name}
+        modelName={model.name}
+        artifact={activeArtifact}
+        activeUsage={activeJob?.usage}
+      />
     </div>
   );
 }

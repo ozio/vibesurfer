@@ -68,3 +68,20 @@ test("unsafe and credential-bearing schemes are never treated as navigable URLs"
   assert.equal(target.kind, "generated");
   assert.match(target.location, /^vibe:\/\/generated\//);
 });
+
+test("repairs quote escaping wrapped around generated navigation URLs", () => {
+  assert.equal(
+    normalizeVirtualUrl(String.raw`https://wildberries.ru/%22/catalog/0/detail.aspx?cardId=845121\%22`)?.url,
+    "https://wildberries.ru/catalog/0/detail.aspx?cardId=845121",
+  );
+  assert.equal(
+    resolveNavigation(String.raw`\"/catalog/0/detail.aspx?cardId=845121\"`, "codex:auto", {
+      baseUrl: "https://wildberries.ru/search",
+    }).location,
+    "https://wildberries.ru/catalog/0/detail.aspx?cardId=845121",
+  );
+  assert.equal(
+    normalizeVirtualUrl("https://example.com/search?q=%22sale%22")?.url,
+    "https://example.com/search?q=%22sale%22",
+  );
+});

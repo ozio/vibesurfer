@@ -8,6 +8,9 @@ import { z } from "zod";
 import {
   CodexModelExecutor,
   codexExecutableFromEnvironment,
+  extractPartialJsonStringField,
+  normalizeCodexOutputSchema,
+  stripCodexOptionalNulls,
 } from "../src/providers/codex.js";
 
 interface FakeCodex {
@@ -22,21 +25,28 @@ async function createFakeCodex(mode: "success" | "hang"): Promise<FakeCodex> {
   const invocationPath = join(root, "invocation.json");
   const source = `#!${process.execPath}
 const fs = require("node:fs");
+const readline = require("node:readline");
 const args = process.argv.slice(2);
-let input = "";
-process.stdin.setEncoding("utf8");
-process.stdin.on("data", (chunk) => { input += chunk; });
-process.stdin.on("end", () => {
-  const schemaIndex = args.indexOf("--output-schema");
-  const instructionsArg = args.find((arg) => arg.startsWith("model_instructions_file="));
-  const instructionsPath = JSON.parse(instructionsArg.slice("model_instructions_file=".length));
+const requests = [];
+const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+const lines = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+lines.on("line", (line) => {
+  const message = JSON.parse(line);
+  requests.push(message);
+  if (message.method === "initialize") {
+    send({ id: message.id, result: { userAgent: "fake" } });
+    return;
+  }
+  if (message.method === "thread/start") {
+    send({ id: message.id, result: { thread: { id: "thread-1" } } });
+    return;
+  }
+  if (message.method !== "turn/start") return;
   fs.writeFileSync(${JSON.stringify(invocationPath)}, JSON.stringify({
     args,
     cwd: process.cwd(),
     workspaceEntries: fs.readdirSync(process.cwd()),
-    schema: JSON.parse(fs.readFileSync(args[schemaIndex + 1], "utf8")),
-    instructions: fs.readFileSync(instructionsPath, "utf8"),
-    input,
+    requests,
     env: {
       HOME: process.env.HOME,
       CODEX_HOME: process.env.CODEX_HOME,
@@ -44,18 +54,30 @@ process.stdin.on("end", () => {
       PATH: process.env.PATH,
     },
   }));
+  send({ id: message.id, result: { turn: { id: "turn-1" } } });
   if (${JSON.stringify(mode)} === "hang") {
     setInterval(() => undefined, 1000);
     return;
   }
-  process.stdout.write(JSON.stringify({
-    type: "item.completed",
-    item: { type: "agent_message", text: JSON.stringify({ ok: true }) },
-  }) + "\\n");
-  process.stdout.write(JSON.stringify({
-    type: "turn.completed",
-    usage: { input_tokens: 11, output_tokens: 7, total_tokens: 18 },
-  }) + "\\n");
+  const output = JSON.stringify({ ok: true });
+  send({ method: "item/agentMessage/delta", params: {
+    threadId: "thread-1", turnId: "turn-1", itemId: "item-1", delta: output.slice(0, 6),
+  } });
+  send({ method: "item/agentMessage/delta", params: {
+    threadId: "thread-1", turnId: "turn-1", itemId: "item-1", delta: output.slice(6),
+  } });
+  send({ method: "item/completed", params: {
+    threadId: "thread-1", turnId: "turn-1", completedAtMs: Date.now(),
+    item: { type: "agentMessage", id: "item-1", text: output, phase: null, memoryCitation: null },
+  } });
+  send({ method: "thread/tokenUsage/updated", params: {
+    threadId: "thread-1", turnId: "turn-1",
+    tokenUsage: { last: { inputTokens: 11, outputTokens: 7, totalTokens: 18 } },
+  } });
+  send({ method: "turn/completed", params: {
+    threadId: "thread-1",
+    turn: { id: "turn-1", status: "completed", items: [], error: null },
+  } });
 });
 `;
   await writeFile(executable, source, "utf8");
@@ -69,7 +91,7 @@ process.stdin.on("end", () => {
 
 function request(abortSignal: AbortSignal, onPartial?: (partial: unknown) => void) {
   return {
-    purpose: "quick-page" as const,
+    purpose: "page-director" as const,
     schema: z.object({ ok: z.literal(true) }).strict(),
     prompt: {
       system: "Generate a tiny structured object.",
@@ -84,7 +106,7 @@ function request(abortSignal: AbortSignal, onPartial?: (partial: unknown) => voi
 }
 
 describe.sequential("CodexModelExecutor", () => {
-  it("uses only the selected system Codex binary with isolated, no-tool settings", async () => {
+  it("uses the selected system Codex app-server with isolated, no-tool settings", async () => {
     const fake = await createFakeCodex("success");
     try {
       const onPartial = vi.fn();
@@ -103,9 +125,16 @@ describe.sequential("CodexModelExecutor", () => {
       });
 
       const result = await executor.generateObject(request(new AbortController().signal, onPartial));
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         output: { ok: true },
         usage: { inputTokens: 11, outputTokens: 7, totalTokens: 18, requests: 1 },
+        exchange: {
+          purpose: "page-director",
+          providerId: "codex",
+          modelId: "gpt-test",
+          response: '{"ok":true}',
+          usage: { inputTokens: 11, outputTokens: 7, totalTokens: 18, requests: 1 },
+        },
       });
       expect(onPartial).toHaveBeenCalledOnce();
       expect(onPartial).toHaveBeenCalledWith({ ok: true });
@@ -114,38 +143,48 @@ describe.sequential("CodexModelExecutor", () => {
         args: string[];
         cwd: string;
         workspaceEntries: string[];
-        schema: Record<string, unknown>;
-        instructions: string;
-        input: string;
+        requests: Array<Record<string, unknown>>;
         env: Record<string, string | undefined>;
       };
-      expect(invocation.args.slice(0, 2)).toEqual(["exec", "--json"]);
-      expect(invocation.args).toContain("--ignore-user-config");
-      expect(invocation.args).toContain("--ignore-rules");
-      expect(invocation.args).toContain("--ephemeral");
-      expect(invocation.args).toContain("read-only");
-      expect(invocation.args).toContain('approval_policy="never"');
-      expect(invocation.args).toContain('web_search="disabled"');
-      expect(invocation.args).toContain("project_doc_max_bytes=0");
-      expect(invocation.args).toContain("mcp_servers={}");
-      expect(invocation.args).toContain("notify=[]");
-      expect(invocation.args).toContain('shell_environment_policy.inherit="none"');
-      expect(invocation.args).toContain('model_reasoning_effort="xhigh"');
-      expect(invocation.args).toContain('service_tier="fast"');
-      expect(invocation.args).toContain("features.shell_tool=false");
-      expect(invocation.args).toContain("features.unified_exec=false");
-      expect(invocation.args).toContain("features.apps=false");
+      expect(invocation.args).toEqual(["app-server", "--stdio"]);
       expect(invocation.workspaceEntries).toEqual([]);
-      const requestedCwd = invocation.args[invocation.args.indexOf("--cd") + 1];
-      expect(requestedCwd).toBeDefined();
-      expect(invocation.cwd.replace(/^\/private(?=\/var\/)/, "")).toBe(requestedCwd);
-      expect(invocation.schema).toMatchObject({
-        type: "object",
-        additionalProperties: false,
+      const initialize = invocation.requests.find((entry) => entry.method === "initialize");
+      const threadStart = invocation.requests.find((entry) => entry.method === "thread/start") as {
+        params: Record<string, unknown>;
+      };
+      const turnStart = invocation.requests.find((entry) => entry.method === "turn/start") as {
+        params: Record<string, unknown>;
+      };
+      expect(initialize).toBeDefined();
+      expect(invocation.requests).toContainEqual({ method: "initialized", params: {} });
+      expect(threadStart.params).toMatchObject({
+        model: "gpt-test",
+        serviceTier: "fast",
+        approvalPolicy: "never",
+        sandbox: "read-only",
+        ephemeral: true,
+        serviceName: "vibesurfer",
+        config: {
+          web_search: "disabled",
+          project_doc_max_bytes: 0,
+          mcp_servers: {},
+          notify: [],
+          shell_environment_policy: { inherit: "none" },
+          features: { shell_tool: false, unified_exec: false, apps: false },
+        },
       });
-      expect(invocation.input).toContain("Set ok to true.");
-      expect(invocation.instructions).toContain("Generate a tiny structured object.");
-      expect(invocation.input).not.toContain("Generate a tiny structured object.");
+      expect(String(threadStart.params.cwd).replace(/^\/private(?=\/var\/)/, ""))
+        .toBe(invocation.cwd.replace(/^\/private(?=\/var\/)/, ""));
+      expect(threadStart.params.developerInstructions).toContain("Generate a tiny structured object.");
+      expect(turnStart.params).toMatchObject({
+        threadId: "thread-1",
+        effort: "xhigh",
+        serviceTier: "fast",
+        input: [{ type: "text", text_elements: [] }],
+        outputSchema: { type: "object", additionalProperties: false },
+      });
+      expect(JSON.stringify(turnStart.params.input)).toContain("Set ok to true.");
+      expect(JSON.stringify(turnStart.params.input)).not.toContain("Generate a tiny structured object.");
       expect(invocation.env).toEqual({
         HOME: "/fake/home",
         CODEX_HOME: "/fake/codex-home",
@@ -156,7 +195,42 @@ describe.sequential("CodexModelExecutor", () => {
     }
   });
 
-  it("terminates an in-flight Codex subprocess when generation is cancelled", async () => {
+  it("decodes an HTML field from incomplete structured-output deltas", () => {
+    expect(extractPartialJsonStringField('{"meta":{"title":"Google"},"html":"<main>Go\\n', "html"))
+      .toBe("<main>Go\n");
+    expect(extractPartialJsonStringField('{"html":"<div class=\\"hero\\">Hi', "html"))
+      .toBe('<div class="hero">Hi');
+    expect(extractPartialJsonStringField('{"meta":{"title":"Goo', "title")).toBe("Goo");
+  });
+
+  it("adapts optional Zod properties to the strict Codex output-schema contract", () => {
+    const source = z.toJSONSchema(
+      z.object({
+        required: z.string(),
+        optional: z.string().optional(),
+        deliberatelyNull: z.string().nullable(),
+      }).strict(),
+      { target: "draft-07", io: "output" },
+    );
+    const normalized = normalizeCodexOutputSchema(source) as {
+      required: string[];
+      properties: Record<string, unknown>;
+    };
+    expect(normalized.required).toEqual(["required", "optional", "deliberatelyNull"]);
+    expect(normalized.properties.optional).toMatchObject({
+      anyOf: [{ type: "string" }, { type: "null" }],
+    });
+
+    const output: Record<string, unknown> = {
+      required: "yes",
+      optional: null,
+      deliberatelyNull: null,
+    };
+    stripCodexOptionalNulls(output, source);
+    expect(output).toEqual({ required: "yes", deliberatelyNull: null });
+  });
+
+  it("terminates an in-flight Codex app-server when generation is cancelled", async () => {
     const fake = await createFakeCodex("hang");
     try {
       const controller = new AbortController();

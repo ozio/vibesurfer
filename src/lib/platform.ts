@@ -1,4 +1,12 @@
-import type { Platform } from "../types/browser";
+import type { Platform, ThemeId } from "../types/browser";
+
+export interface BrowserShortcutLabels {
+  focusAddress: string;
+  newTab: string;
+  openInNewTab: string;
+  settings: string;
+  usesMacSymbols: boolean;
+}
 
 export function detectPlatform(): Platform {
   const value = `${navigator.userAgent} ${navigator.platform}`.toLowerCase();
@@ -6,6 +14,39 @@ export function detectPlatform(): Platform {
   if (value.includes("mac")) return "macos";
   if (value.includes("win")) return "windows";
   return "linux";
+}
+
+export function browserShortcutLabels(platform: Platform, _theme: ThemeId): BrowserShortcutLabels {
+  const usesMacSymbols = platform === "macos";
+
+  return usesMacSymbols
+    ? {
+        focusAddress: "⌘L",
+        newTab: "⌘T",
+        openInNewTab: "⌥↵",
+        settings: "⌘,",
+        usesMacSymbols,
+      }
+    : {
+        focusAddress: "Ctrl+L",
+        newTab: "Ctrl+T",
+        openInNewTab: "Alt+Enter",
+        settings: "Ctrl+,",
+        usesMacSymbols,
+      };
+}
+
+export function nativeWindowCornerRadius(theme: ThemeId): number {
+  if (theme === "ie-classic") return 0;
+  if (theme === "sedative") return 28;
+  if (theme === "cyberpunk") return 4;
+  return 12;
+}
+
+export async function syncNativeWindowTheme(theme: ThemeId): Promise<void> {
+  if (!isTauri()) return;
+  const { invoke } = await import("@tauri-apps/api/core");
+  await invoke("set_window_corner_radius", { radius: nativeWindowCornerRadius(theme) });
 }
 
 export const isTauri = () => Boolean(window.__TAURI_INTERNALS__);

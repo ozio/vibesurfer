@@ -25,6 +25,7 @@ export interface ArtifactFrameConnectionOptions extends ArtifactBridgeIdentity {
 export interface ArtifactFrameConnection {
   disconnect: () => void;
   isReady: () => boolean;
+  updateRender: (render: ArtifactRenderPayload) => void;
 }
 
 /**
@@ -49,10 +50,15 @@ export function connectArtifactFrame({
   const resolveIframe = getIframe ?? (() => iframe ?? null);
   if (!getIframe && !iframe?.contentWindow) {
     onProtocolError?.("Artifact frame is not available");
-    return { disconnect: () => undefined, isReady: () => false };
+    return {
+      disconnect: () => undefined,
+      isReady: () => false,
+      updateRender: () => undefined,
+    };
   }
 
   const identity = { artifactId, nonce };
+  let latestRender = render;
   let ready = false;
   let disconnected = false;
   let violations = 0;
@@ -113,7 +119,7 @@ export function connectArtifactFrame({
           return;
         }
         try {
-          nextChannel.port1.postMessage(createArtifactRenderCommand(identity, render));
+          nextChannel.port1.postMessage(createArtifactRenderCommand(identity, latestRender));
           renderSent = true;
           armTimeout();
         } catch (error) {
@@ -168,5 +174,16 @@ export function connectArtifactFrame({
   window.addEventListener("message", acceptBootstrap);
   armTimeout();
 
-  return { disconnect, isReady: () => ready && !disconnected };
+  const updateRender = (nextRender: ArtifactRenderPayload) => {
+    latestRender = nextRender;
+    if (disconnected || !active || !renderSent) return;
+    try {
+      active.channel.port1.postMessage(createArtifactRenderCommand(identity, latestRender));
+    } catch (error) {
+      onProtocolError?.(error instanceof Error ? error.message : "Artifact render payload could not be sent");
+      disconnect();
+    }
+  };
+
+  return { disconnect, isReady: () => ready && !disconnected, updateRender };
 }

@@ -47,8 +47,11 @@ export interface SiteWorldRecord {
   id: string;
   profileId: string;
   origin: string;
+  state: "active" | "archived";
   revision: number;
+  createdAt: string;
   updatedAt: string;
+  archivedAt?: string;
   payload: Record<string, unknown>;
 }
 
@@ -90,6 +93,13 @@ export async function getPersistedArtifact(profileId: string, id: string): Promi
   return fromArtifactRecord(record);
 }
 
+export async function getCachedArtifact(profileId: string, siteWorldId: string, url: string): Promise<PageArtifact | undefined> {
+  if (!isTauri()) return undefined;
+  const record = await invoke<ArtifactRecord | null>("get_cached_artifact", { profileId, siteId: siteWorldId, url });
+  if (!record || record.profileId !== profileId || record.siteId !== siteWorldId || record.url !== url) return undefined;
+  return fromArtifactRecord(record);
+}
+
 export async function listPersistedSiteWorlds(profileId: string, limit = 500): Promise<SiteWorld[]> {
   if (!isTauri()) return [];
   const records = await invoke<SiteWorldRecord[]>("list_site_worlds", { profileId, limit });
@@ -120,6 +130,21 @@ export async function deletePersistedSiteWorld(profileId: string, id: string): P
 export async function deletePersistedProfileSiteWorlds(profileId: string): Promise<number> {
   if (!isTauri()) return 0;
   return invoke<number>("delete_profile_site_worlds", { profileId });
+}
+
+export async function archivePersistedProfileSiteWorlds(profileId: string): Promise<number> {
+  if (!isTauri()) return 0;
+  return invoke<number>("archive_profile_site_worlds", { profileId });
+}
+
+export async function activatePersistedSiteWorld(profileId: string, id: string): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("activate_site_world", { profileId, id });
+}
+
+export async function deletePersistedProfileData(profileId: string): Promise<number> {
+  if (!isTauri()) return 0;
+  return invoke<number>("delete_profile_data", { profileId });
 }
 
 export async function saveProviderConnection(input: SaveProviderInput): Promise<ProviderConnection> {
@@ -201,9 +226,9 @@ function fromArtifactRecord(record: ArtifactRecord): PageArtifact | undefined {
   const payload = isRecord(record.payload) ? record.payload : {};
   const generationJobId = stringValue(payload.generationId) ?? `persisted-${record.id}`;
   const modelId = stringValue(payload.modelId) ?? "unknown";
-  const mode = payload.mode === "deep" ? "deep" : "quick";
   return {
     id: record.id,
+    profileId: record.profileId,
     url: record.url,
     title: record.title,
     html: record.html,
@@ -211,20 +236,29 @@ function fromArtifactRecord(record: ArtifactRecord): PageArtifact | undefined {
     siteWorldId: record.siteId,
     generationJobId,
     modelId,
-    mode,
     promptVersion: numberValue(payload.promptVersion) ?? 1,
     settingsFingerprint: stringValue(payload.settingsFingerprint) ?? "persisted",
+    allowGeneratedScripts: payload.allowGeneratedScripts === true,
     createdAt: record.createdAt,
     providerId: stringValue(payload.providerId),
     favicon: isRecord(payload.favicon) ? payload.favicon as unknown as FaviconDescriptor : undefined,
     parentArtifactId: stringValue(payload.parentArtifactId),
     usage: isRecord(payload.usage) ? payload.usage as unknown as TokenUsage : undefined,
+    modelExchanges: Array.isArray(payload.modelExchanges)
+      ? payload.modelExchanges as unknown as PageArtifact["modelExchanges"]
+      : undefined,
     warnings: Array.isArray(payload.warnings)
       ? payload.warnings.flatMap((warning) => isRecord(warning) && stringValue(warning.code) && stringValue(warning.message)
         ? [{ code: stringValue(warning.code)!, message: stringValue(warning.message)! }]
         : [])
       : [],
     sitePatch: isRecord(payload.sitePatch) ? payload.sitePatch as unknown as ArtifactSitePatch : undefined,
+    siteIdentity: isRecord(payload.siteIdentity) ? payload.siteIdentity as unknown as PageArtifact["siteIdentity"] : undefined,
+    siteAdditions: isRecord(payload.siteAdditions) ? payload.siteAdditions as unknown as PageArtifact["siteAdditions"] : undefined,
+    pageDirection: isRecord(payload.pageDirection) ? payload.pageDirection as unknown as PageArtifact["pageDirection"] : undefined,
+    worldPromptSnapshot: isRecord(payload.worldPromptSnapshot)
+      ? payload.worldPromptSnapshot as unknown as PageArtifact["worldPromptSnapshot"]
+      : undefined,
   };
 }
 
@@ -233,8 +267,11 @@ export function toSiteWorldRecord(profileId: string, siteWorld: SiteWorld): Site
     id: siteWorld.id,
     profileId,
     origin: siteWorld.origin,
+    state: siteWorld.state,
     revision: siteWorld.revision,
+    createdAt: siteWorld.createdAt,
     updatedAt: siteWorld.updatedAt,
+    archivedAt: siteWorld.archivedAt,
     payload: { ...siteWorld },
   };
 }
@@ -248,13 +285,47 @@ export function fromSiteWorldRecord(record: SiteWorldRecord): SiteWorld | undefi
   if (!id || !profileId || !origin || revision === undefined || !updatedAt) return undefined;
 
   const payload = isRecord(record.payload) ? record.payload : {};
+  const identity = isRecord(payload.identity) ? payload.identity as unknown as SiteWorld["identity"] : undefined;
   const visualLanguage = isRecord(payload.visualLanguage) ? payload.visualLanguage : {};
-  return {
-    id,
-    origin,
-    name: stringValue(payload.name) ?? new URL(origin).hostname.replace(/^www\./, ""),
+  const name = stringValue(payload.name) ?? new URL(origin).hostname.replace(/^www\./, "");
+  const legacyPalette = stringArray(visualLanguage.palette, 32);
+  const fallbackIdentity: SiteWorld["identity"] = {
+    classification: "original",
+    locale: "en",
+    era: "contemporary",
+    name,
     purpose: stringValue(payload.purpose) ?? "",
     audience: stringValue(payload.audience) ?? "",
+    visualLanguage: {
+      palette: legacyPalette.length >= 2 ? legacyPalette : ["#0f172a", "#2563eb", "#f8fafc"],
+      typography: stringValue(visualLanguage.typography) ?? "Arimo Variable",
+      density: "comfortable",
+      radius: "rounded",
+      mood: stringValue(visualLanguage.tone) ?? "clear",
+    },
+    establishedFacts: stringArray(payload.establishedFacts, 48),
+    routeHints: routeHints(payload.informationArchitecture),
+    palette: { background: "#f8fafc", surface: "#ffffff", text: "#0f172a", mutedText: "#64748b", accent: "#2563eb", accentText: "#ffffff", border: "#cbd5e1" },
+    fonts: { body: "Arimo Variable", heading: "Arimo Variable" },
+    layoutSystem: stringValue(visualLanguage.layout) ?? "Page-specific layout",
+    favicon: { kind: "glyph", glyph: name.slice(0, 1).toUpperCase() || "•", foreground: "#ffffff", background: "#2563eb", shape: "rounded-square" },
+  };
+  const resolvedIdentity = identity ?? fallbackIdentity;
+  const summaries = pageSummaries(payload.pageSummaries ?? payload.visitedPageSummaries);
+  return {
+    id,
+    profileId,
+    origin,
+    state: record.state ?? (payload.state === "archived" ? "archived" : "active"),
+    promptSnapshot: isRecord(payload.promptSnapshot)
+      ? payload.promptSnapshot as unknown as SiteWorld["promptSnapshot"]
+      : { revision: 0, prompt: "" },
+    identity: resolvedIdentity,
+    pageSummaries: summaries,
+    archivedAt: record.archivedAt ?? stringValue(payload.archivedAt),
+    name: resolvedIdentity.name,
+    purpose: resolvedIdentity.purpose,
+    audience: resolvedIdentity.audience,
     visualLanguage: {
       palette: stringArray(visualLanguage.palette, 32),
       typography: stringValue(visualLanguage.typography) ?? "",
@@ -263,9 +334,9 @@ export function fromSiteWorldRecord(record: SiteWorldRecord): SiteWorld | undefi
     },
     informationArchitecture: routeHints(payload.informationArchitecture),
     establishedFacts: stringArray(payload.establishedFacts, 48),
-    visitedPageSummaries: pageSummaries(payload.visitedPageSummaries),
+    visitedPageSummaries: summaries,
     revision,
-    createdAt: stringValue(payload.createdAt) ?? updatedAt,
+    createdAt: record.createdAt ?? stringValue(payload.createdAt) ?? updatedAt,
     updatedAt,
   };
 }

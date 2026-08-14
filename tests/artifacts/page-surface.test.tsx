@@ -8,7 +8,7 @@ import {
   ARTIFACT_BRIDGE_VERSION,
 } from "../../src/artifacts/bridge-protocol";
 import { PageSurface } from "../../src/components/content/PageSurface";
-import { useBrowserStore } from "../../src/store/browser-store";
+import { DEFAULT_GENERATION_SETTINGS, useBrowserStore } from "../../src/store/browser-store";
 import type { BrowserTab, GenerationJob, PageArtifact } from "../../src/types/browser";
 
 const memoryStorage = new Map<string, string>();
@@ -36,13 +36,14 @@ describe("generated PageSurface", () => {
     vi.unstubAllGlobals();
   });
 
-  test("renders the current generation phase as a skeleton", () => {
+  test("keeps the new-tab page visible until the first streamed HTML arrives", () => {
     const job = generationJob({ status: "running", phase: "compiling-styles" });
     useBrowserStore.setState({ generationJobs: { [job.id]: job } });
 
     render(<PageSurface tab={generatedTab({ generationJobId: job.id, loadState: "loading" })} />);
 
-    expect(screen.getByRole("status")).toHaveTextContent("Compiling styles");
+    expect(document.querySelector(".new-tab-page")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Fixture page")).not.toBeInTheDocument();
   });
 
@@ -65,7 +66,11 @@ describe("generated PageSurface", () => {
     const postMessage = vi.fn();
     const frameWindow = { postMessage };
     installFrameWindow(frameWindow);
-    const artifact = pageArtifact();
+    const artifact = {
+      ...pageArtifact(),
+      allowGeneratedScripts: true,
+      html: '<main><h1>Safe page</h1><a href="javascript:alert(1)">Bad route</a><button id="toggle">Toggle</button><script>document.querySelector("#toggle").hidden = true;</script></main>',
+    };
     const job = generationJob({ status: "completed", phase: "completed", artifactId: artifact.id });
     useBrowserStore.setState({
       artifacts: { [artifact.id]: artifact },
@@ -93,6 +98,10 @@ describe("generated PageSurface", () => {
       pageUrl: artifact.url,
       title: artifact.title,
       html: expect.not.stringContaining("javascript:alert"),
+      executeScripts: true,
+    }));
+    expect(channel.port1.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      html: expect.stringContaining("<script>"),
     }));
     fireEvent.load(frame);
     expect(postMessage).toHaveBeenCalledOnce();
@@ -186,7 +195,110 @@ describe("generated PageSurface", () => {
     expect(Object.keys(state.generationJobs)).toEqual([job.id]);
   });
 
-  test("pre-arms a fresh bridge across artifact to skeleton to artifact transitions", () => {
+  test("opens general settings when the private frame bridge receives Cmd+comma", () => {
+    const channels = installFakeMessageChannels();
+    const frameWindow = { postMessage: vi.fn() };
+    installFrameWindow(frameWindow);
+    const artifact = pageArtifact();
+    const job = generationJob({ status: "completed", phase: "completed", artifactId: artifact.id });
+    const tab = generatedTab({ artifactId: artifact.id, generationJobId: job.id });
+    useBrowserStore.setState({
+      tabs: [tab],
+      activeTabId: tab.id,
+      artifacts: { [artifact.id]: artifact },
+      generationJobs: { [job.id]: job },
+    });
+
+    render(<PageSurface tab={tab} />);
+    const frame = screen.getByTitle("Fixture page") as HTMLIFrameElement;
+    const identity = bridgeIdentity(frame);
+    act(() => announceBootstrap(frameWindow, identity));
+    act(() => emitFrameEvent(channels[0]!.port1, identity, { type: "ready-for-render" }));
+    act(() => emitFrameEvent(channels[0]!.port1, identity, { type: "ready", title: artifact.title }));
+    act(() => emitFrameEvent(channels[0]!.port1, identity, {
+      type: "browser-command",
+      command: "open-settings",
+    }));
+
+    const state = useBrowserStore.getState();
+    expect(state.tabs).toHaveLength(2);
+    expect(state.tabs.find((item) => item.id === state.activeTabId)).toMatchObject({
+      kind: "settings",
+      location: "vibe://settings/general",
+    });
+  });
+
+  test("updates one iframe as streamed HTML grows and swaps in the final artifact", () => {
+    const channels = installFakeMessageChannels();
+    const frameWindow = { postMessage: vi.fn() };
+    installFrameWindow(frameWindow);
+    const job = generationJob({
+      status: "running",
+      phase: "generating",
+      provisionalTitle: "Streaming page",
+      previewHtml: "<main id=first-preview>First streamed fragment</main>",
+      previewRevision: 1,
+    });
+    const tab = generatedTab({ generationJobId: job.id, loadState: "loading" });
+    useBrowserStore.setState({ generationJobs: { [job.id]: job } });
+
+    const { rerender } = render(<PageSurface tab={tab} />);
+    const frame = screen.getByTitle("Streaming page") as HTMLIFrameElement;
+    const identity = bridgeIdentity(frame);
+    act(() => announceBootstrap(frameWindow, identity, "runtime-instance-stream"));
+    const channel = channels[0]!;
+    act(() => emitFrameEvent(channel.port1, identity, { type: "ready-for-render" }));
+    expect(channel.port1.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "render",
+      html: expect.stringContaining("First streamed fragment"),
+    }));
+    act(() => emitFrameEvent(channel.port1, identity, { type: "ready", title: "Streaming page" }));
+    expect(useBrowserStore.getState().generationJobs[job.id]?.status).toBe("running");
+
+    const nextJob = {
+      ...job,
+      previewHtml: "<main id=second-preview>First streamed fragment plus more HTML</main>",
+      previewRevision: 2,
+    };
+    act(() => useBrowserStore.setState({ generationJobs: { [job.id]: nextJob } }));
+    const updatedFrame = screen.getByTitle("Streaming page") as HTMLIFrameElement;
+    expect(updatedFrame).toBe(frame);
+    expect(channel.port1.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "render",
+      html: expect.stringContaining("plus more HTML"),
+    }));
+
+    const artifact = {
+      ...pageArtifact(),
+      id: "artifact-stream-final",
+      title: "Final streamed page",
+      html: "<main id=final-page>Complete HTML</main>",
+      generationJobId: job.id,
+    };
+    const completedJob = {
+      ...nextJob,
+      status: "completed" as const,
+      phase: "completed" as const,
+      artifactId: artifact.id,
+    };
+    const completedTab = { ...tab, artifactId: artifact.id, title: artifact.title, loadState: "idle" as const };
+    act(() => useBrowserStore.setState({
+      artifacts: { [artifact.id]: artifact },
+      generationJobs: { [job.id]: completedJob },
+    }));
+    rerender(<PageSurface tab={completedTab} />);
+
+    const finalFrame = screen.getByTitle("Final streamed page") as HTMLIFrameElement;
+    expect(finalFrame).toBe(frame);
+    expect(channels).toHaveLength(1);
+    expect(channel.port1.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "render",
+      title: "Final streamed page",
+      html: expect.stringContaining("Complete HTML"),
+    }));
+  });
+
+  test("keeps the current artifact until the first streamed HTML arrives", () => {
     const channels = installFakeMessageChannels();
     const frameWindow = { postMessage: vi.fn() };
     installFrameWindow(frameWindow);
@@ -213,14 +325,38 @@ describe("generated PageSurface", () => {
       normalizedUrl: "https://example.test/second",
     });
     const navigatingTab = generatedTab({
-      artifactId: firstArtifact.id,
+      artifactId: undefined,
+      fallbackArtifactId: firstArtifact.id,
       generationJobId: secondJob.id,
       location: "https://example.test/second",
     });
     act(() => useBrowserStore.setState({ generationJobs: { [firstJob.id]: firstJob, [secondJob.id]: secondJob } }));
     rerender(<PageSurface tab={navigatingTab} />);
-    expect(screen.queryByTitle("Fixture page")).not.toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Writing the page");
+    expect(screen.getByTitle("Fixture page")).toBe(firstFrame);
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    const streamingSecondJob = {
+      ...secondJob,
+      provisionalTitle: "Second fixture page",
+      previewHtml: "<main id=second-preview>Second streamed page</main>",
+      previewRevision: 1,
+    };
+    act(() => useBrowserStore.setState({
+      generationJobs: { [firstJob.id]: firstJob, [secondJob.id]: streamingSecondJob },
+    }));
+    rerender(<PageSurface tab={navigatingTab} />);
+
+    const secondFrame = screen.getByTitle("Second fixture page") as HTMLIFrameElement;
+    expect(secondFrame).not.toBe(firstFrame);
+    const secondIdentity = bridgeIdentity(secondFrame);
+    act(() => announceBootstrap(frameWindow, secondIdentity, "runtime-instance-second"));
+    expect(channels).toHaveLength(2);
+    act(() => emitFrameEvent(channels[1]!.port1, secondIdentity, { type: "ready-for-render" }));
+    expect(channels[1]!.port1.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "render",
+      html: expect.stringContaining("Second streamed page"),
+    }));
+    act(() => emitFrameEvent(channels[1]!.port1, secondIdentity, { type: "ready", title: "Second fixture page" }));
 
     const secondArtifact: PageArtifact = {
       ...firstArtifact,
@@ -229,7 +365,7 @@ describe("generated PageSurface", () => {
       title: "Second fixture page",
       generationJobId: secondJob.id,
     };
-    const completedSecondJob = { ...secondJob, status: "completed" as const, phase: "completed" as const, artifactId: secondArtifact.id };
+    const completedSecondJob = { ...streamingSecondJob, status: "completed" as const, phase: "completed" as const, artifactId: secondArtifact.id };
     const secondTab = { ...navigatingTab, artifactId: secondArtifact.id, title: secondArtifact.title };
     act(() => useBrowserStore.setState({
       artifacts: { [firstArtifact.id]: firstArtifact, [secondArtifact.id]: secondArtifact },
@@ -237,14 +373,14 @@ describe("generated PageSurface", () => {
     }));
     rerender(<PageSurface tab={secondTab} />);
 
-    const secondFrame = screen.getByTitle("Second fixture page") as HTMLIFrameElement;
-    expect(secondFrame).not.toBe(firstFrame);
-    const secondIdentity = bridgeIdentity(secondFrame);
-    act(() => announceBootstrap(frameWindow, secondIdentity, "runtime-instance-second"));
+    const finalFrame = screen.getByTitle("Second fixture page") as HTMLIFrameElement;
+    expect(finalFrame).toBe(secondFrame);
     expect(channels).toHaveLength(2);
-    act(() => emitFrameEvent(channels[1]!.port1, secondIdentity, { type: "ready-for-render" }));
-    act(() => emitFrameEvent(channels[1]!.port1, secondIdentity, { type: "ready", title: secondArtifact.title }));
-    expect(secondFrame).toHaveClass("artifact-frame--ready");
+    expect(channels[1]!.port1.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "render",
+      title: secondArtifact.title,
+    }));
+    expect(finalFrame).toHaveClass("artifact-frame--ready");
 
     act(() => announceBootstrap(frameWindow, firstIdentity, "runtime-instance-first-replayed"));
     expect(channels).toHaveLength(2);
@@ -300,7 +436,9 @@ function generationJob(patch: Partial<GenerationJob> = {}): GenerationJob {
     requestedUrl: "https://example.test/",
     normalizedUrl: "https://example.test/",
     modelId: "codex:auto",
-    mode: "quick",
+    browserTheme: "native",
+    worldPromptSnapshot: { revision: 1, prompt: "" },
+    generationSettingsSnapshot: structuredClone(DEFAULT_GENERATION_SETTINGS),
     status: "queued",
     phase: "queued",
     navigationIntent: {
@@ -324,7 +462,6 @@ function pageArtifact(): PageArtifact {
     siteWorldId: "site-fixture",
     generationJobId: "job-fixture",
     modelId: "codex:auto",
-    mode: "quick",
     promptVersion: 1,
     settingsFingerprint: "fixture",
     createdAt: "2026-08-12T00:00:00.000Z",

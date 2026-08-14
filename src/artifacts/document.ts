@@ -1,7 +1,7 @@
 import type { ArtifactRenderPayload } from "./bridge-protocol";
+import { repairEscapedNavigationUrl } from "../lib/navigation";
 
 const BLOCKED_ELEMENTS = [
-  "script",
   "base",
   "object",
   "embed",
@@ -33,6 +33,7 @@ export interface GeneratedArtifactDocumentInput {
   title: string;
   html: string;
   nonce?: string;
+  allowGeneratedScripts?: boolean;
 }
 
 export type ArtifactSanitizationWarningCode =
@@ -62,27 +63,121 @@ export function compileGeneratedArtifactDocument(
   input: GeneratedArtifactDocumentInput,
 ): GeneratedArtifactDocument {
   const parser = new DOMParser();
-  const parsed = parser.parseFromString(input.html, "text/html");
+  const parsed = parser.parseFromString(repairEscapedFormattingInsideTags(input.html), "text/html");
+  const repairedEscapedAttributes = repairLegacyEscapedAttributes(parsed);
+  normalizeEscapedFormatting(parsed, repairedEscapedAttributes);
   const warnings = new WarningCollector();
   const artifactId = normalizeArtifactId(input.artifactId);
   const pageUrl = normalizePageUrl(input.url);
   const nonce = normalizeBridgeNonce(input.nonce) ?? createBridgeNonce();
   const title = normalizeTitle(input.title);
 
-  sanitizeDocument(parsed, pageUrl, warnings);
+  const allowGeneratedScripts = input.allowGeneratedScripts === true;
+  sanitizeDocument(parsed, pageUrl, warnings, allowGeneratedScripts);
   installDocumentMetadata(parsed, title);
   const srcDoc = `<!doctype html>\n${parsed.documentElement.outerHTML}`;
 
   return {
     artifactId,
     nonce,
-    payload: { pageUrl, title, html: srcDoc },
+    payload: { pageUrl, title, html: srcDoc, executeScripts: allowGeneratedScripts },
     srcDoc,
     warnings: warnings.toArray(),
   };
 }
 
-function sanitizeDocument(document: Document, pageUrl: string, warnings: WarningCollector) {
+function repairEscapedFormattingInsideTags(html: string): string {
+  let result = "";
+  let inTag = false;
+  let quote = "";
+  for (let index = 0; index < html.length; index += 1) {
+    const character = html[index] ?? "";
+    if (!inTag && character === "<") inTag = true;
+    if (inTag && (character === '"' || character === "'") && html[index - 1] !== "\\") {
+      quote = quote === character ? "" : quote || character;
+    }
+    if (inTag && character === "\\") {
+      const escape = html[index + 1];
+      if (escape === "n" || escape === "r" || escape === "t") {
+        result += escape === "t" ? "\t" : "\n";
+        index += 1;
+        continue;
+      }
+    }
+    result += character;
+    if (inTag && character === ">" && !quote) inTag = false;
+  }
+  return result;
+}
+
+function repairLegacyEscapedAttributes(document: Document) {
+  const elements = Array.from(document.querySelectorAll("*"));
+  const escapedValueCount = elements.reduce(
+    (count, element) => count + Array.from(element.attributes)
+      .filter((attribute) => attribute.value.startsWith('\\"')).length,
+    0,
+  );
+  if (escapedValueCount < 2) return false;
+
+  for (const element of elements) {
+    const attributes = Array.from(element.attributes);
+    for (let index = 0; index < attributes.length; index += 1) {
+      const attribute = attributes[index];
+      if (!attribute.value.startsWith('\\"')) continue;
+
+      let value = attribute.value.slice(2);
+      let closed = value.endsWith('\\"');
+      if (closed) value = value.slice(0, -2);
+      const consumed: Attr[] = [];
+
+      for (let tail = index + 1; !closed && tail < attributes.length; tail += 1) {
+        const continuation = attributes[tail];
+        let continuationName = continuation.name;
+        let continuationValue = continuation.value;
+        if (continuationName.endsWith('\\"')) {
+          continuationName = continuationName.slice(0, -2);
+          closed = true;
+        } else if (continuationValue.endsWith('\\"')) {
+          continuationValue = continuationValue.slice(0, -2);
+          closed = true;
+        }
+        value += ` ${continuationName}${continuationValue ? `=${continuationValue}` : ""}`;
+        consumed.push(continuation);
+      }
+
+      if (!closed) continue;
+      element.setAttribute(attribute.name, value);
+      for (const continuation of consumed) element.removeAttribute(continuation.name);
+      index += consumed.length;
+    }
+  }
+  return true;
+}
+
+function normalizeEscapedFormatting(document: Document, repairEscapedQuotes = false) {
+  const textNodes = document.createTreeWalker(document, 4);
+  let node = textNodes.nextNode();
+  while (node) {
+    const value = node.nodeValue;
+    if (value) {
+      let normalized = value
+        .replace(/\\r\\n|\\n|\\r/g, "\n")
+        .replace(/\\t/g, "\t");
+      if (repairEscapedQuotes && node.parentElement?.tagName === "STYLE") {
+        normalized = normalized.replace(/\\"/g, '"');
+      }
+      node.nodeValue = normalized;
+    }
+    node = textNodes.nextNode();
+  }
+}
+
+function sanitizeDocument(
+  document: Document,
+  pageUrl: string,
+  warnings: WarningCollector,
+  allowGeneratedScripts: boolean,
+) {
   for (const element of document.querySelectorAll(BLOCKED_ELEMENTS)) {
     element.remove();
     warnings.add("removed-element");
@@ -96,6 +191,17 @@ function sanitizeDocument(document: Document, pageUrl: string, warnings: Warning
   for (const link of document.querySelectorAll("link")) {
     link.remove();
     warnings.add("removed-link-resource");
+  }
+
+  for (const script of document.querySelectorAll("script")) {
+    const type = script.getAttribute("type")?.trim().toLowerCase() ?? "";
+    const classicScript = !type || type === "text/javascript" || type === "application/javascript";
+    if (!allowGeneratedScripts || script.hasAttribute("src") || !classicScript) {
+      script.remove();
+      warnings.add("removed-element");
+      continue;
+    }
+    for (const attribute of Array.from(script.attributes)) script.removeAttribute(attribute.name);
   }
 
   for (const style of document.querySelectorAll("style")) {
@@ -131,7 +237,10 @@ function sanitizeDocument(document: Document, pageUrl: string, warnings: Warning
     }
 
     if (element instanceof HTMLAnchorElement || element instanceof HTMLAreaElement) {
-      element.rel = "noopener noreferrer";
+      const rel = new Set(element.rel.toLowerCase().split(/\s+/).filter(Boolean));
+      rel.add("noopener");
+      rel.add("noreferrer");
+      element.rel = [...rel].filter((token) => ["license", "noopener", "noreferrer"].includes(token)).join(" ");
       const target = element.getAttribute("target");
       if (target && target !== "_blank" && target !== "_self") element.removeAttribute("target");
     }
@@ -147,8 +256,17 @@ function sanitizeUrlAttribute(
   warnings: WarningCollector,
 ) {
   const name = attributeName.toLowerCase();
-  const value = rawValue.trim();
+  const originalValue = rawValue.trim();
+  const value = repairTrailingSelfLinkQuote(
+    repairEscapedNavigationUrl(rawValue),
+    pageUrl,
+  );
   if (!value) {
+    element.removeAttribute(attributeName);
+    warnings.add("removed-unsafe-url");
+    return;
+  }
+  if (hasMalformedNavigationEscaping(value)) {
     element.removeAttribute(attributeName);
     warnings.add("removed-unsafe-url");
     return;
@@ -156,7 +274,13 @@ function sanitizeUrlAttribute(
 
   if (name === "href" || name === "xlink:href") {
     const isNavigable = element.matches("a, area");
-    if (value.startsWith("#")) return;
+    if (value.startsWith("#")) {
+      if (value !== originalValue) {
+        element.setAttribute(attributeName, value);
+        warnings.add("rewrote-url");
+      }
+      return;
+    }
     if (!isNavigable) {
       element.removeAttribute(attributeName);
       warnings.add("removed-unsafe-url");
@@ -168,7 +292,7 @@ function sanitizeUrlAttribute(
       warnings.add("removed-unsafe-url");
       return;
     }
-    if (resolved !== value) warnings.add("rewrote-url");
+    if (resolved !== originalValue) warnings.add("rewrote-url");
     element.setAttribute(attributeName, resolved);
     return;
   }
@@ -185,14 +309,26 @@ function sanitizeUrlAttribute(
       warnings.add("removed-unsafe-url");
       return;
     }
-    if (resolved !== value) warnings.add("rewrote-url");
+    if (resolved !== originalValue) warnings.add("rewrote-url");
     element.setAttribute(attributeName, resolved);
     return;
   }
 
+  if (element instanceof HTMLImageElement && isSafeImageAsset(value)) return;
   if (isSafeEmbeddedAsset(value)) return;
   element.removeAttribute(attributeName);
   warnings.add("removed-unsafe-url");
+}
+
+function hasMalformedNavigationEscaping(value: string) {
+  return /\\(?:"|%22)|%5c%22|^(?:https?:\/\/[^/?#]+)?\/%22(?=\/|#|$)/i.test(value);
+}
+
+function repairTrailingSelfLinkQuote(value: string, pageUrl: string) {
+  if (!/%22$/i.test(value)) return value;
+  const withoutQuote = value.slice(0, -3);
+  const repaired = resolveHttpUrl(withoutQuote, pageUrl);
+  return repaired === pageUrl ? withoutQuote : value;
 }
 
 function installDocumentMetadata(document: Document, title: string) {
@@ -218,7 +354,7 @@ function installDocumentMetadata(document: Document, title: string) {
 }
 
 function normalizePageUrl(value: string) {
-  const resolved = resolveHttpUrl(value, "https://artifact.invalid/");
+  const resolved = resolveHttpUrl(repairEscapedNavigationUrl(value), "https://artifact.invalid/");
   return resolved && resolved.length <= 4_096 ? resolved : "https://artifact.invalid/";
 }
 
@@ -248,6 +384,24 @@ function isSafeEmbeddedAsset(value: string) {
   if (!value.startsWith("data:")) return false;
   if (value.length > MAX_DATA_URL_LENGTH) return false;
   return /^data:(?:image\/(?:avif|gif|jpeg|jpg|png|svg\+xml|webp)|audio\/(?:mpeg|ogg|wav)|video\/(?:mp4|webm));/i.test(value);
+}
+
+function isSafeImageAsset(value: string) {
+  if (isSafeEmbeddedAsset(value)) return true;
+  try {
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    return url.protocol === "https:"
+      && !url.username
+      && !url.password
+      && (!url.port || url.port === "443")
+      && (hostname === "loremflickr.com"
+        || hostname === "www.loremflickr.com"
+        || hostname === "staticflickr.com"
+        || hostname.endsWith(".staticflickr.com"));
+  } catch {
+    return false;
+  }
 }
 
 function sanitizeCss(value: string) {

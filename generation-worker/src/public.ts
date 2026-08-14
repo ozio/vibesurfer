@@ -1,6 +1,7 @@
 export * from "./domain.js";
 export * from "./errors.js";
 export * from "./images/resolver.js";
+export * from "./iconify/catalog.js";
 export * from "./pipelines/index.js";
 export * from "./prompt-builder.js";
 export * from "./providers/executor.js";

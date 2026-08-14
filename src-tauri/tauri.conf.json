@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "VibeSurfer",
+  "productName": "vibesurfer",
   "version": "0.1.0",
   "identifier": "com.vibesurfer.browser",
   "build": {
@@ -13,18 +13,19 @@
     "windows": [
       {
         "label": "main",
-        "title": "VibeSurfer",
+        "title": "vibesurfer",
         "width": 1280,
         "height": 820,
         "minWidth": 900,
         "minHeight": 620,
         "center": true,
         "resizable": true,
+        "transparent": true,
         "decorations": false
       }
     ],
     "security": {
-      "csp": "default-src 'self' customprotocol: asset:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420; img-src 'self' asset: data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-rkw9/TsXb59ZzoO21VxWQ4c5CctBuKZTQRKrqprFVyY='; frame-src 'self'"
+      "csp": "default-src 'self' customprotocol: asset:; connect-src 'self' ipc: http://ipc.localhost http://127.0.0.1:1420 ws://127.0.0.1:1420; img-src 'self' asset: data: blob: https://loremflickr.com https://www.loremflickr.com https://*.staticflickr.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'sha256-4ph7hOWsTwblh+BEQt3cZWg2BjReiYkzxbGUEtoiJl8=' 'nonce-dmliaWVzdXJmZXItYXJ0aWZhY3Q'; frame-src 'self'"
     }
   },
   "bundle": {
@@ -42,5 +43,12 @@
     },
     "shortDescription": "A browser shaped by language models",
     "longDescription": "A customizable browser that turns addresses and prompts into generated, navigable page artifacts."
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["vibe", "vibes"]
+      }
+    }
   }
 }

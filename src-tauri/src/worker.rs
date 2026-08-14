@@ -28,7 +28,9 @@ use crate::{
 const CANCEL_GRACE: Duration = Duration::from_secs(5);
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 const GENERATION_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-const MAX_WORKER_LINE_BYTES: usize = 6 * 1024 * 1024;
+// A completed artifact can include the rendered HTML plus up to four persisted
+// model request/response transcripts for the generation inspector.
+const MAX_WORKER_LINE_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Error)]
 pub enum WorkerError {
@@ -298,6 +300,7 @@ async fn run_generation(
     channel: Channel<Value>,
     mut control_rx: mpsc::Receiver<WorkerControl>,
 ) -> Result<(), WorkerError> {
+    let is_discovery = request.pointer("/discovery/kind").and_then(Value::as_str) == Some("lucky-urls");
     storage
         .mark_job_started(job_id, profile_id, request)
         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
@@ -370,11 +373,13 @@ async fn run_generation(
                     ensure_artifact_host_fields(&mut artifact_value, profile_id, job_id);
                     let artifact: ArtifactRecord = serde_json::from_value(artifact_value.clone())?;
                     event["artifact"] = artifact_value;
+                    if !is_discovery {
+                        storage
+                            .save_artifact(&artifact)
+                            .map_err(|error| WorkerError::Protocol(error.to_string()))?;
+                    }
                     storage
-                        .save_artifact(&artifact)
-                        .map_err(|error| WorkerError::Protocol(error.to_string()))?;
-                    storage
-                        .update_job(job_id, "completed", Some(&artifact.id), None)
+                        .update_job(job_id, "completed", (!is_discovery).then_some(artifact.id.as_str()), None)
                         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
                     terminal_event_seen = true;
                 } else if event_type == "generation.failed" {
@@ -737,8 +742,8 @@ mod tests {
     #[test]
     fn worker_discovery_prefers_explicit_then_packaged_locations() {
         let project_root = PathBuf::from("/workspace/vibesurfer");
-        let executable_dir = PathBuf::from("/Applications/VibeSurfer");
-        let resource_dir = PathBuf::from("/Applications/VibeSurfer/resources");
+        let executable_dir = PathBuf::from("/Applications/vibesurfer");
+        let resource_dir = PathBuf::from("/Applications/vibesurfer/resources");
         let explicit = PathBuf::from("/opt/vibesurfer/custom-worker");
         let packaged = executable_dir.join(packaged_worker_names()[0]);
         let existing = HashSet::from([explicit.clone(), packaged]);
@@ -756,11 +761,11 @@ mod tests {
         assert_eq!(command.program, explicit);
         assert!(command.arguments.is_empty());
 
-        let packaged = PathBuf::from("/Applications/VibeSurfer").join(packaged_worker_names()[0]);
+        let packaged = PathBuf::from("/Applications/vibesurfer").join(packaged_worker_names()[0]);
         let command = discover_worker_command(
             Some(PathBuf::from("/missing/custom-worker")),
-            Some(PathBuf::from("/Applications/VibeSurfer")),
-            Some(PathBuf::from("/Applications/VibeSurfer/resources")),
+            Some(PathBuf::from("/Applications/vibesurfer")),
+            Some(PathBuf::from("/Applications/vibesurfer/resources")),
             &project_root,
             |path| path == packaged,
             || false,

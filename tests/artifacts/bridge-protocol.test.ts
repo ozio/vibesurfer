@@ -47,6 +47,7 @@ test("creates one bounded, identity-bound render command", () => {
     pageUrl: "https://example.com/path",
     title: "Rendered page",
     html: "<main>Safe</main>",
+    executeScripts: false,
   });
   expect(() => createArtifactRenderCommand(identity, {
     pageUrl: "https://example.com/",
@@ -78,6 +79,85 @@ test("accepts a bounded navigation event", () => {
   if (result.event.type !== "navigate") return;
   expect(result.event.disposition).toBe("background-tab");
   expect(result.event.linkText).toBe("News");
+});
+
+test("accepts safe link hover changes and rejects unsafe targets", () => {
+  expect(parseArtifactFrameEvent({
+    ...envelope,
+    type: "link-hover",
+    href: "https://example.com/hovered",
+  }, identity)).toEqual({
+    ok: true,
+    event: { ...envelope, type: "link-hover", href: "https://example.com/hovered" },
+  });
+  expect(parseArtifactFrameEvent({ ...envelope, type: "link-hover" }, identity)).toEqual({
+    ok: true,
+    event: { ...envelope, type: "link-hover" },
+  });
+  expect(parseArtifactFrameEvent({
+    ...envelope,
+    type: "link-hover",
+    href: "javascript:alert(1)",
+  }, identity)).toEqual({ ok: false, reason: "Invalid link hover event" });
+});
+
+test("accepts page and safe-link context menu events", () => {
+  expect(parseArtifactFrameEvent({
+    ...envelope,
+    type: "context-menu",
+    x: 24,
+    y: 48,
+  }, identity)).toEqual({
+    ok: true,
+    event: { ...envelope, type: "context-menu", x: 24, y: 48 },
+  });
+
+  const link = parseArtifactFrameEvent({
+    ...envelope,
+    type: "context-menu",
+    x: 12.5,
+    y: 18.25,
+    href: "https://example.com/docs",
+    linkText: "Docs",
+  }, identity);
+  expect(link.ok).toBe(true);
+  if (link.ok && link.event.type === "context-menu") {
+    expect(link.event.href).toBe("https://example.com/docs");
+    expect(link.event.linkText).toBe("Docs");
+  }
+});
+
+test("rejects unsafe context menu targets and coordinates", () => {
+  expect(parseArtifactFrameEvent({
+    ...envelope,
+    type: "context-menu",
+    x: -1,
+    y: 20,
+  }, identity)).toEqual({ ok: false, reason: "Invalid context menu event" });
+  expect(parseArtifactFrameEvent({
+    ...envelope,
+    type: "context-menu",
+    x: 10,
+    y: 20,
+    href: "javascript:alert(1)",
+  }, identity)).toEqual({ ok: false, reason: "Invalid context menu event" });
+});
+
+test("accepts only the settings browser command", () => {
+  expect(parseArtifactFrameEvent({
+    ...envelope,
+    type: "browser-command",
+    command: "open-settings",
+  }, identity)).toEqual({
+    ok: true,
+    event: { ...envelope, type: "browser-command", command: "open-settings" },
+  });
+
+  expect(parseArtifactFrameEvent({
+    ...envelope,
+    type: "browser-command",
+    command: "close-window",
+  }, identity)).toEqual({ ok: false, reason: "Invalid browser command event" });
 });
 
 test("rejects spoofed bridge identities", () => {

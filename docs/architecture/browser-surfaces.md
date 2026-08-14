@@ -5,7 +5,7 @@ future native real-web surface; it is not implemented in the current release.
 
 ## Decision
 
-VibeSurfer separates trusted browser chrome from page content.
+vibesurfer separates trusted browser chrome from page content.
 
 ```text
 Tauri window
@@ -27,7 +27,7 @@ approved; it is not on the current generative-browser critical path.
 - Many sites deny framing with `X-Frame-Options` or CSP `frame-ancestors`.
 - Cross-origin iframes do not expose usable URL, history, title, favicon or navigation state to the React chrome.
 - Granting Tauri capabilities to remote content would collapse the app's main security boundary.
-- Generated HTML is also untrusted, but a sandboxed iframe is appropriate because VibeSurfer owns the artifact and its communication protocol.
+- Generated HTML is also untrusted, but a sandboxed iframe is appropriate because vibesurfer owns the artifact and its communication protocol.
 
 Tauri references: [WebView API](https://v2.tauri.app/reference/javascript/api/namespacewebview/), [capabilities](https://v2.tauri.app/security/capabilities/), [multiwebview migration note](https://v2.tauri.app/start/migrate/from-tauri-1/#multiwebview-support).
 
@@ -64,10 +64,13 @@ Do not create an unlimited live WebView for every tab. Keep browser-tab state in
 
 ## Profiles
 
-A browser profile is window-scoped, not a per-tab toggle. Tabs in one profile share a cookie/storage partition; choosing another profile opens or focuses its own Tauri window.
+A browser profile is a complete workspace projected into the current window:
+tabs, active tab, immutable chrome skin, world-prompt revision, model controls,
+generation preferences, history, artifacts, provider connections, and
+SiteWorld incarnations switch together. Background jobs retain their original
+profile/tab binding when another profile becomes active.
 
-- Windows/Linux: use a profile-specific data directory.
-- macOS 14+: use a profile-specific data-store identifier.
-- Older macOS needs an explicit limitation or a different persistence design.
-
-Provider identity remains separate from browser profile state. Tokens belong in a Rust-side secure store and are never serialized to Zustand, localStorage or a page surface. The current product exposes one Personal profile; multi-window browser-profile behavior above is future design work.
+Profile definitions and lightweight workspace state remain in frontend
+persistence. Heavy artifacts and SiteWorlds are host-side and profile-scoped;
+provider tokens stay in the operating-system credential store and never enter
+Zustand, local storage, or a page surface.

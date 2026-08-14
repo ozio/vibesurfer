@@ -31,6 +31,10 @@
 }
 
 @layer utilities {
+  :root[data-input-modality="pointer"] :focus-visible {
+    outline: none !important;
+  }
+
   .reduce-motion *, .reduce-motion *::before, .reduce-motion *::after {
     scroll-behavior: auto !important;
     animation-duration: 0.01ms !important;

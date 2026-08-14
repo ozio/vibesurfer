@@ -131,7 +131,7 @@ describe("OpenAI-compatible AI SDK HTTP contract", () => {
         count: z.number().int(),
       }).strict();
       const invoke = () => executor.generateObject({
-        purpose: "quick-page" as const,
+        purpose: "page-director" as const,
         schema,
         prompt: {
           system: "contract-system",
@@ -144,9 +144,17 @@ describe("OpenAI-compatible AI SDK HTTP contract", () => {
       });
 
       const result = await invoke();
-      expect(result).toEqual({
+      expect(result).toMatchObject({
         output: { headline: "Adapter contract passed", count: 7 },
         usage: { inputTokens: 11, outputTokens: 7, totalTokens: 18, requests: 1 },
+        exchange: {
+          purpose: "page-director",
+          providerId: "contract-provider",
+          modelId: "contract-model",
+          systemPrompt: "contract-system",
+          prompt: "contract-prompt",
+          response: '{"headline":"Adapter contract passed","count":7}',
+        },
       });
       expect(JSON.stringify(result)).not.toContain(secret);
       expect(JSON.stringify(registry.list())).not.toContain(secret);
@@ -172,8 +180,8 @@ describe("OpenAI-compatible AI SDK HTTP contract", () => {
         response_format: {
           type: "json_schema",
           json_schema: {
-            name: "vibesurfer_quick_page",
-            description: "A strictly validated VibeSurfer generation-stage result.",
+            name: "vibesurfer_page_director",
+            description: "A strictly validated vibesurfer generation-stage result.",
             strict: true,
           },
         },

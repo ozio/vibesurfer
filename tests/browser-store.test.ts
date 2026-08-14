@@ -50,18 +50,45 @@ test("URL navigation clears a prompt left by a generated prompt tab", () => {
   assert.equal(tab?.location, "https://example.com/");
 });
 
+test("a protocol invocation can open a fresh foreground tab without using its payload", () => {
+  const before = useBrowserStore.getState();
+  const tabId = before.addTab();
+  const state = useBrowserStore.getState();
+  const tab = state.tabs.find((item) => item.id === tabId);
+
+  assert.equal(state.tabs.length, before.tabs.length + 1);
+  assert.equal(state.activeTabId, tabId);
+  assert.equal(tab?.kind, "new-tab");
+  assert.equal(tab?.location, "vibe://new-tab");
+  assert.equal(tab?.generationJobId, undefined);
+});
+
+test("settings open on General by default and reuse the existing tab at the requested section", () => {
+  const settingsId = useBrowserStore.getState().openSettings();
+  let state = useBrowserStore.getState();
+  assert.equal(state.tabs.find((tab) => tab.id === settingsId)?.location, "vibe://settings/general");
+
+  state.activateTab("welcome");
+  const reusedId = useBrowserStore.getState().openSettings("privacy");
+  state = useBrowserStore.getState();
+  assert.equal(reusedId, settingsId);
+  assert.equal(state.activeTabId, settingsId);
+  assert.equal(state.tabs.find((tab) => tab.id === settingsId)?.location, "vibe://settings/privacy");
+  assert.equal(state.tabs.filter((tab) => tab.kind === "settings").length, 1);
+});
+
 test("free-form prompt regeneration keeps its SiteWorld without sharing unrelated prompt worlds", () => {
   const prompt = "A calm research space for a new idea";
   const firstJobId = useBrowserStore.getState().navigate("welcome", prompt);
   assert.ok(firstJobId);
   const firstJob = useBrowserStore.getState().generationJobs[firstJobId];
   assert.ok(firstJob.siteWorldId);
+  assert.equal(useBrowserStore.getState().siteWorlds[firstJob.siteWorldId], undefined);
+
+  const artifact = artifactFor(firstJobId, "artifact-prompt", "https://generated.vibe.local/concept");
+  assert.equal(useBrowserStore.getState().commitArtifact(firstJobId, artifact), true);
   const firstWorld = useBrowserStore.getState().siteWorlds[firstJob.siteWorldId];
   assert.ok(firstWorld);
-  assert.match(firstWorld.origin, /^https:\/\/prompt-[a-z0-9]+\.generated\.vibe\.local$/);
-
-  const artifact = artifactFor(firstJobId, "artifact-prompt", `${firstWorld.origin}/concept`);
-  assert.equal(useBrowserStore.getState().commitArtifact(firstJobId, artifact), true);
   const nextJobId = useBrowserStore.getState().regenerate("welcome");
   assert.ok(nextJobId);
   const nextJob = useBrowserStore.getState().generationJobs[nextJobId];
@@ -74,10 +101,6 @@ test("free-form prompt regeneration keeps its SiteWorld without sharing unrelate
   const unrelatedJob = useBrowserStore.getState().generationJobs[unrelatedTab.generationJobId];
   assert.ok(unrelatedJob.siteWorldId);
   assert.notEqual(unrelatedJob.siteWorldId, firstWorld.id);
-  assert.notEqual(
-    useBrowserStore.getState().siteWorlds[unrelatedJob.siteWorldId].origin,
-    firstWorld.origin,
-  );
 });
 
 test("background tabs preserve the active tab and opener context", () => {
@@ -161,8 +184,9 @@ test("same-document hash tabs reuse artifact metadata and honor disposition", ()
 test("committing an artifact carries its site world into the next navigation", () => {
   const jobId = useBrowserStore.getState().navigate("welcome", "https://example.com/");
   assert.ok(jobId);
+  const baseArtifact = artifactFor(jobId, "artifact-world", "https://example.com/");
   const artifact = {
-    ...artifactFor(jobId, "artifact-world", "https://example.com/"),
+    ...baseArtifact,
     sitePatch: {
       name: "Example Journal",
       purpose: "A fictional journal",
@@ -182,8 +206,26 @@ test("committing an artifact carries its site world into the next navigation", (
         { path: "/archive", label: "Archive", purpose: "Older stories" },
       ],
     },
+    siteIdentity: {
+      ...baseArtifact.siteIdentity!,
+      name: "Example Journal",
+      purpose: "A fictional journal",
+      audience: "Curious readers",
+      visualLanguage: {
+        palette: ["#111111", "#eeeeee"], typography: "Arimo Variable", density: "comfortable" as const, radius: "subtle" as const, mood: "measured",
+      },
+      establishedFacts: ["The journal publishes daily."],
+      routeHints: [
+        { path: "/latest", label: "Latest", purpose: "Recent stories" },
+        { path: "/topics", label: "Topics", purpose: "Browse subjects" },
+        { path: "/about", label: "About", purpose: "About the journal" },
+        { path: "/archive", label: "Archive", purpose: "Older stories" },
+      ],
+    },
   };
+  assert.equal(useBrowserStore.getState().setGenerationPreview(jobId, "<main>Transient preview</main>"), true);
   assert.equal(useBrowserStore.getState().commitArtifact(jobId, artifact), true);
+  assert.equal(useBrowserStore.getState().generationJobs[jobId].previewHtml, undefined);
   const world = useBrowserStore.getState().siteWorlds[artifact.siteWorldId];
   assert.equal(world.name, "Example Journal");
   assert.equal(world.revision, 1);
@@ -195,7 +237,7 @@ test("committing an artifact carries its site world into the next navigation", (
   assert.equal(useBrowserStore.getState().generationJobs[nextJobId].siteWorldId, world.id);
 });
 
-test("reload reuses the artifact while regenerate creates a version job", () => {
+test("reload deliberately creates a new generation while keeping the current artifact visible", () => {
   const firstJobId = useBrowserStore.getState().navigate("welcome", "https://example.com/");
   assert.ok(firstJobId);
   const artifact = artifactFor(firstJobId, "artifact-first", "https://example.com/");
@@ -207,17 +249,29 @@ test("reload reuses the artifact while regenerate creates a version job", () => 
   useBrowserStore.getState().reload("welcome");
   const reloaded = useBrowserStore.getState().tabs.find((item) => item.id === "welcome")!;
   assert.equal(reloaded.artifactId, artifact.id);
-  assert.equal(reloaded.reloadKey, beforeTab.reloadKey + 1);
-  assert.equal(Object.keys(useBrowserStore.getState().generationJobs).length, jobCount);
+  assert.equal(reloaded.fallbackArtifactId, artifact.id);
+  assert.equal(reloaded.reloadKey, beforeTab.reloadKey);
+  assert.equal(Object.keys(useBrowserStore.getState().generationJobs).length, jobCount + 1);
+  assert.ok(reloaded.generationJobId);
+  assert.notEqual(reloaded.generationJobId, firstJobId);
+  assert.equal(reloaded.history.length, beforeTab.history.length);
+  assert.equal(useBrowserStore.getState().generationJobs[reloaded.generationJobId].sourceArtifactId, artifact.id);
+  assert.equal(useBrowserStore.getState().generationJobs[reloaded.generationJobId].navigationIntent.trigger, "regenerate");
+});
 
-  const nextJobId = useBrowserStore.getState().regenerate("welcome");
-  assert.ok(nextJobId);
-  assert.notEqual(nextJobId, firstJobId);
-  const regenerated = useBrowserStore.getState().tabs.find((item) => item.id === "welcome")!;
-  assert.equal(regenerated.artifactId, artifact.id);
-  assert.equal(regenerated.generationJobId, nextJobId);
-  assert.equal(regenerated.history.length, beforeTab.history.length);
-  assert.equal(useBrowserStore.getState().generationJobs[nextJobId].sourceArtifactId, artifact.id);
+test("a cached commit records another profile-scoped visit without creating a new artifact version", () => {
+  const firstJobId = useBrowserStore.getState().navigate("welcome", "https://example.com/cached");
+  assert.ok(firstJobId);
+  const artifact = artifactFor(firstJobId, "artifact-cached", "https://example.com/cached");
+  assert.equal(useBrowserStore.getState().commitArtifact(firstJobId, artifact), true);
+
+  const secondJobId = useBrowserStore.getState().navigate("welcome", artifact.url);
+  assert.ok(secondJobId);
+  assert.equal(useBrowserStore.getState().commitCachedArtifact(secondJobId, artifact), true);
+  const state = useBrowserStore.getState();
+  assert.equal(state.tabs.find((item) => item.id === "welcome")?.artifactId, artifact.id);
+  assert.deepEqual(state.browsingHistory.slice(0, 2).map((entry) => entry.status), ["cached", "completed"]);
+  assert.ok(state.browsingHistory.slice(0, 2).every((entry) => entry.profileId === state.activeProfileId));
 });
 
 test("stale generation events cannot replace the current tab", () => {
@@ -297,6 +351,18 @@ test("version-one persisted tabs migrate without changing explicit remote surfac
   assert.equal(migrated.preferences?.reopenSession, DEFAULT_BROWSER_PREFERENCES.reopenSession);
   assert.deepEqual(migrated.artifacts, {});
   assert.equal(migrated.generationSettings?.style.tailwindEnabled, true);
+  assert.equal(migrated.generationSettings?.style.allowGeneratedScripts, false);
+  assert.equal(migrated.generationSettings?.style.progressiveRendering, true);
+  assert.equal(migrated.generationSettings?.images.provider, "tag-placeholder");
+  assert.equal(migrated.generationSettings?.images.allowExternalRequests, true);
+});
+
+test("migration preserves an explicit generated JavaScript opt-in", () => {
+  const migrated = migrateBrowserState({
+    generationSettings: { style: { allowGeneratedScripts: true } },
+  }, 6);
+
+  assert.equal(migrated.generationSettings?.style.allowGeneratedScripts, true);
 });
 
 test("migration repairs a tab id overwritten by a history entry", () => {
@@ -326,6 +392,52 @@ test("migration repairs a tab id overwritten by a history entry", () => {
   assert.equal(migrated.generationJobs?.["job-restored"].tabId, "original-tab");
 });
 
+test("migration repairs escaped URLs in restored tabs, artifacts, jobs, and browsing history", () => {
+  const brokenUrl = String.raw`https://wildberries.ru/%22/catalog/0/detail.aspx?cardId=845121\%22`;
+  const canonicalUrl = "https://wildberries.ru/catalog/0/detail.aspx?cardId=845121";
+  const migrated = migrateBrowserState({
+    tabs: [{
+      id: "broken-link-tab",
+      title: "Wildberries",
+      location: brokenUrl,
+      kind: "generated",
+      artifactId: "broken-link-artifact",
+      generationJobId: "broken-link-job",
+      history: [{ location: brokenUrl, title: "Wildberries", kind: "generated" }],
+      historyIndex: 0,
+    }],
+    activeTabId: "broken-link-tab",
+    generationJobs: {
+      "broken-link-job": {
+        id: "broken-link-job",
+        tabId: "broken-link-tab",
+        normalizedUrl: brokenUrl,
+      },
+    },
+    artifacts: {
+      "broken-link-artifact": {
+        id: "broken-link-artifact",
+        url: brokenUrl,
+      },
+    },
+    browsingHistory: [{
+      id: "broken-link-visit",
+      profileId: "personal",
+      url: brokenUrl,
+      title: "Wildberries",
+      status: "completed",
+      openedAt: "2026-08-14T00:00:00.000Z",
+      updatedAt: "2026-08-14T00:00:00.000Z",
+    }],
+  }, 6);
+
+  assert.equal(migrated.tabs?.[0].location, canonicalUrl);
+  assert.equal(migrated.tabs?.[0].history[0].location, canonicalUrl);
+  assert.equal(migrated.generationJobs?.["broken-link-job"].normalizedUrl, canonicalUrl);
+  assert.equal(migrated.artifacts?.["broken-link-artifact"].url, canonicalUrl);
+  assert.equal(migrated.browsingHistory?.[0].url, canonicalUrl);
+});
+
 test("migration replaces an unavailable model but preserves a configured BYOK model", () => {
   const unavailable = migrateBrowserState({ activeModelId: "codex:auto" }, 3);
   assert.equal(unavailable.activeModelId, "mock:preview");
@@ -346,7 +458,7 @@ test("migration replaces an unavailable model but preserves a configured BYOK mo
   assert.equal(configured.activeModelId, "openai:gpt-test");
 });
 
-test("removing a provider resets its selected and mode-specific models", () => {
+test("removing a provider resets the selected profile model", () => {
   useBrowserStore.setState((state) => ({
     activeModelId: "openai:gpt-test",
     providerConnections: [{
@@ -358,16 +470,11 @@ test("removing a provider resets its selected and mode-specific models", () => {
       status: "valid",
       modelIds: ["openai:gpt-test"],
     }],
-    generationSettings: {
-      ...state.generationSettings,
-      defaultModelByMode: { quick: "openai:gpt-test", deep: "mock:preview" },
-    },
   }));
 
   useBrowserStore.getState().removeProviderConnection("openai-main");
   const state = useBrowserStore.getState();
   assert.equal(state.activeModelId, "mock:preview");
-  assert.deepEqual(state.generationSettings.defaultModelByMode, { deep: "mock:preview" });
 });
 
 function artifactFor(jobId: string, id: string, url: string): PageArtifact {
@@ -381,10 +488,25 @@ function artifactFor(jobId: string, id: string, url: string): PageArtifact {
     siteWorldId: job.siteWorldId ?? "site-example",
     generationJobId: jobId,
     modelId: job.modelId,
-    mode: job.mode,
-    promptVersion: 1,
+    promptVersion: 10,
     settingsFingerprint: "test",
     createdAt: new Date().toISOString(),
     warnings: [],
+    worldPromptSnapshot: job.worldPromptSnapshot,
+    siteIdentity: {
+      classification: "original",
+      locale: "en-US",
+      era: "contemporary",
+      name: "Example",
+      purpose: "Example site",
+      audience: "Readers",
+      visualLanguage: { palette: ["#111111", "#ffffff"], typography: "Arimo Variable", density: "comfortable", radius: "subtle", mood: "calm" },
+      establishedFacts: [],
+      routeHints: [{ path: "/", label: "Home" }, { path: "/news", label: "News" }, { path: "/about", label: "About" }, { path: "/archive", label: "Archive" }],
+      palette: { background: "#ffffff", surface: "#ffffff", text: "#111111", mutedText: "#555555", accent: "#2255aa", accentText: "#ffffff", border: "#dddddd" },
+      fonts: { body: "Arimo Variable", heading: "Source Sans 3 Variable" },
+      layoutSystem: "Editorial grid",
+      favicon: { kind: "glyph", glyph: "E", foreground: "#ffffff", background: "#2255aa", shape: "rounded-square" },
+    },
   };
 }

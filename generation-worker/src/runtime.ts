@@ -30,15 +30,7 @@ interface ActiveJob {
 }
 
 function externalPhase(phase: GenerationPhase): string {
-  switch (phase) {
-    case "planning-site":
-    case "planning-page":
-      return "planning";
-    case "repairing":
-      return "validating";
-    default:
-      return phase;
-  }
+  return phase;
 }
 
 export class WorkerRuntime {
@@ -85,7 +77,7 @@ export class WorkerRuntime {
           protocolVersion: PROTOCOL_VERSION,
           workerVersion: WORKER_VERSION,
           capabilities: {
-            modes: ["quick", "deep"],
+            generationStages: ["page-director", "page-builder"],
             providers: ["mock", "openai", "anthropic", "google", "openai-compatible", "codex"],
           },
         });
@@ -165,7 +157,7 @@ export class WorkerRuntime {
           version: 1,
         };
         const result = await executor.generateObject({
-          purpose: "quick-page",
+          purpose: "page-director",
           schema,
           prompt,
           abortSignal: signal,
@@ -247,7 +239,7 @@ export class WorkerRuntime {
         requestId: request.requestId,
         jobId: request.jobId,
         url: request.url,
-        mode: request.mode,
+        siteWorldId: request.siteWorldId,
         providerId: executor.providerId,
         modelId: executor.modelId,
         actualProviderKind: executor.actualProviderKind,
@@ -270,13 +262,20 @@ export class WorkerRuntime {
             ...metadata,
           });
         },
-        validation: async (issues, repairWillRun) => {
+        preview: async (html) => {
+          await sendJob({
+            type: "generation.preview",
+            requestId: request.requestId,
+            jobId: request.jobId,
+            html,
+          });
+        },
+        validation: async (issues) => {
           await sendJob({
             type: "generation.validation",
             requestId: request.requestId,
             jobId: request.jobId,
             issues,
-            repairWillRun,
           });
         },
         warning: async (warning) => {

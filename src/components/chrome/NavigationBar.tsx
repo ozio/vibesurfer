@@ -23,7 +23,7 @@ export function NavigationBar({ tab }: { tab: BrowserTab }) {
         {tab.loadState === "loading" ? (
           <IconButton label="Stop" onClick={() => setLoadState(tab.id, "idle")}><X aria-hidden="true" /></IconButton>
         ) : (
-          <IconButton label={tab.kind === "generated" ? "Reload artifact" : "Reload"} onClick={() => reload(tab.id)}>
+          <IconButton label={tab.archivedSiteWorldId ? "Reload archived snapshot" : tab.kind === "generated" ? "Regenerate page" : "Reload"} onClick={() => reload(tab.id)}>
             <RotateCw aria-hidden="true" />
           </IconButton>
         )}

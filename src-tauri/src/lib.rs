@@ -21,6 +21,7 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use storage::Storage;
 use tauri::{ipc::Channel, AppHandle, Manager, State};
+use tauri_plugin_deep_link::DeepLinkExt;
 use worker::WorkerManager;
 use zeroize::Zeroizing;
 
@@ -422,6 +423,19 @@ fn get_artifact(
 }
 
 #[tauri::command]
+fn get_cached_artifact(
+    profile_id: String,
+    site_id: String,
+    url: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<Option<ArtifactRecord>, String> {
+    runtime
+        .storage
+        .latest_artifact_for_url(&profile_id, &site_id, &url)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn list_artifacts(
     profile_id: String,
     limit: Option<usize>,
@@ -499,6 +513,50 @@ fn delete_profile_site_worlds(
     runtime
         .storage
         .delete_profile_site_worlds(&profile_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn archive_profile_site_worlds(
+    profile_id: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<usize, String> {
+    runtime
+        .storage
+        .archive_profile_site_worlds(&profile_id, &chrono::Utc::now().to_rfc3339())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn activate_site_world(
+    profile_id: String,
+    id: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<bool, String> {
+    runtime
+        .storage
+        .activate_site_world(&profile_id, &id, &chrono::Utc::now().to_rfc3339())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn delete_profile_data(
+    profile_id: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<usize, String> {
+    let providers = runtime
+        .storage
+        .list_providers(&profile_id)
+        .map_err(|error| error.to_string())?;
+    for provider in &providers {
+        runtime
+            .secrets
+            .delete(&provider.secret_ref)
+            .map_err(|error| error.to_string())?;
+    }
+    runtime
+        .storage
+        .delete_profile_data(&profile_id)
         .map_err(|error| error.to_string())
 }
 
@@ -692,9 +750,61 @@ async fn cancel_generation(job_id: String, runtime: State<'_, AppRuntime>) -> Re
         .map_err(|error| error.to_string())
 }
 
+fn validated_window_corner_radius(radius: f64) -> Result<f64, String> {
+    if radius.is_finite() && (0.0..=64.0).contains(&radius) {
+        Ok(radius)
+    } else {
+        Err("window corner radius must be a finite value between 0 and 64".into())
+    }
+}
+
+#[tauri::command]
+fn set_window_corner_radius(window: tauri::WebviewWindow, radius: f64) -> Result<(), String> {
+    let radius = validated_window_corner_radius(radius)?;
+    #[cfg(target_os = "macos")]
+    apply_macos_window_corner_radius(window, radius)?;
+    #[cfg(not(target_os = "macos"))]
+    let _ = (window, radius);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn apply_macos_window_corner_radius(
+    window: tauri::WebviewWindow,
+    radius: f64,
+) -> Result<(), String> {
+    use objc2_app_kit::{NSColor, NSWindow};
+    use objc2_quartz_core::kCACornerCurveContinuous;
+
+    window
+        .with_webview(move |webview| unsafe {
+            let native_window: &NSWindow = &*webview.ns_window().cast();
+            native_window.setOpaque(false);
+            let clear = NSColor::clearColor();
+            native_window.setBackgroundColor(Some(&clear));
+            if let Some(content_view) = native_window.contentView() {
+                content_view.setWantsLayer(true);
+                if let Some(layer) = content_view.layer() {
+                    layer.setCornerRadius(radius);
+                    layer.setCornerCurve(kCACornerCurveContinuous);
+                    layer.setMasksToBounds(radius > 0.0);
+                }
+            }
+            native_window.invalidateShadow();
+        })
+        .map_err(|error| format!("could not update the native window shape: {error}"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|_, _, _| {}));
+    }
+
+    builder
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_data = app.path().app_data_dir()?;
@@ -703,6 +813,20 @@ pub fn run() {
                 storage,
                 secrets: SecretVault,
                 worker: WorkerManager::new(),
+            });
+            let app_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                if event
+                    .urls()
+                    .iter()
+                    .any(|url| is_supported_deep_link(url.as_str()))
+                {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.unminimize();
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                }
             });
             Ok(())
         })
@@ -716,6 +840,7 @@ pub fn run() {
             delete_provider_secret,
             save_artifact,
             get_artifact,
+            get_cached_artifact,
             list_artifacts,
             delete_profile_artifacts,
             upsert_site_world,
@@ -723,15 +848,28 @@ pub fn run() {
             list_site_worlds,
             delete_site_world,
             delete_profile_site_worlds,
+            archive_profile_site_worlds,
+            activate_site_world,
+            delete_profile_data,
             upsert_provider_connection,
             list_provider_connections,
             delete_provider_connection,
             verify_provider_connection,
             start_generation,
-            cancel_generation
+            cancel_generation,
+            set_window_corner_radius
         ])
         .run(tauri::generate_context!())
-        .expect("error while running VibeSurfer");
+        .expect("error while running vibesurfer");
+}
+
+fn is_supported_deep_link(value: &str) -> bool {
+    value.len() <= 4_096
+        && value == value.trim()
+        && !value.chars().any(char::is_control)
+        && value.split_once("://").is_some_and(|(scheme, _)| {
+            scheme.eq_ignore_ascii_case("vibe") || scheme.eq_ignore_ascii_case("vibes")
+        })
 }
 
 #[cfg(test)]
@@ -741,8 +879,9 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        delete_secret_before_provider_record, discover_codex_with, provider_connection_id,
-        provider_for_worker, CodexProbe, CodexProbeState, ProviderConnectionRecord,
+        delete_secret_before_provider_record, discover_codex_with, is_supported_deep_link,
+        provider_connection_id, provider_for_worker, validated_window_corner_radius, CodexProbe,
+        CodexProbeState, ProviderConnectionRecord,
     };
     use std::path::{Path, PathBuf};
 
@@ -759,6 +898,30 @@ mod tests {
             last_verified_at: None,
             payload: json!({ "modelIds": ["openai:gpt-test"] }),
         }
+    }
+
+    #[test]
+    fn deep_link_filter_accepts_only_configured_protocols() {
+        assert!(is_supported_deep_link("vibe://open"));
+        assert!(is_supported_deep_link("vibes://open/path?ignored=true"));
+        assert!(is_supported_deep_link("VIBES://open"));
+        assert!(!is_supported_deep_link("vibeevil://open"));
+        assert!(!is_supported_deep_link("https://example.com"));
+        assert!(!is_supported_deep_link(" vibe://open"));
+        assert!(!is_supported_deep_link("vibe://open\n"));
+        assert!(!is_supported_deep_link(&format!(
+            "vibe://{}",
+            "x".repeat(4_090)
+        )));
+    }
+
+    #[test]
+    fn native_window_radius_is_bounded() {
+        assert_eq!(validated_window_corner_radius(0.0), Ok(0.0));
+        assert_eq!(validated_window_corner_radius(28.0), Ok(28.0));
+        assert!(validated_window_corner_radius(-1.0).is_err());
+        assert!(validated_window_corner_radius(65.0).is_err());
+        assert!(validated_window_corner_radius(f64::NAN).is_err());
     }
 
     #[test]

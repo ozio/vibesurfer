@@ -3,6 +3,7 @@ import react from "@vitejs/plugin-react";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import type { AtRule, Plugin as PostCssPlugin, Root } from "postcss";
 
 const host = process.env.TAURI_DEV_HOST;
 const frameRuntimeSource = readFileSync(
@@ -20,7 +21,71 @@ export function injectArtifactFrameRuntime(html: string) {
     );
 }
 
+const ARTIFACT_FONT_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  "Arimo Variable": ["Arial", "Verdana", "MS Sans Serif"],
+  Tinos: ["MS Serif", "Times New Roman"],
+  Cousine: ["Courier New", "Monaco"],
+  "Roboto Condensed Variable": ["Arial Narrow"],
+  "Source Sans 3 Variable": [
+    "Tahoma",
+    "Trebuchet MS",
+    "Lucida Sans Unicode",
+    "Helvetica Neue",
+    "Helvetica",
+    "Geneva",
+    "Lucida Grande",
+    "Myriad",
+    "Myriad Pro",
+  ],
+  "Gelasio Variable": ["Georgia"],
+  "Comic Neue": ["Comic Sans MS"],
+  Anton: ["Impact"],
+  "Archivo Black": ["Arial Black"],
+};
+
+function artifactFontAliases(): PostCssPlugin {
+  return {
+    postcssPlugin: "vibesurfer-artifact-font-aliases",
+    Once(root: Root) {
+      const input = root.source?.input.file?.replaceAll("\\", "/") ?? "";
+      if (!input.endsWith("/src/artifacts/artifact-fonts.css")) return;
+
+      const aliases: AtRule[] = [];
+      root.walkAtRules("font-face", (fontFace) => {
+        let family = "";
+        fontFace.walkDecls("font-family", (declaration) => {
+          family ||= declaration.value.replace(/^['\"]|['\"]$/g, "");
+        });
+        fontFace.walkDecls("src", (declaration) => {
+          // Fontsource keeps WOFF as an old-browser fallback. The artifact
+          // WebView supports WOFF2, so shipping both would double the CJK pack.
+          declaration.value = declaration.value.replace(
+            /,\s*url\([^)]*\.woff\)\s*format\((['\"])woff\1\)/gi,
+            "",
+          );
+        });
+        for (const alias of ARTIFACT_FONT_ALIASES[family] ?? []) {
+          const clone = fontFace.clone();
+          clone.walkDecls("font-family", (declaration) => {
+            declaration.value = JSON.stringify(alias);
+          });
+          clone.walkDecls("src", (declaration) => {
+            declaration.value = `local(${JSON.stringify(alias)}), ${declaration.value}`;
+          });
+          aliases.push(clone);
+        }
+      });
+      root.append(aliases);
+    },
+  };
+}
+
 export default defineConfig({
+  css: {
+    postcss: {
+      plugins: [artifactFontAliases()],
+    },
+  },
   plugins: [
     react(),
     {
@@ -75,6 +140,16 @@ export default defineConfig({
       : undefined,
     watch: {
       ignored: ["**/src-tauri/**"],
+    },
+    headers: {
+      // Artifact frames intentionally have an opaque sandbox origin. Local
+      // immutable CSS/font assets therefore need an explicit CORS grant.
+      "Access-Control-Allow-Origin": "*",
+    },
+  },
+  preview: {
+    headers: {
+      "Access-Control-Allow-Origin": "*",
     },
   },
 });

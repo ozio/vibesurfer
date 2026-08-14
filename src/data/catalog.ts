@@ -39,8 +39,38 @@ export const MODELS: ModelOption[] = [
 ];
 
 export const PROFILES: BrowserProfile[] = [
-  { id: "personal", name: "Personal", avatar: "O", caption: "Local browser workspace" },
+  {
+    id: "personal",
+    name: "Personal",
+    avatar: "O",
+    caption: "Local browser workspace",
+    chromeSkin: "native",
+    worldPrompt: { revision: 0, prompt: "" },
+    createdAt: "2026-01-01T00:00:00.000Z",
+  },
 ];
+
+export const PROFILE_PRESETS = {
+  native: { name: "Native", avatar: "N", chromeSkin: "native", prompt: "" },
+  quiet: {
+    name: "Quiet Web",
+    avatar: "Q",
+    chromeSkin: "sedative",
+    prompt: "This is the Quiet Web: a humane, unhurried parallel internet shaped by privacy, repair, craft, public life, and low-stimulation interfaces. Keep each destination's authentic function while expressing this world through concrete ordinary details.",
+  },
+  explorer: {
+    name: "Internet Explorer",
+    avatar: "E",
+    chromeSkin: "ie-classic",
+    prompt: "This internet is alive in the Web 1.0 era, roughly 1997-2003. Every site uses the conventions, technology, optimism, clutter, and handmade character of that era, even when its underlying world contains impossible science or alternate history.",
+  },
+  cyberpunk: {
+    name: "Cyberpunk",
+    avatar: "C",
+    chromeSkin: "cyberpunk",
+    prompt: "This is the near-future Consensus Net: megacorporations, municipal AIs, synthetic citizens, orbital infrastructure, surveillance systems, street clinics, and pirate relays are ordinary. Reveal power and lived history through useful interfaces and specific data.",
+  },
+} as const;
 
 export function modelCatalog(connections: ProviderConnection[], profileId?: string): ModelOption[] {
   const configured = connections.filter((connection) => !profileId || connection.profileId === profileId).flatMap((connection) =>

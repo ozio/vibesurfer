@@ -1,45 +1,50 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, Info, LoaderCircle, TriangleAlert } from "lucide-react";
+import { ArrowLeft, ArrowRight, Code2, ExternalLink, Info, RefreshCw, TriangleAlert, X } from "lucide-react";
+import { Dialog } from "radix-ui";
 import { connectArtifactFrame, type ArtifactFrameConnection } from "../../artifacts/iframe-host";
 import type { ArtifactFrameEvent } from "../../artifacts/bridge-protocol";
+import { createBridgeNonce } from "../../artifacts/document";
 import "../../artifacts/artifact-surface.css";
-import { modelCatalog } from "../../data/catalog";
 import {
   buildLegacyGeneratedArtifactDocument,
   compileGeneratedArtifactDocument,
 } from "../../lib/generated-document";
 import { openExternal } from "../../lib/platform";
+import { activatePersistedSiteWorld } from "../../generation/host-api";
 import { useBrowserStore } from "../../store/browser-store";
 import type {
   BrowserTab,
-  GenerationPhase,
   NavigationIntent,
 } from "../../types/browser";
 import { NewTabPage } from "./NewTabPage";
+import { HistoryPage } from "./HistoryPage";
 
-const PHASE_LABELS: Record<GenerationPhase, string> = {
-  queued: "Waiting for the model",
-  "preparing-context": "Preparing site context",
-  planning: "Imagining the site",
-  generating: "Writing the page",
-  validating: "Checking the result",
-  "compiling-styles": "Compiling styles",
-  "resolving-images": "Resolving images",
-  committing: "Saving the artifact",
-  completed: "Opening the page",
-  failed: "Generation failed",
-  cancelled: "Generation stopped",
-};
+interface PageContextMenuState {
+  left: number;
+  top: number;
+  href?: string;
+  linkText?: string;
+  ariaLabel?: string;
+  context?: string;
+}
 
-export function PageSurface({ tab }: { tab: BrowserTab }) {
+interface PendingArchivedNavigation {
+  href: string;
+  baseUrl: string;
+  disposition: "current" | "foreground-tab" | "background-tab";
+  intent: Partial<NavigationIntent>;
+}
+
+export function PageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHover?: (href?: string) => void }) {
   if (tab.kind === "new-tab") return <NewTabPage />;
-  if (tab.kind === "generated") return <GeneratedPageSurface tab={tab} />;
+  if (tab.kind === "history") return <HistoryPage />;
+  if (tab.kind === "generated") return <GeneratedPageSurface tab={tab} onLinkHover={onLinkHover} />;
 
   return (
     <div className="page-surface page-surface--remote">
       <div className="surface-error">
         <Info aria-hidden="true" />
-        <h2>Live web stays outside VibeSurfer</h2>
+        <h2>Live web stays outside vibesurfer</h2>
         <p>This legacy tab will not contact <strong>{safeHostname(tab.location)}</strong>. Generate an imagined version from the address bar, or explicitly open the live site in your system browser.</p>
         <button className="button button--primary" type="button" onClick={() => void openExternal(tab.location)}><ExternalLink aria-hidden="true" /> Open live site externally</button>
       </div>
@@ -47,18 +52,29 @@ export function PageSurface({ tab }: { tab: BrowserTab }) {
   );
 }
 
-function GeneratedPageSurface({ tab }: { tab: BrowserTab }) {
+function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHover?: (href?: string) => void }) {
   const theme = useBrowserStore((state) => state.preferences.theme);
-  const providerConnections = useBrowserStore((state) => state.providerConnections);
-  const activeProfileId = useBrowserStore((state) => state.activeProfileId);
-  const artifact = useBrowserStore((state) => tab.artifactId ? state.artifacts[tab.artifactId] : undefined);
+  const artifact = useBrowserStore((state) => {
+    const artifactId = tab.artifactId ?? tab.fallbackArtifactId;
+    return artifactId ? state.artifacts[artifactId] : undefined;
+  });
   const job = useBrowserStore((state) => tab.generationJobId ? state.generationJobs[tab.generationJobId] : undefined);
   const navigate = useBrowserStore((state) => state.navigate);
   const addTab = useBrowserStore((state) => state.addTab);
+  const go = useBrowserStore((state) => state.go);
   const setLoadState = useBrowserStore((state) => state.setLoadState);
   const setTabMetadata = useBrowserStore((state) => state.setTabMetadata);
   const regenerate = useBrowserStore((state) => state.regenerate);
   const reload = useBrowserStore((state) => state.reload);
+  const openSettings = useBrowserStore((state) => state.openSettings);
+  const markFrameReady = useBrowserStore((state) => state.markFrameReady);
+  const restoreSiteWorld = useBrowserStore((state) => state.restoreSiteWorld);
+  const activeProfileId = useBrowserStore((state) => state.activeProfileId);
+  const archivedSiteWorld = useBrowserStore((state) => {
+    const id = tab.archivedSiteWorldId ?? tab.siteWorldId;
+    const world = id ? state.siteWorlds[id] : undefined;
+    return world?.state === "archived" ? world : undefined;
+  });
   const frameRef = useRef<HTMLIFrameElement>(null);
   const connectionRef = useRef<{
     key: string;
@@ -68,38 +84,87 @@ function GeneratedPageSurface({ tab }: { tab: BrowserTab }) {
   const [readyKey, setReadyKey] = useState<string>();
   const [armedKey, setArmedKey] = useState<string>();
   const [bridgeFailure, setBridgeFailure] = useState<{ key: string; message: string }>();
-  const [runtimeWarning, setRuntimeWarning] = useState<{ key: string; message: string }>();
+  const [contextMenu, setContextMenu] = useState<PageContextMenuState>();
+  const [sourceOpen, setSourceOpen] = useState(false);
+  const [pendingArchivedNavigation, setPendingArchivedNavigation] = useState<PendingArchivedNavigation>();
 
   const isGenerating = job?.status === "queued" || job?.status === "running";
   const generationFailed = job?.status === "failed" || job?.status === "cancelled";
   const hasRecoverableArtifact = Boolean(artifact);
+  const hasPreview = Boolean(job?.previewHtml);
   const legacyPrompt = artifact ? undefined : tab.prompt ?? tab.title;
   const legacyArtifactId = artifact ? undefined : tab.artifactId ?? `legacy-${tab.id}`;
   const legacyUrl = artifact
     ? undefined
     : tab.virtualLocation?.url ?? (tab.location.startsWith("http") ? tab.location : undefined);
+  // Do not replace the current document while the next request is waiting for
+  // its first streamed HTML fragment. After previewHtml appears, the job id is
+  // the stable identity for the rest of that stream and its final artifact.
+  const frameSessionKey = hasPreview
+    ? job?.id ?? artifact?.id ?? legacyArtifactId ?? `generated-${tab.id}`
+    : artifact?.id ?? legacyArtifactId ?? `generated-${tab.id}`;
+  const frameIdentityRef = useRef<{ key: string; nonce: string } | undefined>(undefined);
+  if (!frameIdentityRef.current || frameIdentityRef.current.key !== frameSessionKey) {
+    frameIdentityRef.current = { key: frameSessionKey, nonce: createBridgeNonce() };
+  }
+  const frameIdentity = frameIdentityRef.current;
   const compiledResult = useMemo(() => {
-    if (isGenerating || (generationFailed && !hasRecoverableArtifact)) return undefined;
+    if ((isGenerating && !hasPreview && !hasRecoverableArtifact) || (generationFailed && !hasRecoverableArtifact && !hasPreview)) {
+      return undefined;
+    }
     try {
-      const document = artifact
-        ? compileGeneratedArtifactDocument({
-            artifactId: artifact.id,
+      const shouldShowPreview = hasPreview && (isGenerating || generationFailed || !artifact);
+      if (shouldShowPreview && job?.previewHtml) {
+        const url = job.normalizedUrl ?? job.requestedUrl ?? tab.virtualLocation?.url ?? tab.location;
+        const title = job.provisionalTitle ?? artifact?.title ?? tab.title ?? "Generating page";
+        return {
+          ok: true as const,
+          document: compileGeneratedArtifactDocument({
+            artifactId: frameIdentity.key,
+            nonce: frameIdentity.nonce,
+            url,
+            title,
+            html: job.previewHtml,
+          }),
+          sourceArtifactId: artifact?.id ?? job.sourceArtifactId ?? frameIdentity.key,
+          sourceUrl: url,
+          isPreview: true,
+        };
+      }
+      if (artifact) {
+        return {
+          ok: true as const,
+          document: compileGeneratedArtifactDocument({
+            artifactId: frameIdentity.key,
+            nonce: frameIdentity.nonce,
             url: artifact.url,
             title: artifact.title,
             html: artifact.html,
-          })
-        : buildLegacyGeneratedArtifactDocument(legacyPrompt ?? "Generated page", theme, {
-            artifactId: legacyArtifactId,
-            url: legacyUrl,
-          });
-      return { ok: true as const, document };
+            allowGeneratedScripts: artifact.allowGeneratedScripts === true,
+          }),
+          sourceArtifactId: artifact.id,
+          sourceUrl: artifact.url,
+          isPreview: false,
+        };
+      }
+      const document = buildLegacyGeneratedArtifactDocument(legacyPrompt ?? "Generated page", theme, {
+        artifactId: legacyArtifactId,
+        url: legacyUrl,
+      });
+      return {
+        ok: true as const,
+        document,
+        sourceArtifactId: document.artifactId,
+        sourceUrl: document.payload.pageUrl,
+        isPreview: false,
+      };
     } catch (error) {
       return {
         ok: false as const,
         message: error instanceof Error ? error.message : "The generated document could not be prepared.",
       };
     }
-  }, [artifact, generationFailed, hasRecoverableArtifact, isGenerating, legacyArtifactId, legacyPrompt, legacyUrl, tab.reloadKey, theme]);
+  }, [artifact, frameIdentity.key, frameIdentity.nonce, generationFailed, hasPreview, hasRecoverableArtifact, isGenerating, job, legacyArtifactId, legacyPrompt, legacyUrl, tab.location, tab.title, tab.virtualLocation?.url, theme]);
 
   const documentKey = compiledResult?.ok
     ? `${compiledResult.document.artifactId}:${compiledResult.document.nonce}:${tab.reloadKey}`
@@ -109,40 +174,51 @@ function GeneratedPageSurface({ tab }: { tab: BrowserTab }) {
     ? artifactFrameUrl(compiledResult.document)
     : undefined;
   const currentBridgeFailure = documentKey && bridgeFailure?.key === documentKey ? bridgeFailure.message : undefined;
-  const currentRuntimeWarning = documentKey && runtimeWarning?.key === documentKey ? runtimeWarning.message : undefined;
-  const displayedWarning = currentRuntimeWarning
-    ?? (generationFailed && hasRecoverableArtifact
-      ? `${job?.error?.message ?? "Generation stopped"}. Showing the previous artifact.`
-      : undefined);
-  const models = useMemo(() => modelCatalog(providerConnections, activeProfileId), [activeProfileId, providerConnections]);
-  const modelLabel = models.find((model) => model.id === (artifact?.modelId ?? tab.generatedWith))?.name
-    ?? artifact?.modelId
-    ?? tab.generatedWith
-    ?? "Model";
+  const frameContextRef = useRef({
+    sourceUrl: tab.location,
+    sourceArtifactId: frameSessionKey,
+  });
+  if (compiledResult?.ok) {
+    frameContextRef.current = {
+      sourceUrl: compiledResult.sourceUrl,
+      sourceArtifactId: compiledResult.sourceArtifactId,
+    };
+  }
+  const isGeneratingRef = useRef(isGenerating);
+  isGeneratingRef.current = isGenerating;
 
   useEffect(() => {
     const effectKey = documentKey;
+    setContextMenu(undefined);
+    setSourceOpen(false);
     return () => {
+      onLinkHover?.();
       const current = connectionRef.current;
       if (current && current.key === effectKey) {
         current.connection.disconnect();
         connectionRef.current = null;
       }
     };
-  }, [documentKey]);
+  }, [documentKey, onLinkHover]);
 
-  const handleFrameEvent = useCallback((event: ArtifactFrameEvent, key: string, artifactUrl: string, artifactId: string) => {
+  const handleFrameEvent = useCallback((event: ArtifactFrameEvent, key: string) => {
     if (event.type === "ready-for-render") return;
     if (event.type === "ready") {
       readyKeyRef.current = key;
       setReadyKey(key);
-      setLoadState(tab.id, "idle");
+      if (!isGeneratingRef.current) setLoadState(tab.id, "idle");
+      markFrameReady(tab.id);
       if (event.title) setTabMetadata(tab.id, { title: event.title }, tab.generationJobId);
       return;
     }
 
     if (event.type === "runtime-error") {
-      setRuntimeWarning({ key, message: event.message });
+      console.warn("Page runtime warning", event.message);
+      return;
+    }
+
+    if (event.type === "link-hover") {
+      onLinkHover?.(event.href);
       return;
     }
 
@@ -151,85 +227,136 @@ function GeneratedPageSurface({ tab }: { tab: BrowserTab }) {
       return;
     }
 
-    if (event.type === "form-submit") {
-      const destination = appendFormFields(event.action, event.fields);
-      const formFields = flattenFormFields(event.fields);
-      navigate(tab.id, destination, {
-        baseUrl: artifactUrl,
-        intent: {
-          trigger: "form",
-          disposition: "current",
-          requestedUrl: destination,
-          sourceTabId: tab.id,
-          sourceArtifactId: artifactId,
-          formFields,
-        },
+    if (event.type === "context-menu") {
+      const frameBounds = frameRef.current?.getBoundingClientRect();
+      if (!frameBounds) return;
+      const menuWidth = 242;
+      const menuHeight = event.href ? 185 : 148;
+      setContextMenu({
+        left: Math.max(8, Math.min(frameBounds.left + event.x, window.innerWidth - menuWidth - 8)),
+        top: Math.max(8, Math.min(frameBounds.top + event.y, window.innerHeight - menuHeight - 8)),
+        href: event.href,
+        linkText: event.linkText,
+        ariaLabel: event.ariaLabel,
+        context: event.context,
       });
       return;
     }
 
+    if (event.type === "browser-command") {
+      openSettings("general");
+      return;
+    }
+
+    if (event.type === "form-submit") {
+      const { sourceUrl, sourceArtifactId } = frameContextRef.current;
+      const destination = appendFormFields(event.action, event.fields);
+      const formFields = flattenFormFields(event.fields);
+      const intent: Partial<NavigationIntent> = {
+          trigger: "form",
+          disposition: "current",
+          requestedUrl: destination,
+          sourceTabId: tab.id,
+          sourceArtifactId,
+          formFields,
+      };
+      if (archivedSiteWorld) {
+        setPendingArchivedNavigation({ href: destination, baseUrl: sourceUrl, disposition: "current", intent });
+      } else {
+        navigate(tab.id, destination, { baseUrl: sourceUrl, intent });
+      }
+      return;
+    }
+
     if (event.type === "hash-change") {
+      const { sourceUrl, sourceArtifactId } = frameContextRef.current;
       navigate(tab.id, event.href, {
-        baseUrl: artifactUrl,
+        baseUrl: sourceUrl,
         intent: {
           trigger: "link",
           disposition: "current",
           requestedUrl: event.href,
           sourceTabId: tab.id,
-          sourceArtifactId: artifactId,
+          sourceArtifactId,
         },
       });
       return;
     }
 
+    if (event.type !== "navigate") return;
+    const { sourceUrl, sourceArtifactId } = frameContextRef.current;
     const intent: Partial<NavigationIntent> = {
       trigger: "link",
       disposition: event.disposition,
       requestedUrl: event.href,
       sourceTabId: tab.id,
-      sourceArtifactId: artifactId,
+      sourceArtifactId,
       linkText: event.linkText,
       ariaLabel: event.ariaLabel,
       surroundingText: event.context,
     };
-    if (event.disposition === "current") {
-      navigate(tab.id, event.href, { baseUrl: artifactUrl, intent });
+    if (archivedSiteWorld) {
+      setPendingArchivedNavigation({ href: event.href, baseUrl: sourceUrl, disposition: event.disposition, intent });
+    } else if (event.disposition === "current") {
+      navigate(tab.id, event.href, { baseUrl: sourceUrl, intent });
     } else {
       addTab(event.href, {
         disposition: event.disposition,
-        opener: { tabId: tab.id, artifactId },
-        baseUrl: artifactUrl,
+        opener: { tabId: tab.id, artifactId: sourceArtifactId },
+        baseUrl: sourceUrl,
         intent,
       });
     }
-  }, [addTab, navigate, setLoadState, setTabMetadata, tab.generationJobId, tab.id]);
+  }, [addTab, archivedSiteWorld, markFrameReady, navigate, onLinkHover, openSettings, setLoadState, setTabMetadata, tab.generationJobId, tab.id]);
+
+  const continueArchivedNavigation = useCallback((restore: boolean) => {
+    const pending = pendingArchivedNavigation;
+    if (!pending) return;
+    if (restore && archivedSiteWorld) {
+      if (!restoreSiteWorld(archivedSiteWorld.id, tab.id)) return;
+      void activatePersistedSiteWorld(activeProfileId, archivedSiteWorld.id).catch((error) => console.warn("Could not persist SiteWorld restore", error));
+    }
+    setPendingArchivedNavigation(undefined);
+    if (pending.disposition === "current") {
+      navigate(tab.id, pending.href, { baseUrl: pending.baseUrl, intent: pending.intent });
+    } else {
+      addTab(pending.href, {
+        disposition: pending.disposition,
+        opener: { tabId: tab.id, artifactId: frameContextRef.current.sourceArtifactId },
+        baseUrl: pending.baseUrl,
+        intent: pending.intent,
+      });
+    }
+  }, [activeProfileId, addTab, archivedSiteWorld, navigate, pendingArchivedNavigation, restoreSiteWorld, tab.id]);
 
   const ensureFrameConnection = useCallback(() => {
     const current = connectionRef.current;
-    if (current && current.key === documentKey) return;
+    if (current && current.key === documentKey && compiledResult?.ok) {
+      current.connection.updateRender(compiledResult.document.payload);
+      return;
+    }
     connectionRef.current?.connection.disconnect();
     connectionRef.current = null;
     if (!compiledResult?.ok || !documentKey) return;
     readyKeyRef.current = undefined;
     const { document } = compiledResult;
-    const artifactUrl = artifact?.url ?? tab.virtualLocation?.url ?? tab.location;
     const connection = connectArtifactFrame({
       getIframe: () => frameRef.current,
       artifactId: document.artifactId,
       nonce: document.nonce,
       render: document.payload,
-      onEvent: (event) => handleFrameEvent(event, documentKey, artifactUrl, document.artifactId),
+      onEvent: (event) => handleFrameEvent(event, documentKey),
       onRuntimeRestart: () => {
         readyKeyRef.current = undefined;
         setReadyKey((current) => current === documentKey ? undefined : current);
       },
       onProtocolError: (message) => {
-        if (readyKeyRef.current === documentKey) setRuntimeWarning({ key: documentKey, message });
+        if (readyKeyRef.current === documentKey) console.warn("Page bridge warning", message);
         else setBridgeFailure({ key: documentKey, message });
       },
     });
     connectionRef.current = { key: documentKey, connection };
-  }, [artifact?.url, compiledResult, documentKey, handleFrameEvent, tab.location, tab.virtualLocation?.url]);
+  }, [compiledResult, documentKey, handleFrameEvent]);
 
   // Register the parent listener in one synchronous commit, then mount the
   // static trusted shell in the next so its first bootstrap cannot race us.
@@ -244,11 +371,11 @@ function GeneratedPageSurface({ tab }: { tab: BrowserTab }) {
     setArmedKey((current) => current === documentKey ? current : documentKey);
   }, [compiledResult?.ok, documentKey, ensureFrameConnection]);
 
-  if (isGenerating) {
-    return <GenerationSkeleton phase={job?.phase ?? "queued"} />;
+  if (isGenerating && !hasPreview && !hasRecoverableArtifact) {
+    return <NewTabPage />;
   }
 
-  if (generationFailed && !hasRecoverableArtifact) {
+  if (generationFailed && !hasRecoverableArtifact && !hasPreview) {
     const cancelled = job?.status === "cancelled";
     return (
       <ArtifactError
@@ -286,7 +413,7 @@ function GeneratedPageSurface({ tab }: { tab: BrowserTab }) {
           ref={frameRef}
           key={documentKey}
           className={`page-frame ${frameReady ? "artifact-frame--ready" : "artifact-frame--connecting"}`}
-          title={artifact?.title ?? tab.title}
+          title={compiledResult.document.payload.title}
           src={frameUrl}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
@@ -297,29 +424,166 @@ function GeneratedPageSurface({ tab }: { tab: BrowserTab }) {
           }}
         />
       )}
-      {!frameReady && <GenerationSkeleton phase="completed" overlay />}
-      {displayedWarning && <div className="artifact-runtime-warning" role="status">{displayedWarning}</div>}
-      <div className="surface-chip"><span className="surface-chip__spark">✦</span> Generated artifact <span>·</span> {modelLabel}</div>
+      {contextMenu && (
+        <PageContextMenu
+          menu={contextMenu}
+          canGoBack={tab.historyIndex > 0}
+          canGoForward={tab.historyIndex < tab.history.length - 1}
+          onDismiss={() => setContextMenu(undefined)}
+          onBack={() => go(tab.id, -1)}
+          onForward={() => go(tab.id, 1)}
+          onReload={() => reload(tab.id)}
+          onViewSource={() => setSourceOpen(true)}
+          onOpenLink={contextMenu.href ? () => {
+            const { sourceUrl, sourceArtifactId } = frameContextRef.current;
+            const intent: Partial<NavigationIntent> = {
+                trigger: "link",
+                disposition: "background-tab",
+                requestedUrl: contextMenu.href!,
+                sourceTabId: tab.id,
+                sourceArtifactId,
+                linkText: contextMenu.linkText,
+                ariaLabel: contextMenu.ariaLabel,
+                surroundingText: contextMenu.context,
+            };
+            if (archivedSiteWorld) {
+              setPendingArchivedNavigation({ href: contextMenu.href!, baseUrl: sourceUrl, disposition: "background-tab", intent });
+            } else {
+              addTab(contextMenu.href!, {
+                disposition: "background-tab",
+                opener: { tabId: tab.id, artifactId: sourceArtifactId },
+                baseUrl: sourceUrl,
+                intent,
+              });
+            }
+          } : undefined}
+        />
+      )}
+      <Dialog.Root open={Boolean(pendingArchivedNavigation)} onOpenChange={(open) => { if (!open) setPendingArchivedNavigation(undefined); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog" aria-describedby="archived-navigation-description">
+            <Dialog.Title>Continue from an archived site?</Dialog.Title>
+            <Dialog.Description id="archived-navigation-description">This snapshot belongs to an archived SiteWorld. Choose which identity should own the next generated page.</Dialog.Description>
+            <div className="dialog__actions">
+              <button className="button button--primary" type="button" onClick={() => continueArchivedNavigation(false)}>Use current identity</button>
+              <button className="button" type="button" onClick={() => continueArchivedNavigation(true)}>Restore this identity</button>
+              <button className="button" type="button" onClick={() => setPendingArchivedNavigation(undefined)}>Cancel</button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <SourceDialog
+        open={sourceOpen}
+        onOpenChange={setSourceOpen}
+        title={compiledResult.document.payload.title}
+        source={compiledResult.isPreview && job?.previewHtml
+          ? job.previewHtml
+          : artifact?.html ?? compiledResult.document.payload.html}
+      />
     </div>
   );
 }
 
-function GenerationSkeleton({ phase, overlay = false }: { phase: GenerationPhase; overlay?: boolean }) {
+function PageContextMenu({
+  menu,
+  canGoBack,
+  canGoForward,
+  onDismiss,
+  onBack,
+  onForward,
+  onReload,
+  onViewSource,
+  onOpenLink,
+}: {
+  menu: PageContextMenuState;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  onDismiss: () => void;
+  onBack: () => void;
+  onForward: () => void;
+  onReload: () => void;
+  onViewSource: () => void;
+  onOpenLink?: () => void;
+}) {
+  const run = (action: () => void) => {
+    onDismiss();
+    action();
+  };
+
   return (
-    <div className={`artifact-loading${overlay ? " artifact-loading--overlay" : ""}`} role="status" aria-live="polite">
-      <div className="artifact-loading__content">
-        <div className="artifact-loading__eyebrow"><LoaderCircle aria-hidden="true" /> Generating page</div>
-        <div className="artifact-loading__title" />
-        <div className="artifact-loading__line" />
-        <div className="artifact-loading__line artifact-loading__line--short" />
-        <div className="artifact-loading__cards" aria-hidden="true">
-          <div className="artifact-loading__card" />
-          <div className="artifact-loading__card" />
-          <div className="artifact-loading__card" />
-        </div>
-        <div className="artifact-loading__phase"><i />{PHASE_LABELS[phase]}</div>
+    <>
+      <div
+        className="page-context-menu__backdrop"
+        aria-hidden="true"
+        onPointerDown={onDismiss}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          onDismiss();
+        }}
+      />
+      <div
+        className="menu page-context-menu"
+        role="menu"
+        aria-label={menu.href ? "Link actions" : "Page actions"}
+        style={{ left: menu.left, top: menu.top }}
+        onPointerDown={(event) => event.stopPropagation()}
+        onContextMenu={(event) => event.preventDefault()}
+      >
+        {onOpenLink && (
+          <>
+            <button className="menu__item" type="button" role="menuitem" autoFocus onClick={() => run(onOpenLink)}>
+              <ExternalLink aria-hidden="true" /><span>Open link in new tab</span>
+            </button>
+            <div className="menu__separator" role="separator" />
+          </>
+        )}
+        <button className="menu__item" type="button" role="menuitem" disabled={!canGoBack} autoFocus={!onOpenLink} onClick={() => run(onBack)}>
+          <ArrowLeft aria-hidden="true" /><span>Back</span>
+        </button>
+        <button className="menu__item" type="button" role="menuitem" disabled={!canGoForward} onClick={() => run(onForward)}>
+          <ArrowRight aria-hidden="true" /><span>Forward</span>
+        </button>
+        <button className="menu__item" type="button" role="menuitem" onClick={() => run(onReload)}>
+          <RefreshCw aria-hidden="true" /><span>Reload</span>
+        </button>
+        <div className="menu__separator" role="separator" />
+        <button className="menu__item" type="button" role="menuitem" onClick={() => run(onViewSource)}>
+          <Code2 aria-hidden="true" /><span>View source</span>
+        </button>
       </div>
-    </div>
+    </>
+  );
+}
+
+function SourceDialog({
+  open,
+  onOpenChange,
+  title,
+  source,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  source: string;
+}) {
+  return (
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Content className="dialog source-dialog" aria-describedby="artifact-source-description">
+          <header className="source-dialog__header">
+            <span><Code2 aria-hidden="true" /></span>
+            <div>
+              <Dialog.Title>Source: {title}</Dialog.Title>
+              <Dialog.Description id="artifact-source-description">Page HTML displayed as inert text.</Dialog.Description>
+            </div>
+            <Dialog.Close className="dialog__close" aria-label="Close source"><X aria-hidden="true" /></Dialog.Close>
+          </header>
+          <pre tabIndex={0}><code>{source}</code></pre>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

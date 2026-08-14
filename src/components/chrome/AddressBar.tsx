@@ -1,9 +1,57 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowRight, Globe2, PanelTop, Search, Settings, ShieldEllipsis, Sparkles } from "lucide-react";
-import { modelCatalog } from "../../data/catalog";
+import { ArrowRight, Globe2, PanelTop, Search, Settings, ShieldCheck, ShieldEllipsis, Sparkles } from "lucide-react";
+import { Popover } from "radix-ui";
 import { looksLikeUrl } from "../../lib/navigation";
+import { browserShortcutLabels, detectPlatform } from "../../lib/platform";
 import { useBrowserStore } from "../../store/browser-store";
-import type { BrowserTab } from "../../types/browser";
+import type { BrowserTab, ThemeId } from "../../types/browser";
+
+const addressLanguage: Record<ThemeId, {
+  network: string;
+  placeholder: string;
+  queryDetail: string;
+  addressDetail: string;
+  starterLabel: string;
+  starterDetail: string;
+  starterAddress: string;
+}> = {
+  native: {
+    network: "the Hallunet",
+    placeholder: "Enter an address or search the Hallunet",
+    queryDetail: "Follow this query beyond the indexed web",
+    addressDetail: "Open this coordinate in the Hallunet",
+    starterLabel: "Search for something the indexed web has never seen",
+    starterDetail: "The first result may lead anywhere",
+    starterAddress: "google.com/search?q=three-byte+metacode",
+  },
+  sedative: {
+    network: "the Quiet Web",
+    placeholder: "Enter an address on the Quiet Web",
+    queryDetail: "Let the quieter network answer",
+    addressDetail: "Drift into this address",
+    starterLabel: "Open a quiet place nearby",
+    starterDetail: "A live room, somewhere after midnight",
+    starterAddress: "stillroom.fm/live",
+  },
+  "ie-classic": {
+    network: "the Elseweb",
+    placeholder: "Search the Elseweb or type a Web address",
+    queryDetail: "Search all alternate Web pages",
+    addressDetail: "Go to this Web address",
+    starterLabel: "Visit the Unknown Web Ring",
+    starterDetail: "1,284 member pages and counting!",
+    starterAddress: "www.web-ring.net/unknown",
+  },
+  cyberpunk: {
+    network: "the Consensus Net",
+    placeholder: "ENTER HOST / QUERY / ACCESS CODE",
+    queryDetail: "Route query through an unlicensed index",
+    addressDetail: "Establish a ghost route to this node",
+    starterLabel: "Intercept an unregistered node",
+    starterDetail: "Trace mask active",
+    starterAddress: "blackclinic.net/memory/intake",
+  },
+};
 
 type SuggestionAction =
   | { type: "navigate"; value: string }
@@ -21,22 +69,20 @@ interface Suggestion {
 
 export function AddressBar({ tab }: { tab: BrowserTab }) {
   const tabs = useBrowserStore((state) => state.tabs);
-  const activeModelId = useBrowserStore((state) => state.activeModelId);
-  const providerConnections = useBrowserStore((state) => state.providerConnections);
-  const activeProfileId = useBrowserStore((state) => state.activeProfileId);
   const navigate = useBrowserStore((state) => state.navigate);
   const addTab = useBrowserStore((state) => state.addTab);
   const activateTab = useBrowserStore((state) => state.activateTab);
   const openSettings = useBrowserStore((state) => state.openSettings);
+  const theme = useBrowserStore((state) => state.preferences.theme);
   const [value, setValue] = useState(committedValue(tab));
   const [focused, setFocused] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const composing = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const activeModel = useMemo(() => {
-    const models = modelCatalog(providerConnections, activeProfileId);
-    return models.find((model) => model.id === activeModelId) ?? models[0];
-  }, [activeModelId, activeProfileId, providerConnections]);
+  const platform = useMemo(detectPlatform, []);
+  const shortcuts = browserShortcutLabels(platform, theme);
+  const language = addressLanguage[theme];
+  const siteInfo = siteInformation(tab);
 
   useEffect(() => {
     if (!focused) setValue(committedValue(tab));
@@ -58,8 +104,8 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
     if (query && !looksLikeUrl(query)) {
       result.push({
         id: "generate",
-        label: `Create “${query}”`,
-        detail: `Generate with ${activeModel.name}`,
+        label: `Search ${language.network} for “${query}”`,
+        detail: language.queryDetail,
         icon: "generate",
         action: { type: "navigate", value: query },
       });
@@ -68,8 +114,8 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
     if (query && looksLikeUrl(query)) {
       result.push({
         id: "open",
-        label: `Imagine ${query}`,
-        detail: "Generate a page without contacting the live site",
+        label: `Open ${query}`,
+        detail: language.addressDetail,
         icon: "generate",
         action: { type: "navigate", value: query },
       });
@@ -101,15 +147,15 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
     if (!query) {
       result.unshift({
         id: "prompt-starter",
-        label: "Create a calm research space for a new idea",
-        detail: `Try ${activeModel.name}`,
+        label: language.starterLabel,
+        detail: language.starterDetail,
         icon: "generate",
-        action: { type: "navigate", value: "A calm research space for a new idea" },
+        action: { type: "navigate", value: language.starterAddress },
       });
     }
 
     return result.slice(0, 6);
-  }, [activeModel.name, tab.id, tabs, value]);
+  }, [language, tab.id, tabs, value]);
 
   useEffect(() => setActiveIndex(0), [value]);
 
@@ -132,13 +178,40 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
   return (
     <div className={`address-bar${focused ? " is-focused" : ""}`}>
       <span className="address-bar__classic-label" aria-hidden="true">Address</span>
-      <button className="address-bar__site-info" type="button" aria-label="Site information">
-        {tab.kind === "generated" || tab.kind === "new-tab" ? <Sparkles aria-hidden="true" /> : <ShieldEllipsis aria-hidden="true" />}
-      </button>
+      <Popover.Root>
+        <Popover.Trigger asChild>
+          <button className="address-bar__site-info" type="button" aria-label="Site information">
+            {tab.kind === "generated" || tab.kind === "new-tab" ? <Sparkles aria-hidden="true" /> : <ShieldEllipsis aria-hidden="true" />}
+          </button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content
+            className="popover site-info-popover"
+            align="start"
+            sideOffset={8}
+            collisionPadding={12}
+            aria-labelledby="site-info-title"
+          >
+            <div className="site-info-popover__header">
+              <span><ShieldEllipsis aria-hidden="true" /></span>
+              <span>
+                <strong id="site-info-title">{siteInfo.title}</strong>
+                <small>{siteInfo.status}</small>
+              </span>
+            </div>
+            <div className="site-info-popover__location" title={siteInfo.location}>{siteInfo.location}</div>
+            <p className="site-info-popover__note">
+              <ShieldCheck aria-hidden="true" />
+              <span>{siteInfo.note}</span>
+            </p>
+            <Popover.Arrow className="popover__arrow" />
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
       <input
         ref={inputRef}
         value={value}
-        aria-label="Address and prompt bar"
+        aria-label="Hallunet address bar"
         aria-autocomplete="list"
         aria-controls="address-suggestions"
         aria-expanded={focused && suggestions.length > 0}
@@ -146,7 +219,7 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
-        placeholder="Enter an address or describe what to build"
+        placeholder={language.placeholder}
         onFocus={() => {
           setFocused(true);
           requestAnimationFrame(() => inputRef.current?.select());
@@ -213,7 +286,7 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
               <ArrowRight className="address-suggestion__arrow" aria-hidden="true" />
             </button>
           ))}
-          <div className="address-suggestions__hint"><kbd>↑</kbd><kbd>↓</kbd> choose <kbd>↵</kbd> open <kbd>⌥↵</kbd> new tab</div>
+          <div className="address-suggestions__hint"><kbd>↑</kbd><kbd>↓</kbd> choose <kbd>↵</kbd> open <kbd>{shortcuts.openInNewTab}</kbd> new tab</div>
         </div>
       )}
     </div>
@@ -221,7 +294,37 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
 }
 
 function committedValue(tab: BrowserTab) {
+  if (tab.kind === "new-tab") return "";
   return tab.kind === "generated" && tab.prompt ? tab.prompt : tab.location;
+}
+
+function siteInformation(tab: BrowserTab) {
+  const location = tab.virtualLocation?.url ?? tab.location;
+
+  if (tab.kind === "generated") {
+    return {
+      title: "Hallunet address",
+      status: "Discovered route · isolated locally",
+      location,
+      note: "This route continues inside the Hallunet and cannot contact the live web.",
+    };
+  }
+
+  if (tab.kind === "remote") {
+    return {
+      title: "Unresolved address",
+      status: "Outside network · not connected",
+      location,
+      note: "This coordinate remains isolated. External sites open only in your system browser.",
+    };
+  }
+
+  return {
+    title: tab.kind === "settings" ? "Local settings" : "Hallunet gateway",
+    status: tab.kind === "settings" ? "vibesurfer · local interface" : "Unmapped network",
+    location,
+    note: "This gateway is local and does not contact the live web.",
+  };
 }
 
 function SuggestionIcon({ kind }: { kind: Suggestion["icon"] }) {

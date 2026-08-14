@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Tooltip } from "radix-ui";
 
 interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -7,11 +7,58 @@ interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   tooltipSide?: "top" | "right" | "bottom" | "left";
 }
 
-export function IconButton({ label, children, tooltipSide = "bottom", className = "", ...props }: IconButtonProps) {
+export function IconButton({
+  label,
+  children,
+  tooltipSide = "bottom",
+  className = "",
+  onBlur,
+  onKeyDown,
+  onPointerDown,
+  onPointerEnter,
+  onPointerLeave,
+  ...props
+}: IconButtonProps) {
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const suppressFocusTooltip = useRef(false);
+
   return (
-    <Tooltip.Root delayDuration={500}>
+    <Tooltip.Root
+      open={tooltipOpen}
+      onOpenChange={(open) => {
+        if (open && suppressFocusTooltip.current) return;
+        setTooltipOpen(open);
+      }}
+      delayDuration={500}
+    >
       <Tooltip.Trigger asChild>
-        <button className={`icon-button ${className}`} type="button" aria-label={label} {...props}>
+        <button
+          className={`icon-button ${className}`}
+          type="button"
+          aria-label={label}
+          onBlur={(event) => {
+            setTooltipOpen(false);
+            onBlur?.(event);
+          }}
+          onKeyDown={(event) => {
+            suppressFocusTooltip.current = false;
+            onKeyDown?.(event);
+          }}
+          onPointerDown={(event) => {
+            suppressFocusTooltip.current = true;
+            setTooltipOpen(false);
+            onPointerDown?.(event);
+          }}
+          onPointerEnter={(event) => {
+            suppressFocusTooltip.current = false;
+            onPointerEnter?.(event);
+          }}
+          onPointerLeave={(event) => {
+            setTooltipOpen(false);
+            onPointerLeave?.(event);
+          }}
+          {...props}
+        >
           {children}
         </button>
       </Tooltip.Trigger>

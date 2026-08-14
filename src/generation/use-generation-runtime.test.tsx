@@ -109,9 +109,22 @@ function RuntimeHarness() {
 }
 
 function siteWorld(): SiteWorld {
+  const identity: SiteWorld["identity"] = {
+    classification: "original", locale: "en-US", era: "contemporary", name: "Hydrated", purpose: "Persisted world", audience: "Readers",
+    visualLanguage: { palette: ["#111111", "#ffffff"], typography: "Arimo Variable", density: "comfortable", radius: "subtle", mood: "calm" },
+    establishedFacts: ["Stored in SQLite"], routeHints: [],
+    palette: { background: "#ffffff", surface: "#ffffff", text: "#111111", mutedText: "#555555", accent: "#2255aa", accentText: "#ffffff", border: "#dddddd" },
+    fonts: { body: "Arimo Variable", heading: "Source Sans 3 Variable" }, layoutSystem: "grid",
+    favicon: { kind: "glyph", glyph: "H", foreground: "#ffffff", background: "#2255aa", shape: "rounded-square" },
+  };
   return {
     id: "site-hydrated",
+    profileId: "personal",
     origin: "https://hydrated.example",
+    state: "active",
+    promptSnapshot: { revision: 1, prompt: "Hydrated world" },
+    identity,
+    pageSummaries: [],
     name: "Hydrated",
     purpose: "Persisted world",
     audience: "Readers",
@@ -135,7 +148,6 @@ function pageArtifact(id: string): PageArtifact {
     siteWorldId: "site-hydrated",
     generationJobId: `job-${id}`,
     modelId: "openai:gpt-5",
-    mode: "quick",
     promptVersion: 1,
     settingsFingerprint: "test",
     createdAt: "2026-08-12T00:00:00.000Z",

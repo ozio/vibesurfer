@@ -13,6 +13,7 @@ import {
   deletePersistedProfileSiteWorlds,
   deletePersistedSiteWorld,
   fromSiteWorldRecord,
+  getCachedArtifact,
   getPersistedArtifact,
   getPersistedSiteWorld,
   listPersistedArtifacts,
@@ -39,7 +40,11 @@ describe("artifact host persistence", () => {
       profileId: "personal",
       limit: 24,
     });
-    await expect(getPersistedArtifact("personal", personal.id)).resolves.toMatchObject({ id: personal.id });
+    await expect(getPersistedArtifact("personal", personal.id)).resolves.toMatchObject({
+      id: personal.id,
+      allowGeneratedScripts: true,
+      modelExchanges: [{ purpose: "page-director", prompt: "request", response: "response" }],
+    });
     expect(mocks.invoke).toHaveBeenNthCalledWith(2, "get_artifact", {
       id: personal.id,
       profileId: "personal",
@@ -47,10 +52,26 @@ describe("artifact host persistence", () => {
     await expect(getPersistedArtifact("personal", personal.id)).resolves.toBeUndefined();
   });
 
+  it("uses a profile and exact canonical URL for cache lookup", async () => {
+    const personal = artifactRecord();
+    mocks.invoke.mockResolvedValueOnce(personal);
+
+    await expect(getCachedArtifact("personal", personal.siteId, personal.url)).resolves.toMatchObject({
+      id: personal.id,
+      profileId: "personal",
+    });
+    expect(mocks.invoke).toHaveBeenCalledWith("get_cached_artifact", {
+      profileId: "personal",
+      siteId: personal.siteId,
+      url: personal.url,
+    });
+  });
+
   it("keeps browser preview artifact reads local", async () => {
     mocks.isTauri.mockReturnValue(false);
     await expect(listPersistedArtifacts("personal")).resolves.toEqual([]);
     await expect(getPersistedArtifact("personal", "artifact-one")).resolves.toBeUndefined();
+    await expect(getCachedArtifact("personal", "site-example", "https://example.com/")).resolves.toBeUndefined();
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
 });
@@ -141,7 +162,25 @@ describe("SiteWorld host persistence", () => {
 function siteWorld(): SiteWorld {
   return {
     id: "site-example",
+    profileId: "personal",
     origin: "https://example.com",
+    state: "active",
+    promptSnapshot: { revision: 2, prompt: "A quiet reference world." },
+    identity: {
+      classification: "original",
+      locale: "en-US",
+      era: "contemporary",
+      name: "Example",
+      purpose: "A coherent test site",
+      audience: "Readers",
+      visualLanguage: { palette: ["#111111", "#ffffff"], typography: "Arimo Variable", density: "comfortable", radius: "subtle", mood: "calm" },
+      establishedFacts: ["Fact one", "Fact two"],
+      routeHints: [{ path: "/news", label: "News", purpose: "Updates" }],
+      palette: { background: "#ffffff", surface: "#ffffff", text: "#111111", mutedText: "#555555", accent: "#2255aa", accentText: "#ffffff", border: "#dddddd" },
+      fonts: { body: "Arimo Variable", heading: "Source Sans 3 Variable" },
+      layoutSystem: "grid",
+      favicon: { kind: "glyph", glyph: "E", foreground: "#ffffff", background: "#2255aa", shape: "rounded-square" },
+    },
     name: "Example",
     purpose: "A coherent test site",
     audience: "Readers",
@@ -154,6 +193,14 @@ function siteWorld(): SiteWorld {
     informationArchitecture: [{ path: "/news", label: "News", purpose: "Updates" }],
     establishedFacts: ["Fact one", "Fact two"],
     visitedPageSummaries: [{
+      artifactId: "artifact-one",
+      url: "https://example.com/",
+      title: "Example home",
+      purpose: "Homepage",
+      factsIntroduced: ["Fact one"],
+      outboundRoutes: ["/news"],
+    }],
+    pageSummaries: [{
       artifactId: "artifact-one",
       url: "https://example.com/",
       title: "Example home",
@@ -179,8 +226,22 @@ function artifactRecord() {
     payload: {
       generationId: "job-one",
       modelId: "openai:gpt-5",
-      mode: "quick",
       summary: "Example page",
+      allowGeneratedScripts: true,
+      modelExchanges: [{
+        id: "exchange-one",
+        purpose: "page-director",
+        providerId: "openai",
+        modelId: "openai:gpt-5",
+        actualProviderKind: "openai",
+        startedAt: "2026-08-12T00:00:00.000Z",
+        completedAt: "2026-08-12T00:00:01.000Z",
+        durationMs: 1_000,
+        systemPrompt: "system",
+        prompt: "request",
+        response: "response",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15, requests: 1 },
+      }],
     },
   };
 }

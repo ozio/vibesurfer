@@ -69,11 +69,11 @@ export function buildLegacyGeneratedArtifactDocument(
 </head>
 <body>
   <main class="page">
-    <div class="eyebrow"><span class="spark"></span>Generated view</div>
+    <div class="eyebrow"><span class="spark"></span>Overview</div>
     <h1>${safeTitle}</h1>
-    <p class="lede">This is a safe, local artifact rendered from “${safePrompt}”. Follow any route to imagine the next page.</p>
+    <p class="lede">Explore “${safePrompt}” and follow any route to continue.</p>
     <form class="search" action="/search" method="get">
-      <label hidden for="artifact-search">Search this imagined site</label>
+      <label hidden for="artifact-search">Search this site</label>
       <input id="artifact-search" name="q" placeholder="Search this site" />
       <button type="submit">Search</button>
     </form>
@@ -82,7 +82,7 @@ export function buildLegacyGeneratedArtifactDocument(
       <a class="card" href="/library"><span class="number">02 / SHAPE</span><h2>Library</h2><p>Browse a deeper collection without leaving this generated site world.</p></a>
       <a class="card" href="/about" target="_blank"><span class="number">03 / MOVE</span><h2>About this place</h2><p>Open another generated route in a new browser tab.</p></a>
     </section>
-    <footer class="footer"><a href="#top">Back to top</a><span>Sandboxed iframe · no browser privileges</span></footer>
+    <footer class="footer"><a href="#top">Back to top</a><span>${safeTitle}</span></footer>
   </main>
 </body>
 </html>`;

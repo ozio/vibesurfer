@@ -1,11 +1,12 @@
 import { z } from "zod";
 
 import {
+  BrowserThemeSchema,
   FaviconDescriptorSchema,
   GenerationContextSchema,
-  GenerationModeSchema,
   GenerationSettingsSchema,
   PageArtifactSchema,
+  ProfilePromptSnapshotSchema,
   ProviderKindSchema,
   ProviderReferenceSchema,
   PROTOCOL_VERSION,
@@ -86,18 +87,20 @@ export const GenerateCommandSchema = z
     type: z.literal("generate"),
     requestId: IdSchema,
     jobId: IdSchema,
+    profileId: IdSchema,
+    siteWorldId: IdSchema,
     url: HttpUrlSchema,
-    mode: GenerationModeSchema,
+    browserTheme: BrowserThemeSchema.default("native"),
+    discovery: z.object({ kind: z.literal("lucky-urls"), count: z.literal(10) }).strict().optional(),
     provider: ProviderReferenceSchema,
-    editableInstruction: z.string().max(20_000).default(""),
+    worldPromptSnapshot: ProfilePromptSnapshotSchema,
     settings: GenerationSettingsSchema.default({
       tailwindEnabled: true,
       tailwindVersion: "4.3.3",
-      images: { mode: "local", fetchExternal: false, safeContent: true },
-      autoRepair: true,
-      maxRequests: 4,
+      allowGeneratedScripts: false,
+      images: { mode: "tag-placeholder", fetchExternal: true, safeContent: true },
       maxOutputTokens: 20_000,
-      minInternalLinks: 12,
+      minInternalLinks: 4,
       maxArtifactBytes: 1_000_000,
     }),
     context: GenerationContextSchema,
@@ -208,7 +211,7 @@ export type PublicConnectionStatus = PublicProviderConnection & {
 export type GenerationEvent =
   | {
       type: "generation.started";
-      mode: "quick" | "deep";
+      siteWorldId: string;
       url: string;
       providerId: string;
       modelId: string;
@@ -221,7 +224,7 @@ export type GenerationEvent =
       favicon?: FaviconDescriptor;
       summary?: string;
     }
-  | { type: "validation.report"; issues: HtmlIssue[]; repairWillRun: boolean }
+  | { type: "validation.report"; issues: HtmlIssue[] }
   | { type: "generation.warning"; code: string; message: string }
   | { type: "generation.completed"; artifact: PageArtifact }
   | { type: "generation.cancelled" }
@@ -238,7 +241,7 @@ export type WorkerOutput =
       type: "ready";
       workerVersion: string;
       capabilities: {
-        modes: Array<"quick" | "deep">;
+        generationStages: ["page-director", "page-builder"];
         providers: ProviderKind[];
         protocolVersion: typeof PROTOCOL_VERSION;
       };
@@ -285,7 +288,7 @@ export type HostWorkerOutput =
       protocolVersion: typeof PROTOCOL_VERSION;
       workerVersion: string;
       capabilities: {
-        modes: Array<"quick" | "deep">;
+        generationStages: ["page-director", "page-builder"];
         providers: ProviderKind[];
       };
     }
@@ -306,7 +309,7 @@ export type HostWorkerOutput =
       sequence: number;
       at: string;
       url: string;
-      mode: "quick" | "deep";
+      siteWorldId: string;
       providerId: string;
       modelId: string;
       actualProviderKind: ProviderKind;
@@ -345,7 +348,6 @@ export type HostWorkerOutput =
       sequence: number;
       at: string;
       issues: HtmlIssue[];
-      repairWillRun: boolean;
     }
   | {
       type: "generation.warning";

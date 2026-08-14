@@ -12,7 +12,8 @@ import type { ModelExecutor } from "../providers/executor.js";
 export interface PipelineEmitter {
   phase(phase: GenerationPhase, progress: number): void | Promise<void>;
   metadata(metadata: { title?: string; favicon?: FaviconDescriptor; summary?: string }): void | Promise<void>;
-  validation(issues: HtmlIssue[], repairWillRun: boolean): void | Promise<void>;
+  preview(html: string): void | Promise<void>;
+  validation(issues: HtmlIssue[]): void | Promise<void>;
   warning(warning: ArtifactWarning): void | Promise<void>;
 }
 export interface PipelineContext {
@@ -31,7 +32,7 @@ export class UnsafeOutputError extends Error {
   readonly issues: HtmlIssue[];
 
   constructor(issues: HtmlIssue[]) {
-    super("The generated document did not pass deterministic safety and quality validation.");
+    super("The page did not pass document validation.");
     this.name = "UnsafeOutputError";
     this.issues = issues;
   }

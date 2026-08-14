@@ -3,11 +3,49 @@ import { Buffer } from "node:buffer";
 import { parse } from "parse5";
 
 import type { GenerationSettings, HtmlIssue } from "../domain.js";
-import { elements, firstElement, getAttribute } from "./tree.js";
+import { elements, firstElement, getAttribute, isElement, walk, type ElementNode } from "./tree.js";
 
 export interface ValidationResult {
   valid: boolean;
   issues: HtmlIssue[];
+}
+
+function isAllowedImageSource(src: string): boolean {
+  if (src.startsWith("data:image/")) return true;
+  try {
+    const url = new URL(src);
+    const hostname = url.hostname.toLowerCase();
+    return url.protocol === "https:"
+      && !url.username
+      && !url.password
+      && (!url.port || url.port === "443")
+      && (hostname === "loremflickr.com"
+        || hostname === "www.loremflickr.com"
+        || hostname === "staticflickr.com"
+        || hostname.endsWith(".staticflickr.com"));
+  } catch {
+    return false;
+  }
+}
+
+function hasMalformedNavigationEscaping(value: string): boolean {
+  return /\\(?:"|%22)|%5c%22|^(?:https?:\/\/[^/?#]+)?\/%22(?=\/|#|$)/i.test(value);
+}
+
+function containsTag(element: ElementNode, tagName: string): boolean {
+  let found = false;
+  walk(element, (node) => {
+    if (isElement(node) && node.tagName === tagName) found = true;
+  });
+  return found;
+}
+
+function visibleText(element: ElementNode): string {
+  const values: string[] = [];
+  walk(element, (node) => {
+    if (node.nodeName === "#text" && "value" in node) values.push(node.value);
+  });
+  return values.join(" ").replace(/\s+/g, " ").trim();
 }
 
 export function validateHtml(html: string, url: string, settings: GenerationSettings): ValidationResult {
@@ -36,7 +74,8 @@ export function validateHtml(html: string, url: string, settings: GenerationSett
     issues.push({ severity: "error", code: "missing-viewport", message: "The document has no responsive viewport declaration." });
   }
 
-  const forbidden = ["base", "embed", "frame", "frameset", "iframe", "object", "portal", "script"];
+  const forbidden = ["base", "embed", "frame", "frameset", "iframe", "object", "portal"];
+  if (!settings.allowGeneratedScripts) forbidden.push("script");
   for (const tagName of forbidden) {
     if (elements(document, tagName).length > 0) {
       issues.push({ severity: "error", code: `forbidden-${tagName}`, message: `The document contains forbidden <${tagName}> content.` });
@@ -48,6 +87,14 @@ export function validateHtml(html: string, url: string, settings: GenerationSett
   for (const anchor of elements(document, "a")) {
     const href = getAttribute(anchor, "href") ?? "";
     if (!href || href === "#" || href === "#blocked") {
+      continue;
+    }
+    if (hasMalformedNavigationEscaping(href)) {
+      issues.push({
+        severity: "error",
+        code: "malformed-link-escaping",
+        message: "The document contains a navigation URL corrupted by escaped quote characters.",
+      });
       continue;
     }
     try {
@@ -82,8 +129,22 @@ export function validateHtml(html: string, url: string, settings: GenerationSett
       issues.push({ severity: "error", code: "missing-image-alt", message: "Every image must have alt text." });
     }
     const src = getAttribute(image, "src") ?? "";
-    if (src && !src.startsWith("data:image/")) {
-      issues.push({ severity: "error", code: "external-image", message: "Images must be resolved to host-owned data URLs." });
+    if (src && !isAllowedImageSource(src)) {
+      issues.push({ severity: "error", code: "external-image", message: "Images must use an allowed image source." });
+    }
+  }
+
+  for (const icon of elements(document, "iconify-icon")) {
+    if (getAttribute(icon, "data-iconify-rendered") === undefined || !containsTag(icon, "svg")) {
+      issues.push({ severity: "error", code: "uncompiled-iconify-icon", message: "Every Iconify element must be resolved by the artifact compiler." });
+    }
+    if (getAttribute(icon, "aria-hidden") !== "true") {
+      issues.push({ severity: "error", code: "iconify-accessibility", message: "Rendered Iconify elements must be decorative and aria-hidden." });
+    }
+  }
+  for (const control of [...elements(document, "button"), ...elements(document, "a")]) {
+    if (containsTag(control, "iconify-icon") && !visibleText(control) && !getAttribute(control, "aria-label")) {
+      issues.push({ severity: "error", code: "missing-icon-control-label", message: "An icon-only control must have an aria-label." });
     }
   }
 

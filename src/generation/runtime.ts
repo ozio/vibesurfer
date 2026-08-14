@@ -1,7 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { isTauri } from "../lib/platform";
 import { useBrowserStore, type BrowserState } from "../store/browser-store";
-import { savePersistedSiteWorld } from "./host-api";
+import { getCachedArtifact, savePersistedSiteWorld } from "./host-api";
 import type {
   FaviconDescriptor,
   ArtifactSitePatch,
@@ -11,6 +11,7 @@ import type {
   GenerationRuntimeEvent,
   PageArtifact,
   ProviderConnection,
+  RolePalette,
 } from "../types/browser";
 
 interface GenerationTask {
@@ -33,7 +34,7 @@ type WireEvent = Record<string, unknown>;
 const ACTIVE_PHASES = new Set<GenerationPhase>([
   "queued",
   "preparing-context",
-  "planning",
+  "directing",
   "generating",
   "validating",
   "compiling-styles",
@@ -65,29 +66,52 @@ export class GenerationCoordinator {
 
     for (const job of Object.values(state.generationJobs)) {
       if (job.status !== "queued" || this.#tasks.has(job.id)) continue;
-      const tab = state.tabs.find((candidate) => candidate.id === job.tabId);
-      if (tab?.generationJobId !== job.id) continue;
+      const tab = tabsForProfile(state, job.profileId).find((candidate) => candidate.id === job.tabId);
+      if (tab?.generationJobId !== job.id && tab?.luckyJobId !== job.id) continue;
 
-      const placeholder: GenerationTask = { cancel: () => undefined };
+      let cancelled = false;
+      const placeholder: GenerationTask = { cancel: () => { cancelled = true; } };
       this.#tasks.set(job.id, placeholder);
-      if (!useBrowserStore.getState().beginGeneration(job.id)) {
-        this.#tasks.delete(job.id);
-        continue;
-      }
-
-      const latestState = useBrowserStore.getState();
-      const latestJob = latestState.generationJobs[job.id];
-      if (!latestJob) {
-        this.#tasks.delete(job.id);
-        continue;
-      }
-      this.#tasks.set(
-        job.id,
-        isTauri()
-          ? startTauriGeneration(latestState, latestJob, () => this.#tasks.delete(job.id))
-          : startMockGeneration(latestState, latestJob, () => this.#tasks.delete(job.id)),
-      );
+      void this.#startQueuedJob(job, () => cancelled);
     }
+  }
+
+  async #startQueuedJob(job: GenerationJob, isCancelled: () => boolean): Promise<void> {
+    if (canReuseCachedPage(job)) {
+      const state = useBrowserStore.getState();
+      const memoryArtifact = latestCachedArtifact(state, job);
+      if (memoryArtifact) {
+        this.#tasks.delete(job.id);
+        state.commitCachedArtifact(job.id, memoryArtifact);
+        return;
+      }
+      if (isTauri() && job.normalizedUrl) {
+        const artifact = await getCachedArtifact(job.profileId, job.siteWorldId!, canonicalCacheUrl(job.normalizedUrl)).catch(() => undefined);
+        if (isCancelled()) return;
+        if (artifact) {
+          this.#tasks.delete(job.id);
+          useBrowserStore.getState().commitCachedArtifact(job.id, artifact);
+          return;
+        }
+      }
+    }
+
+    if (isCancelled() || !useBrowserStore.getState().beginGeneration(job.id)) {
+      this.#tasks.delete(job.id);
+      return;
+    }
+    const latestState = useBrowserStore.getState();
+    const latestJob = latestState.generationJobs[job.id];
+    if (!latestJob) {
+      this.#tasks.delete(job.id);
+      return;
+    }
+    this.#tasks.set(
+      job.id,
+      isTauri()
+        ? startTauriGeneration(latestState, latestJob, () => this.#tasks.delete(job.id))
+        : startMockGeneration(latestState, latestJob, () => this.#tasks.delete(job.id)),
+    );
   }
 
   dispose(): void {
@@ -103,7 +127,8 @@ export function buildGenerationRequest(state: BrowserState, job: GenerationJob):
   const sourceArtifact = job.sourceArtifactId ? state.artifacts[job.sourceArtifactId] : undefined;
   const requestUrl = job.normalizedUrl
     ?? syntheticUrlForPrompt(job.requestedUrl, siteWorld?.origin, job.id);
-  const relevantHistory = state.generationSettings.privacy.includeNavigationHistory
+  const settings = job.generationSettingsSnapshot;
+  const relevantHistory = settings.privacy.includeNavigationHistory
     ? siteWorld?.visitedPageSummaries.slice(-8) ?? []
     : [];
 
@@ -113,8 +138,10 @@ export function buildGenerationRequest(state: BrowserState, job: GenerationJob):
     ...(provider.connection?.secretRef ? { credentialRef: provider.connection.secretRef } : {}),
     request: {
       url: requestUrl,
+      profileId: job.profileId,
+      siteWorldId: job.siteWorldId,
       conceptPrompt: job.normalizedUrl ? undefined : job.requestedUrl,
-      mode: job.mode,
+      browserTheme: job.browserTheme,
       provider: {
         connectionId: provider.connection?.id ?? provider.kind,
         id: provider.connection?.id ?? provider.kind,
@@ -125,8 +152,8 @@ export function buildGenerationRequest(state: BrowserState, job: GenerationJob):
         ...(provider.connection?.baseUrl ? { baseUrl: provider.connection.baseUrl } : {}),
       },
       modelId: stripProviderPrefix(job.modelId),
-      editableInstruction: state.generationSettings.customInstruction,
-      settings: state.generationSettings,
+      worldPromptSnapshot: job.worldPromptSnapshot,
+      settings,
       context: {
         siteWorld,
         sourcePage: sourceArtifact
@@ -142,7 +169,9 @@ export function buildGenerationRequest(state: BrowserState, job: GenerationJob):
         relevantHistory,
         navigationIntent: job.navigationIntent,
         parentArtifactId: job.sourceArtifactId,
+        identityStrategy: job.identityStrategy,
       },
+      ...(job.purpose === "lucky-urls" ? { discovery: { kind: "lucky-urls", count: 10 } } : {}),
     },
   };
 }
@@ -195,7 +224,7 @@ function startMockGeneration(
     try {
       await nextMockStep(controller.signal);
       dispatchRuntimeEvent({ type: "generation.started", jobId: job.id });
-      dispatchRuntimeEvent({ type: "generation.phase", jobId: job.id, phase: "planning" });
+      dispatchRuntimeEvent({ type: "generation.phase", jobId: job.id, phase: "directing" });
       await nextMockStep(controller.signal);
       const title = titleForUrl(job.normalizedUrl ?? job.requestedUrl);
       dispatchRuntimeEvent({
@@ -246,6 +275,12 @@ export function dispatchRuntimeEvent(event: GenerationRuntimeEvent): void {
       state.setGenerationPreview(event.jobId, event.html, event.revision);
       break;
     case "generation.completed":
+      if (state.generationJobs[event.jobId]?.purpose === "lucky-urls") {
+        const target = state.completeLucky(event.jobId, event.artifact);
+        const completedJob = state.generationJobs[event.jobId];
+        if (target && completedJob) state.navigate(completedJob.tabId, target);
+        break;
+      }
       if (state.commitArtifact(event.jobId, event.artifact)) {
         const committedState = useBrowserStore.getState();
         const completedJob = committedState.generationJobs[event.jobId];
@@ -322,8 +357,10 @@ export function normalizeRuntimeEvent(wire: WireEvent, job: GenerationJob): Gene
 
 function normalizeArtifact(raw: Record<string, unknown>, job: GenerationJob): PageArtifact {
   const favicon = normalizeFavicon(raw.favicon);
+  const payload = isRecord(raw.payload) ? raw.payload : {};
   return {
     id: stringValue(raw.id) ?? `artifact-${job.id}`,
+    profileId: job.profileId,
     url: stringValue(raw.url) ?? job.normalizedUrl ?? job.requestedUrl,
     title: stringValue(raw.title) ?? titleForUrl(job.normalizedUrl ?? job.requestedUrl),
     html: stringValue(raw.html) ?? "<!doctype html><title>Empty generated page</title>",
@@ -331,9 +368,9 @@ function normalizeArtifact(raw: Record<string, unknown>, job: GenerationJob): Pa
     siteWorldId: stringValue(raw.siteWorldId) ?? stringValue(raw.siteId) ?? job.siteWorldId ?? "site-unknown",
     generationJobId: stringValue(raw.generationJobId) ?? stringValue(raw.generationId) ?? job.id,
     modelId: stringValue(raw.modelId) ?? job.modelId,
-    mode: raw.mode === "deep" ? "deep" : job.mode,
     promptVersion: numberValue(raw.promptVersion) ?? 1,
     settingsFingerprint: stringValue(raw.settingsFingerprint) ?? "unknown",
+    allowGeneratedScripts: raw.allowGeneratedScripts === true,
     createdAt: stringValue(raw.createdAt) ?? new Date().toISOString(),
     providerId: stringValue(raw.providerId) ?? job.providerId,
     ...(favicon ? { favicon } : {}),
@@ -345,8 +382,10 @@ function normalizeArtifact(raw: Record<string, unknown>, job: GenerationJob): Pa
           outputTokens: numberValue(raw.usage.outputTokens),
           totalTokens: numberValue(raw.usage.totalTokens),
           reasoningTokens: numberValue(raw.usage.reasoningTokens),
+          requests: numberValue(raw.usage.requests),
         }
       : undefined,
+    modelExchanges: normalizeModelExchanges(raw.modelExchanges),
     warnings: Array.isArray(raw.warnings)
       ? raw.warnings.flatMap((warning) =>
           isRecord(warning) && stringValue(warning.code) && stringValue(warning.message)
@@ -354,8 +393,59 @@ function normalizeArtifact(raw: Record<string, unknown>, job: GenerationJob): Pa
             : [],
         )
       : [],
-    sitePatch: normalizeSitePatch(raw.sitePatch),
+    sitePatch: normalizeSitePatch(raw.sitePatch ?? payload.sitePatch),
+    siteIdentity: normalizeSiteIdentity(raw.siteIdentity ?? payload.siteIdentity),
+    siteAdditions: isRecord(raw.siteAdditions ?? payload.siteAdditions)
+      ? (raw.siteAdditions ?? payload.siteAdditions) as PageArtifact["siteAdditions"]
+      : undefined,
+    pageDirection: isRecord(raw.pageDirection ?? payload.pageDirection)
+      ? (raw.pageDirection ?? payload.pageDirection) as PageArtifact["pageDirection"]
+      : undefined,
+    worldPromptSnapshot: isRecord(raw.worldPromptSnapshot ?? payload.worldPromptSnapshot)
+      ? (raw.worldPromptSnapshot ?? payload.worldPromptSnapshot) as PageArtifact["worldPromptSnapshot"]
+      : job.worldPromptSnapshot,
   };
+}
+
+function normalizeModelExchanges(value: unknown): PageArtifact["modelExchanges"] {
+  if (!Array.isArray(value)) return undefined;
+  return value.flatMap((item) => {
+    if (!isRecord(item) || !isRecord(item.usage)) return [];
+    const purpose = stringValue(item.purpose);
+    if (!purpose || !["page-director", "page-builder"].includes(purpose)) return [];
+    const id = stringValue(item.id);
+    const providerId = stringValue(item.providerId);
+    const modelId = stringValue(item.modelId);
+    const actualProviderKind = stringValue(item.actualProviderKind);
+    const startedAt = stringValue(item.startedAt);
+    const completedAt = stringValue(item.completedAt);
+    const systemPrompt = stringValue(item.systemPrompt);
+    const prompt = stringValue(item.prompt);
+    const response = stringValue(item.response);
+    const durationMs = numberValue(item.durationMs);
+    if (!id || !providerId || !modelId || !actualProviderKind || !startedAt || !completedAt
+      || systemPrompt === undefined || prompt === undefined || response === undefined || durationMs === undefined) return [];
+    return [{
+      id,
+      purpose: purpose as NonNullable<PageArtifact["modelExchanges"]>[number]["purpose"],
+      providerId,
+      modelId,
+      actualProviderKind,
+      startedAt,
+      completedAt,
+      durationMs,
+      systemPrompt,
+      prompt,
+      response,
+      usage: {
+        inputTokens: numberValue(item.usage.inputTokens),
+        outputTokens: numberValue(item.usage.outputTokens),
+        totalTokens: numberValue(item.usage.totalTokens),
+        reasoningTokens: numberValue(item.usage.reasoningTokens),
+        requests: numberValue(item.usage.requests),
+      },
+    }];
+  }).slice(0, 2);
 }
 
 function normalizeSitePatch(value: unknown): ArtifactSitePatch | undefined {
@@ -422,8 +512,36 @@ function normalizeFavicon(value: unknown): FaviconDescriptor | undefined {
 function normalizePhase(value: string | undefined): GenerationPhase | undefined {
   if (!value) return undefined;
   if (ACTIVE_PHASES.has(value as GenerationPhase)) return value as GenerationPhase;
-  if (value === "planning-site" || value === "planning-page" || value === "repairing") return value === "repairing" ? "validating" : "planning";
   return undefined;
+}
+
+function normalizeSiteIdentity(value: unknown): PageArtifact["siteIdentity"] {
+  if (!isRecord(value)) return undefined;
+  const patch = normalizeSitePatch(value);
+  const favicon = normalizeFavicon(value.favicon);
+  if (!patch || !favicon || favicon.kind !== "glyph" || !isRecord(value.palette) || !isRecord(value.fonts)) return undefined;
+  const palette = value.palette;
+  const requiredColors = ["background", "surface", "text", "mutedText", "accent", "accentText", "border"] as const;
+  if (!requiredColors.every((key) => typeof palette[key] === "string")) return undefined;
+  const body = stringValue(value.fonts.body);
+  const heading = stringValue(value.fonts.heading);
+  if (!body || !heading) return undefined;
+  return {
+    ...patch,
+    classification: value.classification === "recognizable" ? "recognizable" : "original",
+    locale: stringValue(value.locale) ?? "en",
+    era: stringValue(value.era) ?? "contemporary",
+    palette: Object.fromEntries(requiredColors.map((key) => [key, palette[key]])) as unknown as RolePalette,
+    fonts: { body, heading, ...(stringValue(value.fonts.mono) ? { mono: stringValue(value.fonts.mono) } : {}) },
+    layoutSystem: stringValue(value.layoutSystem) ?? "Page-specific layout",
+    favicon,
+  };
+}
+
+function tabsForProfile(state: BrowserState, profileId: string) {
+  return profileId === state.activeProfileId
+    ? state.tabs
+    : state.profileWorkspaces[profileId]?.tabs ?? [];
 }
 
 function normalizeError(value: unknown, fallbackCode: GenerationError["code"]): GenerationError {
@@ -471,7 +589,7 @@ function makeMockArtifact(state: BrowserState, job: GenerationJob, title: string
   const url = job.normalizedUrl
     ?? syntheticUrlForPrompt(job.requestedUrl, siteWorld?.origin, job.id);
   const hostname = safeUrl(url)?.hostname ?? "imagined.local";
-  const links = [
+  const links = job.purpose === "lucky-urls" ? mockLuckyRoutes(job.browserTheme) : [
     ["/discover", "Discover"],
     ["/latest", "Latest"],
     ["/topics", "Topics"],
@@ -490,38 +608,167 @@ function makeMockArtifact(state: BrowserState, job: GenerationJob, title: string
     .slice(0, 6)
     .map(
       ([href, label], index) =>
-        `<article><small>0${index + 1}</small><h2>${label}</h2><p>A plausible part of this invented site, ready to become its own generated page.</p><a href="${href}">Open ${label}</a></article>`,
+        `<article><small>0${index + 1}</small><h2>${label}</h2><p>Browse this section for more details, updates, and related pages.</p><a href="${href}">Open ${label}</a></article>`,
     )
     .join("");
-  const image = state.generationSettings.images.enabled
-    ? '<div class="image" role="img" aria-label="Abstract editorial placeholder"><span>imagined image</span></div>'
+  const image = job.generationSettingsSnapshot.images.enabled
+    ? '<div class="image" role="img" aria-label="Editorial artwork"><span>featured</span></div>'
     : "";
-  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172033;background:#f5f7fb}*{box-sizing:border-box}body{margin:0}a{color:inherit}.shell{width:min(1120px,calc(100% - 32px));margin:auto}nav{display:flex;gap:18px;flex-wrap:wrap;padding:22px 0;border-bottom:1px solid #dce2ee}nav a{font-weight:650;text-decoration:none}.hero{display:grid;grid-template-columns:1.15fr .85fr;gap:48px;align-items:end;padding:80px 0 54px}.eyebrow,small{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.13em;color:#4263eb}h1{font-size:clamp(48px,8vw,92px);line-height:.94;letter-spacing:-.06em;margin:14px 0 24px}.lede{max-width:650px;font-size:19px;line-height:1.65;color:#526078}.image{min-height:320px;border-radius:30px;background:radial-gradient(circle at 75% 25%,#ffd8a8,transparent 32%),radial-gradient(circle at 25% 65%,#bac8ff,transparent 38%),linear-gradient(145deg,#e7f5ff,#f3d9fa);display:grid;place-items:end start;padding:24px;color:#364fc7}.image span{background:#ffffffd9;padding:8px 12px;border-radius:999px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:18px 0 80px}.grid article{background:white;border:1px solid #e1e6ef;border-radius:20px;padding:24px;box-shadow:0 12px 35px #243b6b0d}.grid h2{margin:12px 0 8px}.grid p{color:#667085;line-height:1.55}.grid a{display:inline-block;margin-top:10px;font-weight:750;color:#364fc7}footer{border-top:1px solid #dce2ee;padding:28px 0 48px;color:#667085}@media(max-width:760px){.hero{grid-template-columns:1fr;padding-top:48px}.grid{grid-template-columns:1fr}h1{font-size:52px}}</style></head><body><header class="shell"><nav aria-label="Primary">${navigation}</nav></header><main><section class="shell hero"><div><p class="eyebrow">Network-free preview</p><h1>${escapeHtml(title)}</h1><p class="lede">This is a coherent fictional page imagined from <strong>${escapeHtml(url)}</strong>. Every route below asks VibeSurfer to generate the next page instead of contacting ${escapeHtml(hostname)}.</p></div>${image}</section><section class="shell"><div class="grid">${cards}</div></section></main><footer class="shell">Generated locally for development. The live origin was not contacted.</footer></body></html>`;
+  const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>:root{font-family:Inter,ui-sans-serif,system-ui,sans-serif;color:#172033;background:#f5f7fb}*{box-sizing:border-box}body{margin:0}a{color:inherit}.shell{width:min(1120px,calc(100% - 32px));margin:auto}nav{display:flex;gap:18px;flex-wrap:wrap;padding:22px 0;border-bottom:1px solid #dce2ee}nav a{font-weight:650;text-decoration:none}.hero{display:grid;grid-template-columns:1.15fr .85fr;gap:48px;align-items:end;padding:80px 0 54px}.eyebrow,small{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.13em;color:#4263eb}h1{font-size:clamp(48px,8vw,92px);line-height:.94;letter-spacing:-.06em;margin:14px 0 24px}.lede{max-width:650px;font-size:19px;line-height:1.65;color:#526078}.image{min-height:320px;border-radius:30px;background:radial-gradient(circle at 75% 25%,#ffd8a8,transparent 32%),radial-gradient(circle at 25% 65%,#bac8ff,transparent 38%),linear-gradient(145deg,#e7f5ff,#f3d9fa);display:grid;place-items:end start;padding:24px;color:#364fc7}.image span{background:#ffffffd9;padding:8px 12px;border-radius:999px}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;padding:18px 0 80px}.grid article{background:white;border:1px solid #e1e6ef;border-radius:20px;padding:24px;box-shadow:0 12px 35px #243b6b0d}.grid h2{margin:12px 0 8px}.grid p{color:#667085;line-height:1.55}.grid a{display:inline-block;margin-top:10px;font-weight:750;color:#364fc7}footer{border-top:1px solid #dce2ee;padding:28px 0 48px;color:#667085}@media(max-width:760px){.hero{grid-template-columns:1fr;padding-top:48px}.grid{grid-template-columns:1fr}h1{font-size:52px}}</style></head><body><header class="shell"><nav aria-label="Primary">${navigation}</nav></header><main><section class="shell hero"><div><p class="eyebrow">${escapeHtml(hostname)}</p><h1>${escapeHtml(title)}</h1><p class="lede">Browse highlights, collections, and current updates from across the site.</p></div>${image}</section><section class="shell"><div class="grid">${cards}</div></section></main><footer class="shell">${escapeHtml(title)}</footer></body></html>`;
+  const favicon = siteWorld?.identity.favicon ?? {
+    kind: "glyph" as const,
+    glyph: title.slice(0, 1).toUpperCase() || "V",
+    foreground: "#ffffff",
+    background: "#4263eb",
+    shape: "rounded-square" as const,
+  };
+  const sitePatch: ArtifactSitePatch = siteWorld?.identity ?? {
+    name: title,
+    purpose: `A concrete fictional service for ${hostname}`,
+    audience: "Curious visitors",
+    visualLanguage: { palette: ["#172033", "#4263eb", "#f5f7fb"], typography: "Arimo Variable", density: "comfortable", radius: "rounded", mood: "editorial" },
+    establishedFacts: [],
+    routeHints: links.map(([path, label]) => ({ path, label, purpose: `Open ${label}` })),
+  };
+  const siteIdentity = siteWorld?.identity ?? {
+    ...sitePatch,
+    classification: "original" as const,
+    locale: "en-US",
+    era: "contemporary",
+    palette: { background: "#f5f7fb", surface: "#ffffff", text: "#172033", mutedText: "#667085", accent: "#4263eb", accentText: "#ffffff", border: "#dce2ee" },
+    fonts: { body: "Arimo Variable", heading: "Source Sans 3 Variable", mono: "Cousine" },
+    layoutSystem: "Responsive editorial directory",
+    favicon,
+  };
+  const completedAt = new Date().toISOString();
+  const modelExchanges: NonNullable<PageArtifact["modelExchanges"]> = (["page-director", "page-builder"] as const).map((purpose, index) => ({
+    id: `${job.id}-${purpose}`,
+    purpose,
+    providerId: "mock",
+    modelId: job.modelId,
+    actualProviderKind: "mock",
+    startedAt: job.startedAt ?? job.createdAt,
+    completedAt,
+    durationMs: index + 1,
+    systemPrompt: "Deterministic browser-preview protocol",
+    prompt: `${purpose} for ${url}`,
+    response: purpose === "page-director" ? JSON.stringify({ identity: siteIdentity }) : JSON.stringify({ title }),
+    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, requests: 1 },
+  }));
   return {
     id: `artifact-${job.id}`,
+    profileId: job.profileId,
     url,
     title,
     html,
-    summary: `A fictional landing page for ${hostname}.`,
+    summary: `A landing page for ${hostname}.`,
     siteWorldId: job.siteWorldId ?? `site-${hostname}`,
     generationJobId: job.id,
     modelId: job.modelId,
-    mode: job.mode,
-    promptVersion: state.generationSettings.promptVersion,
+    promptVersion: job.generationSettingsSnapshot.promptVersion,
     settingsFingerprint: "web-mock-v1",
+    allowGeneratedScripts: false,
     createdAt: new Date().toISOString(),
     providerId: "mock",
-    favicon: {
-      kind: "glyph",
-      glyph: title.slice(0, 1).toUpperCase() || "V",
-      foreground: "#ffffff",
-      background: "#4263eb",
-      shape: "rounded-square",
-    },
+    favicon,
     parentArtifactId: job.sourceArtifactId,
-    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+    usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0, requests: 2 },
+    modelExchanges,
     warnings: [],
+    sitePatch: job.purpose === "lucky-urls" ? {
+      name: "Unmapped routes",
+      purpose: "Private route discovery",
+      audience: "The current wanderer",
+      visualLanguage: {
+        palette: ["#0b0b14", "#9c8cff", "#71defc"],
+        typography: "Browser-native",
+      },
+      establishedFacts: [],
+      routeHints: links.map(([path, label]) => ({ path, label, purpose: `Discover ${label}` })),
+    } : sitePatch,
+    siteIdentity,
+    worldPromptSnapshot: job.worldPromptSnapshot,
   };
+}
+
+function mockLuckyRoutes(theme: BrowserState["preferences"]["theme"]): string[][] {
+  if (theme === "ie-classic") return [
+    ["http://www.lunarcities.net/~nightshift/observatory.html", "Night Shift Observatory"],
+    ["http://directory.msn.com/Elseweb/Impossible_Museums/", "Impossible Museums"],
+    ["http://www.radiomars.gov/livecam/", "Mars Radio Livecam"],
+    ["http://geocities.com/Area51/Corridor/7714/", "Corridor 7714"],
+    ["http://www.angelfire.com/zine/tomorrowweather/", "Tomorrow's Weather"],
+    ["http://archive.web-ring.net/dreammachines/", "Dream Machines Web Ring"],
+    ["http://www.citylibrary.example/forbidden.htm", "Forbidden Stacks"],
+    ["http://www.oceanicrail.com/timetables/moon.htm", "Moon Timetable"],
+    ["http://members.tripod.com/~signalghost/", "Signal Ghost"],
+    ["http://www.rambler.ru/catalog/parallel/", "Parallel Rambler"],
+  ];
+  if (theme === "cyberpunk") return [
+    ["https://ghostmarket.net/auctions/memories", "Memory Auctions"],
+    ["https://nexus.city/transit/phantom-line", "Phantom Line"],
+    ["https://kuroda.corp/leaks/employee-000", "Employee Zero"],
+    ["https://orbital.weather/sector-9", "Orbital Weather"],
+    ["https://blackclinic.net/recall/menu", "Recall Menu"],
+    ["https://municipal.ai/petitions/synthetic-rights", "Synthetic Rights"],
+    ["https://relay.null/voices/last-night", "Null Relay"],
+    ["https://streetfood.city/no-license", "Unlicensed Kitchens"],
+    ["https://trace.gov/citizen/unknown", "Unknown Citizen"],
+    ["https://sleepbank.coop/dream-exchange", "Dream Exchange"],
+  ];
+  if (theme === "sedative") return [
+    ["https://stillroom.fm/rooms/rain-library", "Rain Library"],
+    ["https://nighttrain.travel/routes/no-arrival", "No-arrival Train"],
+    ["https://fieldnotes.today/borrowed-gardens", "Borrowed Gardens"],
+    ["https://repair.city/objects/forgotten", "Forgotten Objects"],
+    ["https://slowpost.world/letters/in-transit", "Letters in Transit"],
+    ["https://publictable.org/supper/tonight", "Public Supper"],
+    ["https://quietweather.net/fog-index", "Fog Index"],
+    ["https://afterhours.museum/one-light-on", "One Light On"],
+    ["https://tideclock.coop/calendar", "Tide Calendar"],
+    ["https://commons.radio/untranslated", "Untranslated Radio"],
+  ];
+  return [
+    ["https://library.atlas/rooms/door-zero", "Door Zero"],
+    ["https://weather.mars/olympus-mons", "Olympus Weather"],
+    ["https://archive.future/events/never-happened", "Events That Never Happened"],
+    ["https://maps.below/cities/under-london", "Cities Below"],
+    ["https://radio.elsewhere/frequency/0", "Frequency Zero"],
+    ["https://museum.impossible/exhibits/shadows", "Museum of Shadows"],
+    ["https://species.wiki/homo-lumen", "Homo Lumen"],
+    ["https://transit.dream/nightly", "Dream Transit"],
+    ["https://news.tomorrow/archive/yesterday", "Tomorrow's Yesterday"],
+    ["https://ocean.space/ports/pelagic", "Pelagic Spaceport"],
+  ];
+}
+
+function canReuseCachedPage(job: GenerationJob): boolean {
+  return job.purpose !== "lucky-urls"
+    && job.generationSettingsSnapshot.reuseCachedPages
+    && Boolean(job.normalizedUrl)
+    && job.navigationIntent.trigger !== "regenerate"
+    && job.navigationIntent.trigger !== "reload";
+}
+
+function latestCachedArtifact(state: BrowserState, job: GenerationJob): PageArtifact | undefined {
+  if (!job.normalizedUrl) return undefined;
+  const url = canonicalCacheUrl(job.normalizedUrl);
+  return Object.values(state.artifacts)
+    .filter((artifact) =>
+      (artifact.profileId ?? job.profileId) === job.profileId
+      && artifact.siteWorldId === job.siteWorldId
+      && canonicalCacheUrl(artifact.url) === url)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0];
+}
+
+function canonicalCacheUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.href;
+  } catch {
+    return value;
+  }
 }
 
 function titleForUrl(value: string): string {

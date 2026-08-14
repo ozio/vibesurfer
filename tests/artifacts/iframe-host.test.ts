@@ -50,6 +50,14 @@ describe("artifact frame host bootstrap", () => {
     } as MessageEvent<unknown>);
     expect(connection.isReady()).toBe(true);
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "ready", title: "Race recovered" }));
+
+    const nextRender = { ...render, title: "Streaming update", html: "<main>More HTML</main>" };
+    connection.updateRender(nextRender);
+    expect(channel.port1.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      type: "render",
+      ...identity,
+      ...nextRender,
+    }));
     connection.disconnect();
   });
 

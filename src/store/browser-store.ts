@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { MODELS, PROFILES } from "../data/catalog";
+import { MODELS, PROFILE_PRESETS, PROFILES } from "../data/catalog";
 import {
   isExplicitRelativeReference,
   normalizeVirtualUrl,
@@ -10,15 +10,16 @@ import {
   type NavigationTarget,
 } from "../lib/navigation";
 import type {
+  BrowserProfile,
   BrowserPreferences,
   BrowserTab,
+  BrowsingHistoryEntry,
   CodexConnection,
   CodexGenerationSelection,
   CodexModel,
   Density,
   GenerationError,
   GenerationJob,
-  GenerationMode,
   GenerationPhase,
   GenerationSettings,
   HistoryEntry,
@@ -26,7 +27,10 @@ import type {
   NavigationDisposition,
   NavigationIntent,
   PageArtifact,
+  PageSummary,
   ProviderConnection,
+  ProfileWorkspace,
+  SiteIdentity,
   SiteWorld,
   TabKind,
   TabLayout,
@@ -56,6 +60,8 @@ export interface GenerationMetadataPatch extends GenerationProgressPatch {
 }
 
 export interface BrowserState {
+  profiles: BrowserProfile[];
+  profileWorkspaces: Record<string, ProfileWorkspace>;
   tabs: BrowserTab[];
   activeTabId: string;
   activeModelId: string;
@@ -65,6 +71,7 @@ export interface BrowserState {
   codexModels: CodexModel[];
   codexSelection: CodexGenerationSelection;
   artifacts: Record<string, PageArtifact>;
+  browsingHistory: BrowsingHistoryEntry[];
   generationJobs: Record<string, GenerationJob>;
   siteWorlds: Record<string, SiteWorld>;
   providerConnections: ProviderConnection[];
@@ -78,6 +85,7 @@ export interface BrowserState {
   go: (id: string, delta: -1 | 1) => void;
   reload: (id: string) => void;
   regenerate: (id: string) => string | undefined;
+  discoverLucky: (id: string) => string | undefined;
   setLoadState: (id: string, state: BrowserTab["loadState"]) => void;
   setTabMetadata: (
     id: string,
@@ -89,6 +97,8 @@ export interface BrowserState {
   setGenerationMetadata: (jobId: string, patch: GenerationMetadataPatch) => boolean;
   setGenerationPreview: (jobId: string, html: string, revision?: number) => boolean;
   commitArtifact: (jobId: string, artifact: PageArtifact) => boolean;
+  commitCachedArtifact: (jobId: string, artifact: PageArtifact) => boolean;
+  completeLucky: (jobId: string, artifact: PageArtifact) => string | undefined;
   failGeneration: (jobId: string, error: GenerationError) => boolean;
   cancelGeneration: (jobId: string) => boolean;
   cancelTabGeneration: (tabId: string) => boolean;
@@ -103,10 +113,26 @@ export interface BrowserState {
   patchImageSettings: (patch: Partial<ImageGenerationSettings>) => void;
   patchPrivacySettings: (patch: Partial<GenerationSettings["privacy"]>) => void;
   openSettings: (section?: string) => string;
+  openHistory: () => string;
+  removeBrowsingHistoryEntry: (id: string) => void;
+  clearBrowsingHistory: (profileId?: string) => void;
   setSettingsSection: (section: string) => void;
   setModel: (id: string) => void;
   setProfile: (id: string) => void;
-  setTheme: (theme: ThemeId) => void;
+  createProfile: (input: {
+    preset?: keyof typeof PROFILE_PRESETS;
+    name?: string;
+    avatar?: string;
+    chromeSkin?: ThemeId;
+    worldPrompt?: string;
+  }) => string;
+  updateProfile: (id: string, patch: Pick<Partial<BrowserProfile>, "name" | "avatar">) => void;
+  updateWorldPrompt: (prompt: string) => void;
+  deleteProfile: (id: string) => boolean;
+  startProfileFromScratch: () => void;
+  reimagine: (id: string) => string | undefined;
+  markFrameReady: (id: string) => void;
+  restoreSiteWorld: (siteWorldId: string, sourceTabId: string) => boolean;
   setTabLayout: (layout: TabLayout) => void;
   setDensity: (density: Density) => void;
   patchPreferences: (patch: Partial<BrowserPreferences>) => void;
@@ -127,27 +153,22 @@ export const DEFAULT_BROWSER_PREFERENCES: BrowserPreferences = {
 };
 
 export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
-  defaultMode: "quick",
-  defaultModelByMode: {},
-  customInstruction: "",
-  promptVersion: 1,
-  maxRequests: 4,
+  promptVersion: 10,
   maxOutputTokens: 16_000,
-  autoRepair: true,
   reuseCachedPages: true,
   style: {
     tailwindEnabled: true,
     tailwindVersion: "4.3.3",
-    allowArbitraryUtilities: false,
+    allowArbitraryUtilities: true,
     customCssInstruction: "",
     allowGeneratedScripts: false,
-    progressiveRendering: false,
+    progressiveRendering: true,
   },
   images: {
     enabled: true,
     provider: "tag-placeholder",
     safeContent: true,
-    allowExternalRequests: false,
+    allowExternalRequests: true,
   },
   privacy: {
     includeNavigationHistory: true,
@@ -184,6 +205,8 @@ export const useBrowserStore = create<BrowserState>()(
       activeTabId: "welcome",
       activeModelId: MODELS[0].id,
       activeProfileId: PROFILES[0].id,
+      profiles: PROFILES,
+      profileWorkspaces: {},
       preferences: DEFAULT_BROWSER_PREFERENCES,
       codex: {
         state: "signed-out",
@@ -193,6 +216,7 @@ export const useBrowserStore = create<BrowserState>()(
       codexModels: [],
       codexSelection: DEFAULT_CODEX_SELECTION,
       artifacts: {},
+      browsingHistory: [],
       generationJobs: {},
       siteWorlds: {},
       providerConnections: [],
@@ -238,6 +262,9 @@ export const useBrowserStore = create<BrowserState>()(
           activeTabId: disposition === "background-tab" ? state.activeTabId : id,
           generationJobs: navigation.generationJobs,
           siteWorlds: navigation.siteWorlds,
+          browsingHistory: navigation.job
+            ? appendBrowsingHistory(state.browsingHistory, navigation.job, target.title)
+            : state.browsingHistory,
         });
         return id;
       },
@@ -246,7 +273,10 @@ export const useBrowserStore = create<BrowserState>()(
         const index = state.tabs.findIndex((tab) => tab.id === id);
         if (index < 0) return;
         const closingTab = state.tabs[index];
-        const generationJobs = cancelJobRecord(state.generationJobs, closingTab.generationJobId);
+        const generationJobs = cancelJobRecord(
+          cancelJobRecord(state.generationJobs, closingTab.generationJobId),
+          closingTab.luckyJobId,
+        );
         const tabs = state.tabs.filter((tab) => tab.id !== id);
 
         if (tabs.length === 0) {
@@ -257,13 +287,23 @@ export const useBrowserStore = create<BrowserState>()(
             kind: "new-tab",
             favicon: "✦",
           });
-          set({ tabs: [replacement], activeTabId: replacement.id, generationJobs });
+          set({
+            tabs: [replacement],
+            activeTabId: replacement.id,
+            generationJobs,
+            browsingHistory: markCancelledBrowsingHistory(state.browsingHistory, closingTab.generationJobId),
+          });
           return;
         }
 
         const activeTabId =
           state.activeTabId === id ? tabs[Math.min(index, tabs.length - 1)].id : state.activeTabId;
-        set({ tabs, activeTabId, generationJobs });
+        set({
+          tabs,
+          activeTabId,
+          generationJobs,
+          browsingHistory: markCancelledBrowsingHistory(state.browsingHistory, closingTab.generationJobId),
+        });
       },
       activateTab: (id) => {
         if (get().tabs.some((tab) => tab.id === id)) set({ activeTabId: id });
@@ -287,9 +327,10 @@ export const useBrowserStore = create<BrowserState>()(
             : undefined);
         const target = resolveNavigation(input, state.activeModelId, { baseUrl });
         const reusesCurrentArtifact = target.kind === "generated" && !target.requiresGeneration;
+        const jobsWithoutLucky = cancelJobRecord(state.generationJobs, currentTab.luckyJobId);
         const generationJobs = reusesCurrentArtifact
-          ? state.generationJobs
-          : cancelJobRecord(state.generationJobs, currentTab.generationJobId);
+          ? jobsWithoutLucky
+          : cancelJobRecord(jobsWithoutLucky, currentTab.generationJobId);
         const stateWithCancelledJob = { ...state, generationJobs };
         const navigation = prepareNavigation(stateWithCancelledJob, id, target, {
           requestedValue: input,
@@ -317,14 +358,30 @@ export const useBrowserStore = create<BrowserState>()(
           title: reusesCurrentArtifact ? currentTab.title : target.title,
           favicon: reusesCurrentArtifact ? currentTab.favicon : target.favicon,
           generatedWith: target.kind === "generated" ? state.activeModelId : undefined,
+          fallbackArtifactId: navigation.job
+            ? currentTab.artifactId ?? currentTab.fallbackArtifactId
+            : undefined,
+          luckyJobId: undefined,
           loadState: loadStateForTarget(target, navigation.job),
           history,
           historyIndex: history.length - 1,
         };
+        const browsingHistory = markCancelledBrowsingHistory(state.browsingHistory, currentTab.generationJobId);
         set({
           tabs: state.tabs.map((tab) => (tab.id === id ? nextTab : tab)),
           generationJobs: navigation.generationJobs,
           siteWorlds: navigation.siteWorlds,
+          browsingHistory: navigation.job
+            ? appendBrowsingHistory(browsingHistory, navigation.job, target.title)
+            : target.kind === "generated" && navigation.current.artifactId
+              ? appendCachedHistoryEntry(
+                  browsingHistory,
+                  state.activeProfileId,
+                  target.location,
+                  reusesCurrentArtifact ? currentTab.title : target.title,
+                  navigation.current.artifactId,
+                )
+              : browsingHistory,
         });
         return navigation.job?.id;
       },
@@ -335,9 +392,13 @@ export const useBrowserStore = create<BrowserState>()(
         const target = resolveRealNavigation(input);
         const history = currentTab.history.slice(0, currentTab.historyIndex + 1);
         history.push(makeHistoryEntry(target));
-        const generationJobs = cancelJobRecord(state.generationJobs, currentTab.generationJobId);
+        const generationJobs = cancelJobRecord(
+          cancelJobRecord(state.generationJobs, currentTab.generationJobId),
+          currentTab.luckyJobId,
+        );
         set({
           generationJobs,
+          browsingHistory: markCancelledBrowsingHistory(state.browsingHistory, currentTab.generationJobId),
           tabs: state.tabs.map((tab) =>
             tab.id === id
               ? {
@@ -345,7 +406,9 @@ export const useBrowserStore = create<BrowserState>()(
                   ...target,
                   prompt: undefined,
                   artifactId: undefined,
+                  fallbackArtifactId: undefined,
                   generationJobId: undefined,
+                  luckyJobId: undefined,
                   generatedWith: undefined,
                   loadState: "loading",
                   history,
@@ -377,6 +440,9 @@ export const useBrowserStore = create<BrowserState>()(
                   prompt: target.prompt,
                   virtualLocation: target.virtualLocation,
                   artifactId: target.artifactId,
+                  siteWorldId: target.siteWorldId,
+                  archivedSiteWorldId: target.archivedSiteWorldId,
+                  fallbackArtifactId: undefined,
                   generationJobId: target.generationJobId,
                   historyIndex,
                   loadState: loadStateForHistory(target, targetJob),
@@ -386,22 +452,30 @@ export const useBrowserStore = create<BrowserState>()(
           ),
         });
       },
-      reload: (id) =>
+      reload: (id) => {
+        const tab = get().tabs.find((item) => item.id === id);
+        if (tab?.kind === "generated") {
+          if (tab.archivedSiteWorldId) {
+            set((state) => ({
+              tabs: state.tabs.map((item) => item.id === id ? { ...item, reloadKey: item.reloadKey + 1 } : item),
+            }));
+            return;
+          }
+          get().regenerate(id);
+          return;
+        }
         set((state) => ({
-          tabs: state.tabs.map((tab) =>
-            tab.id === id
-              ? {
-                  ...tab,
-                  reloadKey: tab.reloadKey + 1,
-                  loadState: tab.kind === "remote" ? "idle" : tab.loadState,
-                }
-              : tab,
+          tabs: state.tabs.map((item) =>
+            item.id === id
+              ? { ...item, reloadKey: item.reloadKey + 1, loadState: item.kind === "remote" ? "idle" : item.loadState }
+              : item,
           ),
-        })),
+        }));
+      },
       regenerate: (id) => {
         const state = get();
         const tab = state.tabs.find((item) => item.id === id);
-        if (!tab || tab.kind !== "generated") return undefined;
+        if (!tab || tab.kind !== "generated" || tab.archivedSiteWorldId) return undefined;
         const target: NavigationTarget = {
           location: tab.location,
           title: tab.title,
@@ -411,7 +485,10 @@ export const useBrowserStore = create<BrowserState>()(
           virtualLocation: tab.virtualLocation,
           requiresGeneration: true,
         };
-        const generationJobs = cancelJobRecord(state.generationJobs, tab.generationJobId);
+        const generationJobs = cancelJobRecord(
+          cancelJobRecord(state.generationJobs, tab.generationJobId),
+          tab.luckyJobId,
+        );
         const sourceArtifact = tab.artifactId ? state.artifacts[tab.artifactId] : undefined;
         const sourceJob = tab.generationJobId ? state.generationJobs[tab.generationJobId] : undefined;
         const navigation = prepareNavigation({ ...state, generationJobs }, id, target, {
@@ -429,15 +506,22 @@ export const useBrowserStore = create<BrowserState>()(
           ...currentEntry,
           generationJobId: navigation.job?.id,
           artifactId: tab.artifactId,
+          siteWorldId: navigation.job?.siteWorldId,
         };
         set({
           generationJobs: navigation.generationJobs,
           siteWorlds: navigation.siteWorlds,
+          browsingHistory: navigation.job
+            ? appendBrowsingHistory(markCancelledBrowsingHistory(state.browsingHistory, tab.generationJobId), navigation.job, tab.title)
+            : markCancelledBrowsingHistory(state.browsingHistory, tab.generationJobId),
           tabs: state.tabs.map((item) =>
             item.id === id
               ? {
                   ...item,
                   generationJobId: navigation.job?.id,
+                  siteWorldId: navigation.job?.siteWorldId,
+                  fallbackArtifactId: tab.artifactId ?? tab.fallbackArtifactId,
+                  luckyJobId: undefined,
                   loadState: "loading",
                   generatedWith: state.activeModelId,
                   history,
@@ -446,6 +530,34 @@ export const useBrowserStore = create<BrowserState>()(
           ),
         });
         return navigation.job?.id;
+      },
+      discoverLucky: (id) => {
+        const state = get();
+        const tab = state.tabs.find((item) => item.id === id);
+        if (!tab) return undefined;
+        const generationJobs = cancelJobRecord(state.generationJobs, tab.luckyJobId);
+        const prompt = [
+          "Privately invent exactly 10 unexpected, surprising absolute URLs that genuinely exist in this browser's current alternate internet.",
+          "They must be diverse destinations, not ten pages of one site, and each must reveal a different piece of this world's lived-in lore.",
+          "Build a private directory page whose site route hints contain exactly those 10 absolute URLs. Do not explain that this is a recommendation or generated list.",
+        ].join(" ");
+        const target = resolveNavigation(prompt, state.activeModelId);
+        const navigation = prepareNavigation({ ...state, generationJobs }, id, target, {
+          requestedValue: prompt,
+          disposition: "current",
+          trigger: "address-bar",
+          sourceTabId: id,
+          sourceArtifactId: tab.artifactId,
+          sourceHistoryEntryId: tab.history[tab.historyIndex]?.id,
+        });
+        if (!navigation.job) return undefined;
+        const luckyJob: GenerationJob = { ...navigation.job, purpose: "lucky-urls" };
+        set({
+          generationJobs: { ...navigation.generationJobs, [luckyJob.id]: luckyJob },
+          siteWorlds: navigation.siteWorlds,
+          tabs: state.tabs.map((item) => item.id === id ? { ...item, luckyJobId: luckyJob.id } : item),
+        });
+        return luckyJob.id;
       },
       setLoadState: (id, loadState) => {
         const state = get();
@@ -498,6 +610,12 @@ export const useBrowserStore = create<BrowserState>()(
         const now = new Date().toISOString();
         const titlePatch = patch.provisionalTitle ? { title: patch.provisionalTitle } : {};
         const faviconPatch = patch.provisionalFavicon ? { favicon: patch.provisionalFavicon } : {};
+        const jobTabs = tabsForWorkspace(state, job.profileId);
+        const nextTabs = jobTabs.map((tab) => {
+          if (job.purpose === "lucky-urls" || tab.id !== job.tabId || tab.generationJobId !== jobId) return tab;
+          const metadataPatch = { ...titlePatch, ...faviconPatch };
+          return { ...tab, ...metadataPatch, history: patchCurrentHistory(tab, metadataPatch) };
+        });
         set({
           generationJobs: {
             ...state.generationJobs,
@@ -509,11 +627,7 @@ export const useBrowserStore = create<BrowserState>()(
               updatedAt: now,
             },
           },
-          tabs: state.tabs.map((tab) => {
-            if (tab.id !== job.tabId || tab.generationJobId !== jobId) return tab;
-            const metadataPatch = { ...titlePatch, ...faviconPatch };
-            return { ...tab, ...metadataPatch, history: patchCurrentHistory(tab, metadataPatch) };
-          }),
+          ...workspaceTabsPatch(state, job.profileId, nextTabs),
         });
         return true;
       },
@@ -524,16 +638,17 @@ export const useBrowserStore = create<BrowserState>()(
         const titlePatch = patch.provisionalTitle ? { title: patch.provisionalTitle } : {};
         const faviconPatch = patch.provisionalFavicon ? { favicon: patch.provisionalFavicon } : {};
         const metadataPatch = { ...titlePatch, ...faviconPatch };
+        const jobTabs = tabsForWorkspace(state, job.profileId);
+        const nextTabs = jobTabs.map((tab) =>
+          job.purpose !== "lucky-urls" && tab.id === job.tabId && tab.generationJobId === jobId
+            ? { ...tab, ...metadataPatch, history: patchCurrentHistory(tab, metadataPatch) }
+            : tab);
         set({
           generationJobs: {
             ...state.generationJobs,
             [jobId]: { ...job, ...patch, updatedAt: new Date().toISOString() },
           },
-          tabs: state.tabs.map((tab) =>
-            tab.id === job.tabId && tab.generationJobId === jobId
-              ? { ...tab, ...metadataPatch, history: patchCurrentHistory(tab, metadataPatch) }
-              : tab,
-          ),
+          ...workspaceTabsPatch(state, job.profileId, nextTabs),
         });
         return true;
       },
@@ -557,8 +672,9 @@ export const useBrowserStore = create<BrowserState>()(
       commitArtifact: (jobId, artifact) => {
         const state = get();
         const job = activeCurrentJob(state, jobId);
-        if (!job || artifact.generationJobId !== jobId) return false;
-        const tab = state.tabs.find((item) => item.id === job.tabId);
+        if (!job || job.purpose === "lucky-urls" || artifact.generationJobId !== jobId) return false;
+        const jobTabs = tabsForWorkspace(state, job.profileId);
+        const tab = jobTabs.find((item) => item.id === job.tabId);
         if (!tab) return false;
         const favicon = faviconValue(artifact) ?? tab.favicon;
         const history = patchCurrentHistory(tab, {
@@ -566,42 +682,165 @@ export const useBrowserStore = create<BrowserState>()(
           favicon,
           artifactId: artifact.id,
           generationJobId: jobId,
+          siteWorldId: artifact.siteWorldId,
         });
         const now = new Date().toISOString();
-        const siteWorlds = mergeArtifactIntoSiteWorld(state.siteWorlds, artifact, now);
-        set({
-          artifacts: { ...state.artifacts, [artifact.id]: artifact },
-          siteWorlds,
-          generationJobs: {
-            ...state.generationJobs,
-            [jobId]: {
-              ...job,
-              artifactId: artifact.id,
-              usage: artifact.usage,
-              status: "completed",
-              phase: "completed",
-              updatedAt: now,
-            },
+        let generationJobs = {
+          ...state.generationJobs,
+          [jobId]: {
+            ...job,
+            artifactId: artifact.id,
+            previewHtml: undefined,
+            previewRevision: undefined,
+            usage: artifact.usage,
+            status: "completed" as const,
+            phase: "completed" as const,
+            updatedAt: now,
           },
-          tabs: state.tabs.map((item) =>
-            item.id === job.tabId && item.generationJobId === jobId
-              ? {
-                  ...item,
-                  title: artifact.title,
-                  favicon,
-                  artifactId: artifact.id,
-                  loadState: "idle",
-                  history,
-                }
-              : item,
-          ),
+        };
+        let siteWorlds = mergeArtifactIntoSiteWorld(state.siteWorlds, artifact, job, now);
+        let nextTabs = jobTabs.map((item) =>
+          item.id === job.tabId && item.generationJobId === jobId
+            ? {
+                ...item,
+                title: artifact.title,
+                favicon,
+                artifactId: artifact.id,
+                siteWorldId: artifact.siteWorldId,
+                fallbackArtifactId: undefined,
+                loadState: "idle" as const,
+                hasUnseenUpdate: job.profileId !== state.activeProfileId || item.id !== state.activeTabId,
+                history,
+              }
+            : item,
+        );
+        if (job.identityStrategy === "reimagine") {
+          const origin = normalizeVirtualUrl(artifact.url)?.origin;
+          const archivedIds = new Set<string>();
+          if (origin) {
+            const closedJobIds = nextTabs
+              .filter((item) => item.id !== job.tabId && item.virtualLocation?.origin === origin)
+              .flatMap((item) => [item.generationJobId, item.luckyJobId].filter((id): id is string => Boolean(id)));
+            for (const closedJobId of closedJobIds) generationJobs = cancelJobRecord(generationJobs, closedJobId);
+            siteWorlds = Object.fromEntries(Object.entries(siteWorlds).map(([id, world]) => {
+              if (world.profileId === job.profileId && world.origin === origin && id !== artifact.siteWorldId && world.state === "active") {
+                archivedIds.add(id);
+                return [id, { ...world, state: "archived" as const, archivedAt: now, updatedAt: now }];
+              }
+              return [id, world];
+            }));
+            nextTabs = nextTabs
+              .filter((item) => item.id === job.tabId || item.virtualLocation?.origin !== origin)
+              .map((item) => ({
+                ...item,
+                history: item.history.map((entry) => entry.siteWorldId && archivedIds.has(entry.siteWorldId)
+                  ? { ...entry, archivedSiteWorldId: entry.siteWorldId }
+                  : entry),
+              }));
+          }
+        }
+        const workspacePatch = workspaceTabsPatch(state, job.profileId, nextTabs);
+        if (job.identityStrategy === "reimagine" && "profileWorkspaces" in workspacePatch) {
+          const workspace = workspacePatch.profileWorkspaces[job.profileId];
+          if (workspace) workspacePatch.profileWorkspaces[job.profileId] = { ...workspace, activeTabId: job.tabId };
+        }
+        set({
+          artifacts: { ...state.artifacts, [artifact.id]: { ...artifact, profileId: job.profileId } },
+          siteWorlds,
+          generationJobs,
+          ...workspacePatch,
+          ...(job.identityStrategy === "reimagine" && job.profileId === state.activeProfileId
+            ? { activeTabId: job.tabId }
+            : {}),
+          browsingHistory: updateBrowsingHistory(state.browsingHistory, jobId, {
+            status: "completed",
+            title: artifact.title,
+            favicon,
+            artifactId: artifact.id,
+            updatedAt: now,
+          }),
         });
         return true;
+      },
+      commitCachedArtifact: (jobId, artifact) => {
+        const state = get();
+        const job = activeCurrentJob(state, jobId);
+        if (!job || job.purpose === "lucky-urls") return false;
+        const jobTabs = tabsForWorkspace(state, job.profileId);
+        const tab = jobTabs.find((item) => item.id === job.tabId);
+        if (!tab) return false;
+        const now = new Date().toISOString();
+        const favicon = faviconValue(artifact) ?? tab.favicon;
+        const history = patchCurrentHistory(tab, {
+          title: artifact.title,
+          favicon,
+          artifactId: artifact.id,
+          generationJobId: jobId,
+          siteWorldId: artifact.siteWorldId,
+        });
+        const nextTabs = jobTabs.map((item) => item.id === job.tabId && item.generationJobId === jobId
+          ? {
+              ...item,
+              title: artifact.title,
+              favicon,
+              artifactId: artifact.id,
+              siteWorldId: artifact.siteWorldId,
+              fallbackArtifactId: undefined,
+              loadState: "idle" as const,
+              hasUnseenUpdate: job.profileId !== state.activeProfileId || item.id !== state.activeTabId,
+              history,
+            }
+          : item);
+        set({
+          artifacts: { ...state.artifacts, [artifact.id]: { ...artifact, profileId: job.profileId } },
+          generationJobs: {
+            ...state.generationJobs,
+            [jobId]: { ...job, artifactId: artifact.id, status: "completed", phase: "completed", updatedAt: now },
+          },
+          ...workspaceTabsPatch(state, job.profileId, nextTabs),
+          browsingHistory: updateBrowsingHistory(state.browsingHistory, jobId, {
+            status: "cached",
+            title: artifact.title,
+            favicon,
+            artifactId: artifact.id,
+            updatedAt: now,
+          }),
+        });
+        return true;
+      },
+      completeLucky: (jobId, artifact) => {
+        const state = get();
+        const job = activeCurrentJob(state, jobId);
+        if (!job || job.purpose !== "lucky-urls") return undefined;
+        const urls = luckyUrlsFromArtifact(artifact);
+        const now = new Date().toISOString();
+        const jobTabs = tabsForWorkspace(state, job.profileId);
+        const nextTabs = jobTabs.map((tab) => tab.id === job.tabId && tab.luckyJobId === jobId
+          ? { ...tab, luckyJobId: undefined }
+          : tab);
+        set({
+          generationJobs: {
+            ...state.generationJobs,
+            [jobId]: { ...job, status: "completed", phase: "completed", updatedAt: now },
+          },
+          ...workspaceTabsPatch(state, job.profileId, nextTabs),
+        });
+        if (urls.length === 0) return undefined;
+        return urls[Math.floor(Math.random() * urls.length)];
       },
       failGeneration: (jobId, error) => {
         const state = get();
         const job = activeCurrentJob(state, jobId);
         if (!job) return false;
+        const jobTabs = tabsForWorkspace(state, job.profileId);
+        const nextTabs = jobTabs.map((tab) => {
+          if (job.purpose === "lucky-urls") {
+            return tab.id === job.tabId && tab.luckyJobId === jobId ? { ...tab, luckyJobId: undefined } : tab;
+          }
+          return tab.id === job.tabId && tab.generationJobId === jobId
+            ? { ...tab, fallbackArtifactId: undefined, loadState: "error" as const }
+            : tab;
+        });
         set({
           generationJobs: {
             ...state.generationJobs,
@@ -613,9 +852,14 @@ export const useBrowserStore = create<BrowserState>()(
               updatedAt: new Date().toISOString(),
             },
           },
-          tabs: state.tabs.map((tab) =>
-            tab.id === job.tabId && tab.generationJobId === jobId ? { ...tab, loadState: "error" } : tab,
-          ),
+          ...workspaceTabsPatch(state, job.profileId, nextTabs),
+          browsingHistory: job.purpose === "lucky-urls"
+            ? state.browsingHistory
+            : updateBrowsingHistory(state.browsingHistory, jobId, {
+                status: "error",
+                errorMessage: error.message,
+                updatedAt: new Date().toISOString(),
+              }),
         });
         return true;
       },
@@ -624,11 +868,20 @@ export const useBrowserStore = create<BrowserState>()(
         const job = state.generationJobs[jobId];
         if (!job || !isActiveJob(job)) return false;
         const generationJobs = cancelJobRecord(state.generationJobs, jobId);
+        const jobTabs = tabsForWorkspace(state, job.profileId);
+        const nextTabs = jobTabs.map((tab) =>
+          tab.luckyJobId === jobId
+            ? { ...tab, luckyJobId: undefined }
+            : tab.generationJobId === jobId
+              ? { ...tab, loadState: "idle" as const }
+              : tab,
+        );
         set({
           generationJobs,
-          tabs: state.tabs.map((tab) =>
-            tab.generationJobId === jobId ? { ...tab, loadState: "idle" } : tab,
-          ),
+          ...workspaceTabsPatch(state, job.profileId, nextTabs),
+          browsingHistory: job.purpose === "lucky-urls"
+            ? state.browsingHistory
+            : markCancelledBrowsingHistory(state.browsingHistory, jobId),
         });
         return true;
       },
@@ -661,11 +914,18 @@ export const useBrowserStore = create<BrowserState>()(
               : job,
           ]),
         );
+        const resetInterruptedTabs = (tabs: BrowserTab[]) => tabs.map((tab) =>
+          tab.generationJobId && interruptedIds.has(tab.generationJobId)
+            ? { ...tab, loadState: "idle" as const }
+            : tab,
+        );
         set({
           generationJobs,
-          tabs: state.tabs.map((tab) =>
-            tab.generationJobId && interruptedIds.has(tab.generationJobId) ? { ...tab, loadState: "idle" } : tab,
-          ),
+          tabs: resetInterruptedTabs(state.tabs),
+          profileWorkspaces: Object.fromEntries(Object.entries(state.profileWorkspaces).map(([profileId, workspace]) => [
+            profileId,
+            { ...workspace, tabs: resetInterruptedTabs(workspace.tabs) },
+          ])),
         });
       },
       hydrateArtifacts: (artifacts) => {
@@ -673,7 +933,7 @@ export const useBrowserStore = create<BrowserState>()(
         set((state) => ({
           artifacts: {
             ...state.artifacts,
-            ...Object.fromEntries(artifacts.map((artifact) => [artifact.id, artifact])),
+            ...Object.fromEntries(artifacts.map((artifact) => [artifact.id, canonicalizeArtifactUrl(artifact)])),
           },
         }));
       },
@@ -693,17 +953,9 @@ export const useBrowserStore = create<BrowserState>()(
         set((state) => {
           const removed = state.providerConnections.find((item) => item.id === id);
           const removedModels = new Set(removed?.modelIds ?? []);
-          const defaultModelByMode = Object.fromEntries(
-            Object.entries(state.generationSettings.defaultModelByMode)
-              .filter(([, modelId]) => !modelId || !removedModels.has(modelId)),
-          ) as GenerationSettings["defaultModelByMode"];
           return {
             providerConnections: state.providerConnections.filter((item) => item.id !== id),
             activeModelId: removedModels.has(state.activeModelId) ? MODELS[0].id : state.activeModelId,
-            generationSettings: {
-              ...state.generationSettings,
-              defaultModelByMode,
-            },
           };
         }),
       patchGenerationSettings: (patch) =>
@@ -729,7 +981,7 @@ export const useBrowserStore = create<BrowserState>()(
             privacy: { ...state.generationSettings.privacy, ...patch },
           },
         })),
-      openSettings: (section = "appearance") => {
+      openSettings: (section = "general") => {
         const state = get();
         const existing = state.tabs.find((tab) => tab.kind === "settings");
         if (existing) {
@@ -743,6 +995,24 @@ export const useBrowserStore = create<BrowserState>()(
         set({ tabs: [...state.tabs, tab], activeTabId: id });
         return id;
       },
+      openHistory: () => {
+        const state = get();
+        const existing = state.tabs.find((tab) => tab.kind === "history");
+        if (existing) {
+          set({ activeTabId: existing.id });
+          return existing.id;
+        }
+        const id = createId("tab");
+        const tab = makeTab({ id, title: "History", location: "vibe://history", kind: "history", favicon: "◷" });
+        set({ tabs: [...state.tabs, tab], activeTabId: id });
+        return id;
+      },
+      removeBrowsingHistoryEntry: (id) =>
+        set((state) => ({ browsingHistory: state.browsingHistory.filter((entry) => entry.id !== id) })),
+      clearBrowsingHistory: (profileId) =>
+        set((state) => ({
+          browsingHistory: state.browsingHistory.filter((entry) => entry.profileId !== (profileId ?? state.activeProfileId)),
+        })),
       setSettingsSection: (section) =>
         set((state) => ({
           tabs: state.tabs.map((tab) => {
@@ -758,12 +1028,184 @@ export const useBrowserStore = create<BrowserState>()(
         }
       },
       setProfile: (activeProfileId) => {
-        if (PROFILES.some((profile) => profile.id === activeProfileId)) set({ activeProfileId });
+        const state = get();
+        if (activeProfileId === state.activeProfileId || !state.profiles.some((profile) => profile.id === activeProfileId)) return;
+        const currentWorkspace = snapshotWorkspace(state);
+        const targetProfile = state.profiles.find((profile) => profile.id === activeProfileId)!;
+        const targetWorkspace = state.profileWorkspaces[activeProfileId] ?? freshWorkspace(targetProfile.chromeSkin);
+        set({
+          activeProfileId,
+          profileWorkspaces: { ...state.profileWorkspaces, [state.activeProfileId]: currentWorkspace },
+          ...targetWorkspace,
+          preferences: { ...targetWorkspace.preferences, theme: targetProfile.chromeSkin },
+        });
       },
-      setTheme: (theme) => set((state) => ({ preferences: { ...state.preferences, theme } })),
+      createProfile: (input) => {
+        const state = get();
+        const preset = input.preset ? PROFILE_PRESETS[input.preset] : undefined;
+        const id = createId("profile");
+        const chromeSkin = input.chromeSkin ?? preset?.chromeSkin ?? "native";
+        const name = input.name?.trim() || preset?.name || "New profile";
+        const profile: BrowserProfile = {
+          id,
+          name,
+          avatar: input.avatar?.trim().slice(0, 4) || preset?.avatar || name.slice(0, 1).toUpperCase(),
+          caption: "Local browser workspace",
+          chromeSkin,
+          worldPrompt: { revision: 0, prompt: input.worldPrompt ?? preset?.prompt ?? "" },
+          createdAt: new Date().toISOString(),
+        };
+        const targetWorkspace = freshWorkspace(chromeSkin);
+        set({
+          profiles: [...state.profiles, profile],
+          profileWorkspaces: {
+            ...state.profileWorkspaces,
+            [state.activeProfileId]: snapshotWorkspace(state),
+          },
+          activeProfileId: id,
+          ...targetWorkspace,
+        });
+        return id;
+      },
+      updateProfile: (id, patch) => set((state) => ({
+        profiles: state.profiles.map((profile) => profile.id === id
+          ? {
+              ...profile,
+              ...(patch.name?.trim() ? { name: patch.name.trim() } : {}),
+              ...(patch.avatar?.trim() ? { avatar: patch.avatar.trim().slice(0, 4) } : {}),
+            }
+          : profile),
+      })),
+      updateWorldPrompt: (prompt) => set((state) => ({
+        profiles: state.profiles.map((profile) => profile.id === state.activeProfileId
+          ? { ...profile, worldPrompt: { revision: profile.worldPrompt.revision + 1, prompt: prompt.slice(0, 20_000) } }
+          : profile),
+      })),
+      deleteProfile: (id) => {
+        const state = get();
+        if (state.profiles.length <= 1 || !state.profiles.some((profile) => profile.id === id)) return false;
+        const profiles = state.profiles.filter((profile) => profile.id !== id);
+        const { [id]: _workspace, ...profileWorkspaces } = state.profileWorkspaces;
+        const common = {
+          profiles,
+          profileWorkspaces,
+          artifacts: Object.fromEntries(Object.entries(state.artifacts).filter(([, artifact]) => artifact.profileId !== id)),
+          siteWorlds: Object.fromEntries(Object.entries(state.siteWorlds).filter(([, world]) => world.profileId !== id)),
+          browsingHistory: state.browsingHistory.filter((entry) => entry.profileId !== id),
+          generationJobs: Object.fromEntries(Object.entries(state.generationJobs).filter(([, job]) => job.profileId !== id)),
+          providerConnections: state.providerConnections.filter((connection) => connection.profileId !== id),
+        };
+        if (id !== state.activeProfileId) {
+          set(common);
+          return true;
+        }
+        const nextProfile = profiles[0]!;
+        const nextWorkspace = profileWorkspaces[nextProfile.id] ?? freshWorkspace(nextProfile.chromeSkin);
+        set({ ...common, activeProfileId: nextProfile.id, ...nextWorkspace });
+        return true;
+      },
+      startProfileFromScratch: () => {
+        const state = get();
+        const now = new Date().toISOString();
+        const workspace = freshWorkspace(state.preferences.theme);
+        const cancelledIds = Object.values(state.generationJobs)
+          .filter((job) => job.profileId === state.activeProfileId && isActiveJob(job))
+          .map((job) => job.id);
+        const generationJobs = cancelledIds.reduce(cancelJobRecord, state.generationJobs);
+        set({
+          ...workspace,
+          generationJobs,
+          browsingHistory: cancelledIds.reduce(markCancelledBrowsingHistory, state.browsingHistory),
+          siteWorlds: Object.fromEntries(Object.entries(state.siteWorlds).map(([id, world]) => [
+            id,
+            world.profileId === state.activeProfileId && world.state === "active"
+              ? { ...world, state: "archived" as const, archivedAt: now, updatedAt: now }
+              : world,
+          ])),
+        });
+      },
+      reimagine: (id) => {
+        const state = get();
+        const tab = state.tabs.find((item) => item.id === id);
+        if (!tab?.virtualLocation || tab.archivedSiteWorldId) return undefined;
+        const resolvedTarget = resolveNavigation(tab.virtualLocation.url, state.activeModelId, { baseUrl: tab.virtualLocation.url });
+        if (resolvedTarget.kind !== "generated") return undefined;
+        const target: NavigationTarget = { ...resolvedTarget, requiresGeneration: true };
+        const navigation = prepareNavigation(state, id, target, {
+          requestedValue: tab.virtualLocation.url,
+          disposition: "current",
+          trigger: "regenerate",
+          sourceTabId: id,
+          sourceArtifactId: tab.artifactId,
+          identityStrategy: "reimagine",
+        });
+        if (!navigation.job) return undefined;
+        const history = tab.history.slice(0, tab.historyIndex + 1);
+        history.push(makeHistoryEntry({
+          location: tab.location,
+          title: tab.title,
+          kind: tab.kind,
+          prompt: tab.prompt,
+          favicon: tab.favicon,
+          virtualLocation: tab.virtualLocation,
+          generationJobId: navigation.job.id,
+          siteWorldId: navigation.job.siteWorldId,
+        }));
+        set({
+          generationJobs: navigation.generationJobs,
+          tabs: state.tabs.map((item) => item.id === id
+            ? {
+                ...item,
+                generationJobId: navigation.job!.id,
+                fallbackArtifactId: item.artifactId,
+                siteWorldId: navigation.job!.siteWorldId,
+                loadState: "loading",
+                history,
+                historyIndex: history.length - 1,
+              }
+            : item),
+        });
+        return navigation.job.id;
+      },
+      markFrameReady: (id) => set((state) => ({
+        tabs: id === state.activeTabId
+          ? state.tabs.map((tab) => tab.id === id ? { ...tab, hasUnseenUpdate: false } : tab)
+          : state.tabs,
+      })),
+      restoreSiteWorld: (siteWorldId, sourceTabId) => {
+        const state = get();
+        const archived = state.siteWorlds[siteWorldId];
+        if (!archived || archived.profileId !== state.activeProfileId || archived.state !== "archived") return false;
+        const now = new Date().toISOString();
+        const currentIds = new Set(Object.values(state.siteWorlds)
+          .filter((world) => world.profileId === state.activeProfileId && world.origin === archived.origin && world.state === "active")
+          .map((world) => world.id));
+        const siteWorlds = Object.fromEntries(Object.entries(state.siteWorlds).map(([id, world]) => {
+          if (id === siteWorldId) return [id, { ...world, state: "active" as const, archivedAt: undefined, updatedAt: now }];
+          if (currentIds.has(id)) return [id, { ...world, state: "archived" as const, archivedAt: now, updatedAt: now }];
+          return [id, world];
+        }));
+        const closedTabs = state.tabs.filter((tab) => tab.id !== sourceTabId && tab.siteWorldId && currentIds.has(tab.siteWorldId));
+        const closedJobIds = closedTabs.flatMap((tab) => [tab.generationJobId, tab.luckyJobId].filter((id): id is string => Boolean(id)));
+        const generationJobs = closedJobIds.reduce(cancelJobRecord, state.generationJobs);
+        const tabs = state.tabs
+          .filter((tab) => !closedTabs.some((closed) => closed.id === tab.id))
+          .map((tab) => tab.id === sourceTabId ? { ...tab, siteWorldId, archivedSiteWorldId: undefined } : tab);
+        set({
+          siteWorlds,
+          tabs,
+          activeTabId: sourceTabId,
+          generationJobs,
+          browsingHistory: closedJobIds.reduce(markCancelledBrowsingHistory, state.browsingHistory),
+        });
+        return true;
+      },
       setTabLayout: (tabLayout) => set((state) => ({ preferences: { ...state.preferences, tabLayout } })),
       setDensity: (density) => set((state) => ({ preferences: { ...state.preferences, density } })),
-      patchPreferences: (patch) => set((state) => ({ preferences: { ...state.preferences, ...patch } })),
+      patchPreferences: (patch) => set((state) => {
+        const profile = state.profiles.find((candidate) => candidate.id === state.activeProfileId);
+        return { preferences: { ...state.preferences, ...patch, theme: profile?.chromeSkin ?? state.preferences.theme } };
+      }),
       patchCodex: (patch) => set((state) => ({ codex: { ...state.codex, ...patch } })),
       setCodexModels: (codexModels) =>
         set((state) => ({
@@ -790,16 +1232,22 @@ export const useBrowserStore = create<BrowserState>()(
     }),
     {
       name: "vibesurfer-browser-state",
-      version: 5,
+      version: 9,
       migrate: (persistedState, version) => migrateBrowserState(persistedState, version) as BrowserState,
       partialize: (state) => ({
         tabs: state.preferences.reopenSession ? state.tabs : initialTabs,
         activeTabId: state.preferences.reopenSession ? state.activeTabId : "welcome",
         activeModelId: state.activeModelId,
         activeProfileId: state.activeProfileId,
+        profiles: state.profiles,
+        profileWorkspaces: {
+          ...state.profileWorkspaces,
+          [state.activeProfileId]: snapshotWorkspace(state),
+        },
         preferences: state.preferences,
         codexSelection: state.codexSelection,
         artifacts: state.preferences.reopenSession && persistArtifactsInUiStorage() ? state.artifacts : {},
+        browsingHistory: state.browsingHistory,
         generationJobs: state.preferences.reopenSession ? state.generationJobs : {},
         siteWorlds: state.preferences.reopenSession ? state.siteWorlds : {},
         providerConnections: state.providerConnections,
@@ -810,6 +1258,57 @@ export const useBrowserStore = create<BrowserState>()(
   ),
 );
 
+function snapshotWorkspace(state: BrowserState): ProfileWorkspace {
+  return {
+    tabs: state.tabs,
+    activeTabId: state.activeTabId,
+    activeModelId: state.activeModelId,
+    preferences: state.preferences,
+    codexSelection: state.codexSelection,
+    generationSettings: state.generationSettings,
+  };
+}
+
+function freshWorkspace(chromeSkin: ThemeId): ProfileWorkspace {
+  const tab = makeTab({
+    id: createId("tab"),
+    title: "New tab",
+    location: "vibe://new-tab",
+    kind: "new-tab",
+    favicon: "✦",
+  });
+  return {
+    tabs: [tab],
+    activeTabId: tab.id,
+    activeModelId: MODELS[0].id,
+    preferences: { ...DEFAULT_BROWSER_PREFERENCES, theme: chromeSkin },
+    codexSelection: {},
+    generationSettings: structuredClone(DEFAULT_GENERATION_SETTINGS),
+  };
+}
+
+function tabsForWorkspace(state: BrowserState, profileId: string): BrowserTab[] {
+  return profileId === state.activeProfileId
+    ? state.tabs
+    : state.profileWorkspaces[profileId]?.tabs ?? [];
+}
+
+function workspaceTabsPatch(
+  state: BrowserState,
+  profileId: string,
+  tabs: BrowserTab[],
+): Pick<BrowserState, "tabs"> | Pick<BrowserState, "profileWorkspaces"> {
+  if (profileId === state.activeProfileId) return { tabs };
+  const profile = state.profiles.find((candidate) => candidate.id === profileId);
+  const workspace = state.profileWorkspaces[profileId] ?? freshWorkspace(profile?.chromeSkin ?? "native");
+  return {
+    profileWorkspaces: {
+      ...state.profileWorkspaces,
+      [profileId]: { ...workspace, tabs },
+    },
+  };
+}
+
 interface PrepareNavigationOptions {
   requestedValue: string;
   disposition: NavigationDisposition;
@@ -819,10 +1318,11 @@ interface PrepareNavigationOptions {
   sourceArtifactId?: string;
   sourceHistoryEntryId?: string;
   reuseSiteWorldId?: string;
+  identityStrategy?: "reuse" | "create" | "reimagine";
 }
 
 interface PreparedNavigation {
-  current: Pick<BrowserTab, "artifactId" | "generationJobId">;
+  current: Pick<BrowserTab, "artifactId" | "generationJobId" | "siteWorldId">;
   job?: GenerationJob;
   generationJobs: Record<string, GenerationJob>;
   siteWorlds: Record<string, SiteWorld>;
@@ -838,8 +1338,8 @@ function prepareNavigation(
     const sourceTab = state.tabs.find((tab) => tab.id === options.sourceTabId);
     return {
       current: target.kind === "generated"
-        ? { artifactId: sourceTab?.artifactId, generationJobId: sourceTab?.generationJobId }
-        : { artifactId: undefined, generationJobId: undefined },
+        ? { artifactId: sourceTab?.artifactId, generationJobId: sourceTab?.generationJobId, siteWorldId: sourceTab?.siteWorldId }
+        : { artifactId: undefined, generationJobId: undefined, siteWorldId: undefined },
       generationJobs: state.generationJobs,
       siteWorlds: state.siteWorlds,
     };
@@ -847,17 +1347,25 @@ function prepareNavigation(
 
   const now = new Date().toISOString();
   const jobId = createId("job");
-  const siteWorld = target.virtualLocation
-    ? findOrCreateSiteWorld(state.siteWorlds, target.virtualLocation.origin, now)
-    : findOrCreatePromptSiteWorld(
-        state.siteWorlds,
-        options.reuseSiteWorldId ?? siteWorldIdForPrompt(jobId),
-        target.prompt ?? options.requestedValue,
-        now,
-      );
-  const mode = state.generationSettings.defaultMode;
-  const configuredModelId = modelForMode(state.activeModelId, state.generationSettings, mode);
-  const generationModel = resolveGenerationModel(configuredModelId, state.codexSelection, state.codexModels);
+  const requestedStrategy = options.identityStrategy;
+  const activeWorld = target.virtualLocation
+    ? Object.values(state.siteWorlds).find((world) =>
+        world.profileId === state.activeProfileId
+        && world.origin === target.virtualLocation!.origin
+        && world.state === "active")
+    : options.reuseSiteWorldId ? state.siteWorlds[options.reuseSiteWorldId] : undefined;
+  const identityStrategy = requestedStrategy === "reimagine"
+    ? "reimagine"
+    : activeWorld
+      ? "reuse"
+      : "create";
+  const siteWorldId = identityStrategy === "reuse"
+    ? activeWorld!.id
+    : target.virtualLocation
+      ? createId("site")
+      : options.reuseSiteWorldId ?? siteWorldIdForPrompt(jobId);
+  const generationModel = resolveGenerationModel(state.activeModelId, state.codexSelection, state.codexModels);
+  const profile = state.profiles.find((candidate) => candidate.id === state.activeProfileId) ?? state.profiles[0]!;
   const intent: NavigationIntent = {
     trigger: options.trigger,
     disposition: options.disposition,
@@ -872,14 +1380,17 @@ function prepareNavigation(
     tabId,
     requestedUrl: options.requestedValue,
     normalizedUrl: target.virtualLocation?.url,
-    siteWorldId: siteWorld?.id,
+    siteWorldId,
     sourceArtifactId: options.sourceArtifactId,
     sourceHistoryEntryId: options.sourceHistoryEntryId,
     providerId: providerIdForModel(generationModel.modelId),
     modelId: generationModel.modelId,
     reasoningEffort: generationModel.reasoningEffort,
     serviceTier: generationModel.serviceTier,
-    mode,
+    identityStrategy,
+    browserTheme: profile.chromeSkin,
+    worldPromptSnapshot: { ...(identityStrategy === "reuse" && activeWorld ? activeWorld.promptSnapshot : profile.worldPrompt) },
+    generationSettingsSnapshot: structuredClone(state.generationSettings),
     status: "queued",
     phase: "queued",
     navigationIntent: intent,
@@ -887,15 +1398,11 @@ function prepareNavigation(
     updatedAt: now,
   };
   return {
-    current: { artifactId: undefined, generationJobId: jobId },
+    current: { artifactId: undefined, generationJobId: jobId, siteWorldId },
     job,
     generationJobs: { ...state.generationJobs, [jobId]: job },
-    siteWorlds: siteWorld ? { ...state.siteWorlds, [siteWorld.id]: siteWorld } : state.siteWorlds,
+    siteWorlds: state.siteWorlds,
   };
-}
-
-function modelForMode(activeModelId: string, settings: GenerationSettings, mode: GenerationMode) {
-  return settings.defaultModelByMode[mode] ?? activeModelId;
 }
 
 function providerIdForModel(modelId: string) {
@@ -922,48 +1429,6 @@ function resolveGenerationModel(
   };
 }
 
-function findOrCreateSiteWorld(siteWorlds: Record<string, SiteWorld>, origin: string, now: string) {
-  const existing = Object.values(siteWorlds).find((siteWorld) => siteWorld.origin === origin);
-  if (existing) return existing;
-  return {
-    id: `site-${stableHash(origin)}`,
-    origin,
-    name: readableHost(origin),
-    purpose: "",
-    audience: "",
-    visualLanguage: { palette: [], typography: "", layout: "", tone: "" },
-    informationArchitecture: [],
-    establishedFacts: [],
-    visitedPageSummaries: [],
-    revision: 0,
-    createdAt: now,
-    updatedAt: now,
-  } satisfies SiteWorld;
-}
-
-function findOrCreatePromptSiteWorld(
-  siteWorlds: Record<string, SiteWorld>,
-  id: string,
-  prompt: string,
-  now: string,
-) {
-  const existing = siteWorlds[id];
-  if (existing) return existing;
-  return {
-    id,
-    origin: `https://prompt-${stableHash(id)}.generated.vibe.local`,
-    name: prompt.length > 80 ? `${prompt.slice(0, 79)}…` : prompt,
-    purpose: prompt,
-    audience: "",
-    visualLanguage: { palette: [], typography: "", layout: "", tone: "" },
-    informationArchitecture: [],
-    establishedFacts: [],
-    visitedPageSummaries: [],
-    revision: 0,
-    createdAt: now,
-    updatedAt: now,
-  } satisfies SiteWorld;
-}
 
 function siteWorldIdForPrompt(jobId: string) {
   const token = jobId.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(-32);
@@ -984,8 +1449,8 @@ function loadStateForHistory(_entry: HistoryEntry, job?: GenerationJob): Browser
 function activeCurrentJob(state: BrowserState, jobId: string) {
   const job = state.generationJobs[jobId];
   if (!job || !isActiveJob(job)) return undefined;
-  const tab = state.tabs.find((item) => item.id === job.tabId);
-  return tab?.generationJobId === jobId ? job : undefined;
+  const tab = tabsForWorkspace(state, job.profileId).find((item) => item.id === job.tabId);
+  return tab?.generationJobId === jobId || tab?.luckyJobId === jobId ? job : undefined;
 }
 
 function isActiveJob(job: GenerationJob) {
@@ -1022,27 +1487,51 @@ function faviconValue(artifact: PageArtifact) {
   return artifact.favicon.kind === "glyph" ? artifact.favicon.glyph : artifact.favicon.src;
 }
 
+function canonicalizeArtifactUrl(artifact: PageArtifact): PageArtifact {
+  const url = normalizeVirtualUrl(artifact.url)?.url ?? artifact.url;
+  return url === artifact.url ? artifact : { ...artifact, url };
+}
+
 function mergeArtifactIntoSiteWorld(
   siteWorlds: Record<string, SiteWorld>,
   artifact: PageArtifact,
+  job: GenerationJob,
   now: string,
 ): Record<string, SiteWorld> {
   const virtualLocation = normalizeVirtualUrl(artifact.url);
-  const existing = siteWorlds[artifact.siteWorldId]
-    ?? (virtualLocation
-      ? Object.values(siteWorlds).find((siteWorld) => siteWorld.origin === virtualLocation.origin)
-      : undefined);
+  const existing = siteWorlds[artifact.siteWorldId];
   if (!existing && !virtualLocation) return siteWorlds;
   const patch = artifact.sitePatch;
+  const frozenIdentity = existing?.identity ?? artifact.siteIdentity;
+  if (!frozenIdentity) return siteWorlds;
+  const identity: SiteIdentity = patch
+    ? {
+        ...frozenIdentity,
+        establishedFacts: [...new Set([...frozenIdentity.establishedFacts, ...patch.establishedFacts])].slice(-48),
+        routeHints: [...frozenIdentity.routeHints, ...patch.routeHints]
+          .filter((route, index, routes) => routes.findIndex((candidate) => candidate.path === route.path) === index)
+          .slice(-60),
+      }
+    : frozenIdentity;
   const base: SiteWorld = existing ?? {
     id: artifact.siteWorldId,
+    profileId: job.profileId,
     origin: virtualLocation!.origin,
-    name: patch?.name ?? readableHost(artifact.url),
-    purpose: patch?.purpose ?? "",
-    audience: patch?.audience ?? "",
-    visualLanguage: { palette: [], typography: "", layout: "", tone: "" },
-    informationArchitecture: [],
-    establishedFacts: [],
+    state: "active",
+    promptSnapshot: artifact.worldPromptSnapshot ?? job.worldPromptSnapshot,
+    identity,
+    pageSummaries: [],
+    name: identity.name,
+    purpose: identity.purpose,
+    audience: identity.audience,
+    visualLanguage: {
+      palette: identity.visualLanguage.palette,
+      typography: identity.visualLanguage.typography,
+      layout: identity.layoutSystem,
+      tone: identity.visualLanguage.mood ?? "",
+    },
+    informationArchitecture: identity.routeHints,
+    establishedFacts: identity.establishedFacts,
     visitedPageSummaries: [],
     revision: 0,
     createdAt: now,
@@ -1054,36 +1543,31 @@ function mergeArtifactIntoSiteWorld(
     url: artifact.url,
     title: artifact.title,
     purpose: artifact.summary,
-    factsIntroduced: patch?.establishedFacts ?? [],
-    outboundRoutes: patch?.routeHints.map((route) => route.path) ?? [],
+    factsIntroduced: artifact.siteAdditions?.facts ?? patch?.establishedFacts ?? [],
+    outboundRoutes: (artifact.siteAdditions?.routes ?? patch?.routeHints ?? []).map((route) => route.path),
   });
   const next: SiteWorld = {
     ...base,
     id: artifact.siteWorldId,
-    name: patch?.name ?? base.name,
-    purpose: patch?.purpose ?? base.purpose,
-    audience: patch?.audience ?? base.audience,
-    visualLanguage: patch
-      ? {
-          palette: patch.visualLanguage.palette,
-          typography: patch.visualLanguage.typography,
-          layout: patch.visualLanguage.layout
-            ?? [patch.visualLanguage.density, patch.visualLanguage.radius].filter(Boolean).join(", "),
-          tone: patch.visualLanguage.tone ?? patch.visualLanguage.mood ?? base.visualLanguage.tone,
-        }
-      : base.visualLanguage,
-    informationArchitecture: patch?.routeHints ?? base.informationArchitecture,
-    establishedFacts: patch
-      ? [...new Set([...base.establishedFacts, ...patch.establishedFacts])].slice(-48)
-      : base.establishedFacts,
+    profileId: job.profileId,
+    state: "active",
+    identity,
+    name: identity.name,
+    purpose: identity.purpose,
+    audience: identity.audience,
+    visualLanguage: {
+      palette: identity.visualLanguage.palette,
+      typography: identity.visualLanguage.typography,
+      layout: identity.layoutSystem,
+      tone: identity.visualLanguage.mood ?? base.visualLanguage.tone,
+    },
+    informationArchitecture: identity.routeHints,
+    establishedFacts: identity.establishedFacts,
     visitedPageSummaries: summaries.slice(-24),
+    pageSummaries: summaries.slice(-100),
     revision: base.revision + 1,
     updatedAt: now,
   };
-  if (existing && existing.id !== artifact.siteWorldId) {
-    const { [existing.id]: _removed, ...remaining } = siteWorlds;
-    return { ...remaining, [artifact.siteWorldId]: next };
-  }
   return { ...siteWorlds, [artifact.siteWorldId]: next };
 }
 
@@ -1093,21 +1577,89 @@ function mergeHydratedSiteWorlds(
 ): Record<string, SiteWorld> {
   let merged = { ...current };
   for (const siteWorld of hydrated) {
-    const existing = merged[siteWorld.id]
-      ?? Object.values(merged).find((candidate) => candidate.origin === siteWorld.origin);
+    const existing = merged[siteWorld.id];
     if (existing && (
       existing.revision > siteWorld.revision ||
       (existing.revision === siteWorld.revision && existing.updatedAt > siteWorld.updatedAt)
     )) {
       continue;
     }
-    if (existing && existing.id !== siteWorld.id) {
-      const { [existing.id]: _removed, ...remaining } = merged;
-      merged = remaining;
-    }
     merged[siteWorld.id] = siteWorld;
   }
   return merged;
+}
+
+function appendBrowsingHistory(
+  entries: BrowsingHistoryEntry[],
+  job: GenerationJob,
+  fallbackTitle: string,
+): BrowsingHistoryEntry[] {
+  if (job.purpose === "lucky-urls") return entries;
+  const now = job.createdAt;
+  const entry: BrowsingHistoryEntry = {
+    id: createId("visit"),
+    profileId: job.profileId,
+    url: job.normalizedUrl ?? job.requestedUrl,
+    title: fallbackTitle,
+    status: "loading",
+    generationJobId: job.id,
+    openedAt: now,
+    updatedAt: now,
+  };
+  return [entry, ...entries].slice(0, 5_000);
+}
+
+function appendCachedHistoryEntry(
+  entries: BrowsingHistoryEntry[],
+  profileId: string,
+  url: string,
+  title: string,
+  artifactId: string,
+): BrowsingHistoryEntry[] {
+  const now = new Date().toISOString();
+  const entry: BrowsingHistoryEntry = {
+    id: createId("visit"),
+    profileId,
+    url,
+    title,
+    status: "cached",
+    artifactId,
+    openedAt: now,
+    updatedAt: now,
+  };
+  return [entry, ...entries].slice(0, 5_000);
+}
+
+function updateBrowsingHistory(
+  entries: BrowsingHistoryEntry[],
+  jobId: string,
+  patch: Partial<BrowsingHistoryEntry>,
+): BrowsingHistoryEntry[] {
+  return entries.map((entry) => entry.generationJobId === jobId ? { ...entry, ...patch } : entry);
+}
+
+function markCancelledBrowsingHistory(
+  entries: BrowsingHistoryEntry[],
+  jobId: string | undefined,
+): BrowsingHistoryEntry[] {
+  if (!jobId) return entries;
+  const now = new Date().toISOString();
+  return entries.map((entry) => entry.generationJobId === jobId && entry.status === "loading"
+    ? { ...entry, status: "error" as const, errorMessage: "Cancelled", updatedAt: now }
+    : entry);
+}
+
+function luckyUrlsFromArtifact(artifact: PageArtifact): string[] {
+  const urls = new Set<string>();
+  for (const route of artifact.sitePatch?.routeHints ?? []) {
+    try {
+      const url = new URL(route.path, artifact.url);
+      if (url.protocol === "http:" || url.protocol === "https:") urls.add(url.href);
+    } catch {
+      // Ignore malformed model suggestions; a Lucky result must be navigable.
+    }
+  }
+  return [...urls].slice(0, 10);
 }
 
 function makeHistoryEntry(
@@ -1125,6 +1677,8 @@ function makeHistoryEntry(
     virtualLocation: merged.virtualLocation,
     artifactId: merged.artifactId,
     generationJobId: merged.generationJobId,
+    siteWorldId: merged.siteWorldId,
+    archivedSiteWorldId: merged.archivedSiteWorldId,
   };
 }
 
@@ -1140,6 +1694,8 @@ export function makeTab(
     virtualLocation: input.virtualLocation,
     artifactId: input.artifactId,
     generationJobId: input.generationJobId,
+    siteWorldId: input.siteWorldId,
+    archivedSiteWorldId: input.archivedSiteWorldId,
   });
   return {
     id: input.id,
@@ -1150,17 +1706,22 @@ export function makeTab(
     favicon: input.favicon,
     virtualLocation: input.virtualLocation,
     artifactId: input.artifactId,
+    fallbackArtifactId: input.fallbackArtifactId,
     generationJobId: input.generationJobId,
+    siteWorldId: input.siteWorldId,
+    archivedSiteWorldId: input.archivedSiteWorldId,
+    luckyJobId: input.luckyJobId,
     opener: input.opener,
     loadState: input.loadState ?? "idle",
     reloadKey: input.reloadKey ?? 0,
     history: input.history ?? [entry],
     historyIndex: input.historyIndex ?? 0,
     generatedWith: input.generatedWith,
+    hasUnseenUpdate: input.hasUnseenUpdate ?? false,
   };
 }
 
-export function migrateBrowserState(persistedState: unknown, _version = 0): Partial<BrowserState> {
+export function migrateBrowserState(persistedState: unknown, version = 0): Partial<BrowserState> {
   const source = isRecord(persistedState) ? persistedState : {};
   const persistedGenerationJobs = recordOf<GenerationJob>(source.generationJobs);
   const rawTabs = Array.isArray(source.tabs) ? source.tabs : [];
@@ -1184,19 +1745,71 @@ export function migrateBrowserState(persistedState: unknown, _version = 0): Part
     ...DEFAULT_BROWSER_PREFERENCES,
     ...(isRecord(source.preferences) ? source.preferences : {}),
   } as BrowserPreferences;
-  let generationSettings = migrateGenerationSettings(source.generationSettings);
+  let generationSettings = migrateGenerationSettings(source.generationSettings, version);
+  const legacyGenerationSettings = isRecord(source.generationSettings) ? source.generationSettings : {};
+  const legacyWorldPrompt = stringValue(legacyGenerationSettings.customInstruction).slice(0, 20_000);
+  const profiles: BrowserProfile[] = Array.isArray(source.profiles)
+    ? source.profiles.filter(isRecord).flatMap((profile) => {
+        const id = nonEmptyString(profile.id);
+        if (!id) return [];
+        const snapshot = isRecord(profile.worldPrompt) ? profile.worldPrompt : {};
+        return [{
+          id,
+          name: nonEmptyString(profile.name) ?? "Profile",
+          avatar: nonEmptyString(profile.avatar)?.slice(0, 4) ?? "P",
+          caption: nonEmptyString(profile.caption) ?? "Local browser workspace",
+          chromeSkin: themeValue(profile.chromeSkin) ?? preferences.theme,
+          worldPrompt: {
+            revision: Math.max(0, Math.round(numberValue(snapshot.revision) ?? 0)),
+            prompt: stringValue(snapshot.prompt).slice(0, 20_000),
+          },
+          createdAt: nonEmptyString(profile.createdAt) ?? new Date().toISOString(),
+        }];
+      })
+    : [];
+  if (profiles.length === 0) {
+    profiles.push({
+      ...PROFILES[0],
+      chromeSkin: preferences.theme,
+      worldPrompt: { revision: legacyWorldPrompt ? 1 : 0, prompt: legacyWorldPrompt },
+    });
+  }
   const requestedProfileId = stringValue(source.activeProfileId);
-  const activeProfileId = requestedProfileId && PROFILES.some((profile) => profile.id === requestedProfileId)
+  const activeProfileId = requestedProfileId && profiles.some((profile) => profile.id === requestedProfileId)
     ? requestedProfileId
-    : PROFILES[0].id;
+    : profiles[0]!.id;
+  const activeProfile = profiles.find((profile) => profile.id === activeProfileId)!;
+  preferences.theme = activeProfile.chromeSkin;
   const generationJobs = Object.fromEntries(
     Object.entries(persistedGenerationJobs).map(([id, job]) => [
       id,
-      { ...job, profileId: job.profileId ?? activeProfileId, tabId: tabIdRemap.get(job.tabId) ?? job.tabId },
+      {
+        ...job,
+        profileId: job.profileId ?? activeProfileId,
+        tabId: tabIdRemap.get(job.tabId) ?? job.tabId,
+        normalizedUrl: job.normalizedUrl
+          ? normalizeVirtualUrl(job.normalizedUrl)?.url ?? job.normalizedUrl
+          : undefined,
+        identityStrategy: job.identityStrategy ?? (job.siteWorldId ? "reuse" : "create"),
+        browserTheme: job.browserTheme ?? activeProfile.chromeSkin,
+        worldPromptSnapshot: job.worldPromptSnapshot ?? activeProfile.worldPrompt,
+        generationSettingsSnapshot: job.generationSettingsSnapshot ?? generationSettings,
+      },
     ]),
   );
-  const artifacts = recordOf<PageArtifact>(source.artifacts);
-  const siteWorlds = recordOf<SiteWorld>(source.siteWorlds);
+  const artifacts = Object.fromEntries(
+    Object.entries(recordOf<PageArtifact>(source.artifacts)).map(([id, artifact]) => [
+      id,
+      canonicalizeArtifactUrl({ ...artifact, profileId: artifact.profileId ?? activeProfileId }),
+    ]),
+  );
+  const browsingHistory = Array.isArray(source.browsingHistory)
+    ? source.browsingHistory.filter(isRecord).flatMap((entry) => migrateBrowsingHistoryEntry(entry, activeProfileId))
+    : [];
+  const siteWorlds = Object.fromEntries(Object.entries(recordOf<unknown>(source.siteWorlds)).flatMap(([id, world]) => {
+    const migrated = migrateSiteWorld(world, id, activeProfileId, activeProfile.worldPrompt);
+    return migrated ? [[id, migrated]] : [];
+  }));
   const providerConnections = Array.isArray(source.providerConnections)
     ? source.providerConnections
         .filter(isRecord)
@@ -1206,13 +1819,6 @@ export function migrateBrowserState(persistedState: unknown, _version = 0): Part
   const activeModelId = isSelectableModel(requestedActiveModelId, providerConnections, activeProfileId)
     ? requestedActiveModelId
     : MODELS[0].id;
-  generationSettings = {
-    ...generationSettings,
-    defaultModelByMode: Object.fromEntries(
-      Object.entries(generationSettings.defaultModelByMode).filter(([, modelId]) =>
-        Boolean(modelId && isSelectableModel(modelId, providerConnections, activeProfileId))),
-    ),
-  };
   const tabs = tabsWithOpeners.map((tab) => ({
     ...tab,
     generatedWith: tab.generatedWith && !tab.artifactId
@@ -1224,8 +1830,15 @@ export function migrateBrowserState(persistedState: unknown, _version = 0): Part
   const remappedActiveTabId = tabIdRemap.get(requestedActiveTabId) ?? requestedActiveTabId;
   const activeTabId = tabs.some((tab) => tab.id === remappedActiveTabId) ? remappedActiveTabId : tabs[0].id;
   const codexSelection = migrateCodexSelection(source.codexSelection);
+  const profileWorkspaces = Object.fromEntries(Object.entries(recordOf<unknown>(source.profileWorkspaces)).flatMap(([profileId, workspace]) => {
+    if (profileId === activeProfileId || !profiles.some((profile) => profile.id === profileId)) return [];
+    const migrated = migrateProfileWorkspace(workspace, profiles.find((profile) => profile.id === profileId)!);
+    return migrated ? [[profileId, migrated]] : [];
+  }));
 
   return {
+    profiles,
+    profileWorkspaces,
     tabs,
     activeTabId,
     activeModelId,
@@ -1234,6 +1847,7 @@ export function migrateBrowserState(persistedState: unknown, _version = 0): Part
     codexModels: [],
     codexSelection,
     artifacts,
+    browsingHistory,
     generationJobs,
     siteWorlds,
     providerConnections,
@@ -1241,10 +1855,134 @@ export function migrateBrowserState(persistedState: unknown, _version = 0): Part
   };
 }
 
+function migrateProfileWorkspace(value: unknown, profile: BrowserProfile): ProfileWorkspace | undefined {
+  if (!isRecord(value)) return undefined;
+  const tabs = Array.isArray(value.tabs) && value.tabs.length > 0
+    ? value.tabs.map((tab, index) => migrateTab(tab, index, {}))
+    : freshWorkspace(profile.chromeSkin).tabs;
+  const activeTabId = nonEmptyString(value.activeTabId);
+  return {
+    tabs,
+    activeTabId: activeTabId && tabs.some((tab) => tab.id === activeTabId) ? activeTabId : tabs[0]!.id,
+    activeModelId: nonEmptyString(value.activeModelId) ?? MODELS[0].id,
+    preferences: {
+      ...DEFAULT_BROWSER_PREFERENCES,
+      ...(isRecord(value.preferences) ? value.preferences : {}),
+      theme: profile.chromeSkin,
+    } as BrowserPreferences,
+    codexSelection: migrateCodexSelection(value.codexSelection),
+    generationSettings: migrateGenerationSettings(value.generationSettings, 9),
+  };
+}
+
+function migrateSiteWorld(
+  value: unknown,
+  fallbackId: string,
+  fallbackProfileId: string,
+  fallbackPrompt: BrowserProfile["worldPrompt"],
+): SiteWorld | undefined {
+  if (!isRecord(value)) return undefined;
+  const origin = optionalString(value.origin);
+  if (!origin) return undefined;
+  const visual = isRecord(value.visualLanguage) ? value.visualLanguage : {};
+  const rawIdentity = isRecord(value.identity) ? value.identity : {};
+  const identityVisual = isRecord(rawIdentity.visualLanguage) ? rawIdentity.visualLanguage : visual;
+  const palette = Array.isArray(identityVisual.palette)
+    ? identityVisual.palette.filter((color): color is string => typeof color === "string").slice(0, 8)
+    : [];
+  const routes = (Array.isArray(rawIdentity.routeHints)
+    ? rawIdentity.routeHints
+    : Array.isArray(value.informationArchitecture) ? value.informationArchitecture : [])
+    .filter(isRecord)
+    .flatMap((route) => nonEmptyString(route.path) && nonEmptyString(route.label)
+      ? [{ path: nonEmptyString(route.path)!, label: nonEmptyString(route.label)!, purpose: optionalString(route.purpose) }]
+      : []);
+  const prompt = isRecord(value.promptSnapshot) ? value.promptSnapshot : {};
+  const name = nonEmptyString(rawIdentity.name ?? value.name) ?? readableHost(origin);
+  const purpose = stringValue(rawIdentity.purpose ?? value.purpose);
+  const audience = stringValue(rawIdentity.audience ?? value.audience);
+  const favicon = isRecord(rawIdentity.favicon) && rawIdentity.favicon.kind === "glyph"
+    ? rawIdentity.favicon as unknown as SiteWorld["identity"]["favicon"]
+    : { kind: "glyph" as const, glyph: name.slice(0, 1).toUpperCase() || "•", foreground: "#ffffff", background: palette[1] ?? "#2563eb", shape: "rounded-square" as const };
+  const rolePalette = isRecord(rawIdentity.palette) ? rawIdentity.palette : {};
+  const fonts = isRecord(rawIdentity.fonts) ? rawIdentity.fonts : {};
+  const establishedFacts = (Array.isArray(rawIdentity.establishedFacts)
+    ? rawIdentity.establishedFacts
+    : Array.isArray(value.establishedFacts) ? value.establishedFacts : [])
+    .filter((fact): fact is string => typeof fact === "string");
+  const identity: SiteWorld["identity"] = {
+    classification: rawIdentity.classification === "recognizable" ? "recognizable" : "original",
+    locale: nonEmptyString(rawIdentity.locale) ?? "en",
+    era: nonEmptyString(rawIdentity.era) ?? "contemporary",
+    name,
+    purpose,
+    audience,
+    visualLanguage: {
+      palette: palette.length >= 2 ? palette : ["#0f172a", "#2563eb", "#f8fafc"],
+      typography: nonEmptyString(identityVisual.typography) ?? "Arimo Variable",
+      density: identityVisual.density === "compact" || identityVisual.density === "spacious" ? identityVisual.density : "comfortable",
+      radius: identityVisual.radius === "none" || identityVisual.radius === "subtle" || identityVisual.radius === "pill" ? identityVisual.radius : "rounded",
+      mood: nonEmptyString(identityVisual.mood ?? identityVisual.tone) ?? "clear",
+    },
+    establishedFacts,
+    routeHints: routes,
+    palette: {
+      background: nonEmptyString(rolePalette.background) ?? palette[2] ?? "#f8fafc",
+      surface: nonEmptyString(rolePalette.surface) ?? "#ffffff",
+      text: nonEmptyString(rolePalette.text) ?? palette[0] ?? "#0f172a",
+      mutedText: nonEmptyString(rolePalette.mutedText) ?? "#64748b",
+      accent: nonEmptyString(rolePalette.accent) ?? palette[1] ?? "#2563eb",
+      accentText: nonEmptyString(rolePalette.accentText) ?? "#ffffff",
+      border: nonEmptyString(rolePalette.border) ?? "#cbd5e1",
+    },
+    fonts: {
+      body: nonEmptyString(fonts.body) ?? "Arimo Variable",
+      heading: nonEmptyString(fonts.heading) ?? "Arimo Variable",
+      ...(nonEmptyString(fonts.mono) ? { mono: nonEmptyString(fonts.mono) } : {}),
+    },
+    layoutSystem: nonEmptyString(rawIdentity.layoutSystem) ?? nonEmptyString(visual.layout) ?? "Page-specific layout",
+    favicon,
+  };
+  const pageSummaries = (Array.isArray(value.pageSummaries)
+    ? value.pageSummaries
+    : Array.isArray(value.visitedPageSummaries) ? value.visitedPageSummaries : []) as PageSummary[];
+  const createdAt = optionalString(value.createdAt) ?? new Date().toISOString();
+  const updatedAt = optionalString(value.updatedAt) ?? createdAt;
+  return {
+    id: nonEmptyString(value.id) ?? fallbackId,
+    profileId: nonEmptyString(value.profileId) ?? fallbackProfileId,
+    origin,
+    state: value.state === "archived" ? "archived" : "active",
+    promptSnapshot: {
+      revision: Math.max(0, Math.round(numberValue(prompt.revision) ?? fallbackPrompt.revision)),
+      prompt: stringValue(prompt.prompt) || fallbackPrompt.prompt,
+    },
+    identity,
+    pageSummaries,
+    archivedAt: optionalString(value.archivedAt),
+    name: identity.name,
+    purpose: identity.purpose,
+    audience: identity.audience,
+    visualLanguage: {
+      palette: identity.visualLanguage.palette,
+      typography: identity.visualLanguage.typography,
+      layout: identity.layoutSystem,
+      tone: identity.visualLanguage.mood ?? "",
+    },
+    informationArchitecture: identity.routeHints,
+    establishedFacts: identity.establishedFacts,
+    visitedPageSummaries: pageSummaries,
+    revision: Math.max(0, Math.round(numberValue(value.revision) ?? 0)),
+    createdAt,
+    updatedAt,
+  };
+}
+
 function migrateTab(value: unknown, index: number, generationJobs: Record<string, GenerationJob>): BrowserTab {
   const source = isRecord(value) ? value : {};
   const id = recoverTabId(source, index, generationJobs);
-  const location = stringValue(source.location) || "vibe://new-tab";
+  const persistedLocation = stringValue(source.location) || "vibe://new-tab";
+  const location = normalizeVirtualUrl(persistedLocation)?.url ?? persistedLocation;
   const kind = tabKind(source.kind, location);
   const title = stringValue(source.title) || (kind === "new-tab" ? "New tab" : readableHost(location));
   const rawHistory = Array.isArray(source.history) ? source.history : [];
@@ -1264,13 +2002,18 @@ function migrateTab(value: unknown, index: number, generationJobs: Record<string
     prompt: optionalString(source.prompt),
     virtualLocation,
     artifactId: optionalString(source.artifactId) ?? current.artifactId,
+    fallbackArtifactId: optionalString(source.fallbackArtifactId),
     generationJobId: optionalString(source.generationJobId) ?? current.generationJobId,
+    siteWorldId: optionalString(source.siteWorldId) ?? current.siteWorldId,
+    archivedSiteWorldId: optionalString(source.archivedSiteWorldId) ?? current.archivedSiteWorldId,
+    luckyJobId: optionalString(source.luckyJobId),
     opener: openerValue(source.opener),
     loadState: loadStateValue(source.loadState),
     reloadKey: numberValue(source.reloadKey) ?? 0,
     history,
     historyIndex,
     generatedWith: optionalString(source.generatedWith),
+    hasUnseenUpdate: booleanValue(source.hasUnseenUpdate) ?? false,
   };
 }
 
@@ -1298,7 +2041,8 @@ function migrateHistoryEntry(
   fallback: Pick<HistoryEntry, "location" | "title" | "kind">,
 ): HistoryEntry {
   const source = isRecord(value) ? value : {};
-  const location = stringValue(source.location) || fallback.location;
+  const persistedLocation = stringValue(source.location) || fallback.location;
+  const location = normalizeVirtualUrl(persistedLocation)?.url ?? persistedLocation;
   const kind = tabKind(source.kind, location) || fallback.kind;
   return {
     id: stringValue(source.id) || `${tabId}:history:${index}`,
@@ -1310,47 +2054,61 @@ function migrateHistoryEntry(
     virtualLocation: virtualLocationValue(source.virtualLocation) ?? normalizeVirtualUrl(location),
     artifactId: optionalString(source.artifactId),
     generationJobId: optionalString(source.generationJobId),
+    siteWorldId: optionalString(source.siteWorldId),
+    archivedSiteWorldId: optionalString(source.archivedSiteWorldId),
   };
 }
 
-function migrateGenerationSettings(value: unknown): GenerationSettings {
+function migrateBrowsingHistoryEntry(
+  source: Record<string, unknown>,
+  fallbackProfileId: string,
+): BrowsingHistoryEntry[] {
+  const url = optionalString(source.url);
+  const openedAt = optionalString(source.openedAt);
+  if (!url || !openedAt) return [];
+  const canonicalUrl = normalizeVirtualUrl(url)?.url ?? url;
+  const status = source.status === "loading" || source.status === "cached" || source.status === "error"
+    ? source.status
+    : "completed";
+  return [{
+    id: optionalString(source.id) ?? createId("visit"),
+    profileId: optionalString(source.profileId) ?? fallbackProfileId,
+    url: canonicalUrl,
+    title: optionalString(source.title) ?? readableHost(canonicalUrl),
+    status,
+    openedAt,
+    updatedAt: optionalString(source.updatedAt) ?? openedAt,
+    favicon: optionalString(source.favicon),
+    artifactId: optionalString(source.artifactId),
+    generationJobId: optionalString(source.generationJobId),
+    errorMessage: optionalString(source.errorMessage),
+  }];
+}
+
+function migrateGenerationSettings(value: unknown, version: number): GenerationSettings {
   const source = isRecord(value) ? value : {};
   const style = isRecord(source.style) ? source.style : {};
   const images = isRecord(source.images) ? source.images : {};
   const privacy = isRecord(source.privacy) ? source.privacy : {};
-  const defaultMode: GenerationMode = source.defaultMode === "deep" ? "deep" : "quick";
-  const maxRequests = clampInteger(
-    numberValue(source.maxRequests) ?? DEFAULT_GENERATION_SETTINGS.maxRequests,
-    defaultMode === "deep" ? 3 : 1,
-    4,
-  );
-  const imageProvider = images.provider === "off" || images.provider === "tag-placeholder" || images.provider === "local-library"
-    ? images.provider
-    : "tag-placeholder";
+  const imageProvider = images.provider === "off" ? "off" : "tag-placeholder";
   const imagesEnabled = (booleanValue(images.enabled) ?? DEFAULT_GENERATION_SETTINGS.images.enabled)
     && imageProvider !== "off";
   return {
-    defaultMode,
-    defaultModelByMode: isRecord(source.defaultModelByMode)
-      ? source.defaultModelByMode as Partial<Record<GenerationMode, string>>
-      : {},
-    customInstruction: stringValue(source.customInstruction).slice(0, 20_000),
     promptVersion: DEFAULT_GENERATION_SETTINGS.promptVersion,
-    maxRequests,
     maxOutputTokens: clampInteger(
       numberValue(source.maxOutputTokens) ?? DEFAULT_GENERATION_SETTINGS.maxOutputTokens,
       512,
       100_000,
     ),
-    autoRepair: booleanValue(source.autoRepair) ?? DEFAULT_GENERATION_SETTINGS.autoRepair,
     reuseCachedPages: booleanValue(source.reuseCachedPages) ?? DEFAULT_GENERATION_SETTINGS.reuseCachedPages,
     style: {
       tailwindEnabled: booleanValue(style.tailwindEnabled) ?? DEFAULT_GENERATION_SETTINGS.style.tailwindEnabled,
       tailwindVersion: DEFAULT_GENERATION_SETTINGS.style.tailwindVersion,
-      allowArbitraryUtilities: false,
+      allowArbitraryUtilities: true,
       customCssInstruction: stringValue(style.customCssInstruction).slice(0, 2_000),
-      allowGeneratedScripts: false,
-      progressiveRendering: false,
+      allowGeneratedScripts: booleanValue(style.allowGeneratedScripts)
+        ?? DEFAULT_GENERATION_SETTINGS.style.allowGeneratedScripts,
+      progressiveRendering: true,
     },
     images: {
       enabled: imagesEnabled,
@@ -1358,7 +2116,9 @@ function migrateGenerationSettings(value: unknown): GenerationSettings {
       safeContent: booleanValue(images.safeContent) ?? true,
       allowExternalRequests: imagesEnabled
         && imageProvider === "tag-placeholder"
-        && (booleanValue(images.allowExternalRequests) ?? false),
+        && (version < 6
+          ? true
+          : booleanValue(images.allowExternalRequests) ?? DEFAULT_GENERATION_SETTINGS.images.allowExternalRequests),
     },
     privacy: {
       includeNavigationHistory: booleanValue(privacy.includeNavigationHistory)
@@ -1430,8 +2190,9 @@ function openerValue(value: unknown): TabOpenerContext | undefined {
 }
 
 function tabKind(value: unknown, location: string): TabKind {
-  if (value === "new-tab" || value === "remote" || value === "generated" || value === "settings") return value;
+  if (value === "new-tab" || value === "remote" || value === "generated" || value === "settings" || value === "history") return value;
   if (location === "vibe://new-tab") return "new-tab";
+  if (location === "vibe://history") return "history";
   if (location.startsWith("vibe://settings")) return "settings";
   if (location.startsWith("vibe://generated")) return "generated";
   return normalizeVirtualUrl(location) ? "remote" : "generated";
@@ -1465,6 +2226,12 @@ function numberValue(value: unknown) {
 
 function booleanValue(value: unknown) {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function themeValue(value: unknown): ThemeId | undefined {
+  return value === "native" || value === "sedative" || value === "ie-classic" || value === "cyberpunk"
+    ? value
+    : undefined;
 }
 
 function clampInteger(value: number, minimum: number, maximum: number) {

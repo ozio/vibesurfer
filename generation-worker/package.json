@@ -2,7 +2,7 @@
   "name": "@vibesurfer/generation-worker",
   "version": "0.1.0",
   "private": true,
-  "description": "Isolated JSONL generation sidecar for VibeSurfer",
+  "description": "Isolated JSONL generation sidecar for vibesurfer",
   "type": "module",
   "bin": {
     "vibesurfer-generation-worker": "dist/index.js"
@@ -13,6 +13,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "iconify:catalog": "node scripts/build-iconify-catalog.mjs",
     "sidecar:build": "node scripts/build-sidecar.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "dev": "tsx src/index.ts",

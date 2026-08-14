@@ -15,6 +15,7 @@ export interface ResolvedImage {
   width: number;
   height: number;
   source: "off" | "local" | "tag-placeholder";
+  omitted?: boolean;
   warning?: ArtifactWarning;
 }
 
@@ -25,6 +26,91 @@ export interface ImageIntentResolver {
 const MAX_IMAGE_REDIRECTS = 3;
 export const MAX_EXTERNAL_IMAGE_BYTES = 5_000_000;
 const ALLOWED_IMAGE_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const MAX_LOREM_FLICKR_TAGS = 2;
+const LOREM_FLICKR_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "arranged",
+  "as",
+  "at",
+  "artistic",
+  "authentic",
+  "background",
+  "badge",
+  "banner",
+  "beautiful",
+  "black",
+  "blue",
+  "bold",
+  "bright",
+  "brown",
+  "by",
+  "campaign",
+  "clean",
+  "close-up",
+  "commercial",
+  "conceptual",
+  "contrast",
+  "detailed",
+  "discount",
+  "dramatic",
+  "e-commerce",
+  "editorial",
+  "featured",
+  "featuring",
+  "flat-lay",
+  "for",
+  "from",
+  "gold",
+  "gray",
+  "green",
+  "grey",
+  "happy",
+  "hero",
+  "high",
+  "in",
+  "image",
+  "into",
+  "is",
+  "it",
+  "its",
+  "layout",
+  "modern",
+  "near",
+  "of",
+  "on",
+  "orange",
+  "photo",
+  "photograph",
+  "photography",
+  "picture",
+  "pink",
+  "product",
+  "products",
+  "promotional",
+  "purple",
+  "realistic",
+  "red",
+  "sale",
+  "seasonal",
+  "showing",
+  "shot",
+  "silver",
+  "studio",
+  "style",
+  "styled",
+  "tag",
+  "tags",
+  "that",
+  "the",
+  "this",
+  "to",
+  "white",
+  "with",
+  "yellow",
+  "young",
+]);
 
 class ImageOriginExcludedError extends Error {
   constructor() {
@@ -203,8 +289,11 @@ async function readBoundedImageBody(
 function dimensions(aspect: string): { width: number; height: number } {
   const match = aspect.match(/^\s*(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)\s*$/);
   const ratio = match ? Number(match[1]) / Number(match[2]) : 16 / 9;
-  const width = 1280;
-  const height = Math.max(320, Math.min(1280, Math.round(width / (Number.isFinite(ratio) && ratio > 0 ? ratio : 16 / 9))));
+  // The resolved image is embedded as a data URL in a self-contained page.
+  // Feed thumbnails rarely render above 320px, so 480px preserves useful
+  // density without turning a twelve-card page into a multi-megabyte artifact.
+  const width = 480;
+  const height = Math.max(180, Math.min(720, Math.round(width / (Number.isFinite(ratio) && ratio > 0 ? ratio : 16 / 9))));
   return { width, height };
 }
 
@@ -246,13 +335,20 @@ function localPlaceholder(intent: ImageIntent, source: "off" | "local" = "local"
 
 class OffResolver implements ImageIntentResolver {
   async resolve(intent: ImageIntent): Promise<ResolvedImage> {
-    return localPlaceholder(intent, "off");
+    return { ...localPlaceholder(intent, "off"), omitted: true };
   }
 }
 
 class LocalResolver implements ImageIntentResolver {
   async resolve(intent: ImageIntent): Promise<ResolvedImage> {
-    return localPlaceholder(intent);
+    return {
+      ...localPlaceholder(intent),
+      omitted: true,
+      warning: {
+        code: "local-image-provider-unavailable",
+        message: "No local image provider is configured, so the image intent was omitted.",
+      },
+    };
   }
 }
 
@@ -274,10 +370,12 @@ export class TagPlaceholderResolver implements ImageIntentResolver {
   async resolve(intent: ImageIntent, signal: AbortSignal): Promise<ResolvedImage> {
     if (!this.options.fetchExternal) {
       return {
-        ...localPlaceholder(intent),
+        ...localPlaceholder(intent, "off"),
+        source: "tag-placeholder",
+        omitted: true,
         warning: {
           code: "external-images-disabled",
-          message: "The tag-placeholder provider was selected, but external image fetching is disabled; a local placeholder was used.",
+          message: "LoremFlickr fetching is disabled, so the unresolved image intent was omitted.",
         },
       };
     }
@@ -286,23 +384,49 @@ export class TagPlaceholderResolver implements ImageIntentResolver {
     const tags = intent.query
       .split(/[,\s]+/)
       .map((part) => part.toLowerCase().replace(/[^a-z0-9-]/g, ""))
-      .filter(Boolean)
-      .slice(0, 5)
-      .join(",") || "abstract";
-    const lock = hashInt(`${intent.artifactSeed}:${intent.index}`) % 100_000;
-    const cacheKey = `${width}:${height}:${tags}:${lock}:${this.options.safeContent}`;
+      .map((part) => part.replace(/^-+|-+$/g, ""))
+      .filter((part) => part.length > 1 && !LOREM_FLICKR_STOP_WORDS.has(part))
+      .filter((part, index, values) => values.indexOf(part) === index)
+      .slice(0, MAX_LOREM_FLICKR_TAGS);
+    if (tags.length === 0) {
+      tags.push("abstract");
+    }
+    const tagList = tags.join(",");
+    const selection = (hashInt(`${intent.artifactSeed}:${intent.index}:${tagList}`) % 99_999) + 1;
+    const cacheKey = `${width}:${height}:${tagList}:${selection}:${this.options.safeContent}`;
     const cached = this.#cache.get(cacheKey);
     if (cached) {
       return cached;
     }
 
-    const url = new URL(`https://loremflickr.com/${width}/${height}/${encodeURIComponent(tags)}`);
-    url.searchParams.set("lock", String(lock));
+    const tagPath = tags.map((tag) => encodeURIComponent(tag)).join(",");
+    const url = new URL(`https://loremflickr.com/${width}/${height}/${tagPath}`);
+    url.searchParams.set("lock", String(selection));
+    // LoremFlickr documents a distinct `random` value as the cache-buster for
+    // multiple images on one page. Keep `lock` as well so a persisted artifact
+    // continues to show the same selected photo when it is reopened.
+    url.searchParams.set("random", String(selection));
     if (this.options.safeContent) {
       url.searchParams.set("safe_search", "1");
     }
 
-    const fetchImplementation = this.options.fetchImplementation ?? fetch;
+    // Production pages reference the same LoremFlickr service directly, just
+    // like galyunet. The image then arrives independently after the HTML and
+    // behaves like an ordinary slow-network resource instead of bloating the
+    // artifact with a base64 copy. Injected fetch implementations are retained
+    // for deterministic resolver and redirect-boundary tests.
+    if (!this.options.fetchImplementation) {
+      const resolved: ResolvedImage = {
+        src: url.href,
+        width,
+        height,
+        source: "tag-placeholder",
+      };
+      this.#cache.set(cacheKey, resolved);
+      return resolved;
+    }
+
+    const fetchImplementation = this.options.fetchImplementation;
     const requestController = new AbortController();
     try {
       const response = await fetchAllowlistedImage(
@@ -331,18 +455,22 @@ export class TagPlaceholderResolver implements ImageIntentResolver {
       }
       if (error instanceof ImageOriginExcludedError) {
         return {
-          ...localPlaceholder(intent),
+          ...localPlaceholder(intent, "off"),
+          source: "tag-placeholder",
+          omitted: true,
           warning: {
             code: "image-provider-origin-excluded",
-            message: "The external image provider matched the imagined page origin; a deterministic local placeholder was used.",
+            message: "The LoremFlickr target matched the imagined page origin, so the image intent was omitted.",
           },
         };
       }
       return {
-        ...localPlaceholder(intent),
+        ...localPlaceholder(intent, "off"),
+        source: "tag-placeholder",
+        omitted: true,
         warning: {
           code: "image-resolution-failed",
-          message: "The tag-placeholder image could not be fetched; a deterministic local placeholder was used.",
+          message: "The LoremFlickr image could not be fetched, so the image intent was omitted.",
         },
       };
     }

@@ -15,14 +15,17 @@ import {
   Settings2,
   ShieldCheck,
   Sparkles,
+  TriangleAlert,
   Trash2,
   WandSparkles,
 } from "lucide-react";
 import { Switch } from "radix-ui";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
-import { MODELS, PROFILES, THEME_LABELS } from "../../data/catalog";
+import { MODELS, THEME_LABELS } from "../../data/catalog";
 import {
   getRuntimeStatus,
+  archivePersistedProfileSiteWorlds,
+  deletePersistedProfileData,
   listProviderConnections,
   removeProviderConnection as removeHostProviderConnection,
   saveProviderConnection,
@@ -31,7 +34,7 @@ import {
 } from "../../generation/host-api";
 import { isTauri } from "../../lib/platform";
 import { useBrowserStore } from "../../store/browser-store";
-import type { Density, GenerationMode, ProviderConnection, ProviderKind, TabLayout, ThemeId } from "../../types/browser";
+import type { Density, ProviderConnection, ProviderKind, TabLayout } from "../../types/browser";
 
 const sections = [
   { id: "general", label: "General", icon: Settings2 },
@@ -47,8 +50,12 @@ const sections = [
 export function SettingsPage() {
   const params = useParams();
   const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState("");
   const setSettingsSection = useBrowserStore((state) => state.setSettingsSection);
   const section = sections.some((item) => item.id === params.section) ? params.section! : "appearance";
+  const visibleSections = searchQuery.trim()
+    ? sections.filter((item) => `${item.label} ${item.id}`.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+    : sections;
 
   const openSection = (id: string) => {
     setSettingsSection(id);
@@ -59,24 +66,47 @@ export function SettingsPage() {
     <div className="settings-page">
       <aside className="settings-sidebar">
         <div className="settings-sidebar__title"><MonitorCog aria-hidden="true" /><strong>Settings</strong></div>
-        <label className="settings-search"><Search aria-hidden="true" /><input placeholder="Search settings" aria-label="Search settings" /></label>
+        <label className="settings-search">
+          <Search aria-hidden="true" />
+          <input
+            value={searchQuery}
+            placeholder="Search settings"
+            aria-label="Search settings"
+            aria-controls="settings-section-results"
+            onChange={(event) => setSearchQuery(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") setSearchQuery("");
+              if (event.key === "Enter" && visibleSections[0]) {
+                event.preventDefault();
+                openSection(visibleSections[0].id);
+                setSearchQuery("");
+              }
+            }}
+          />
+        </label>
         <nav aria-label="Settings sections">
-          {sections.map((item) => {
-            const Icon = item.icon;
-            return (
-              <NavLink
-                key={item.id}
-                to={`/settings/${item.id}`}
-                className={section === item.id ? "is-active" : undefined}
-                onClick={(event) => {
-                  event.preventDefault();
-                  openSection(item.id);
-                }}
-              >
-                <Icon aria-hidden="true" /><span>{item.label}</span><ChevronRight aria-hidden="true" />
-              </NavLink>
-            );
-          })}
+          <div id="settings-section-results" className="settings-section-results" aria-live="polite">
+            {visibleSections.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  key={item.id}
+                  to={`/settings/${item.id}`}
+                  className={section === item.id ? "is-active" : undefined}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    openSection(item.id);
+                    setSearchQuery("");
+                  }}
+                >
+                  <Icon aria-hidden="true" /><span>{item.label}</span><ChevronRight aria-hidden="true" />
+                </NavLink>
+              );
+            })}
+            {visibleSections.length === 0 && (
+              <p className="settings-search__empty">No matching settings</p>
+            )}
+          </div>
         </nav>
       </aside>
       <main className="settings-content">
@@ -103,21 +133,18 @@ function SettingsHeading({ eyebrow, title, description }: { eyebrow: string; tit
 
 function AppearanceSettings() {
   const preferences = useBrowserStore((state) => state.preferences);
-  const setTheme = useBrowserStore((state) => state.setTheme);
   const setDensity = useBrowserStore((state) => state.setDensity);
   return (
     <>
-      <SettingsHeading eyebrow="Personalize" title="Appearance" description="Theme packs restyle the browser chrome without changing how your workspace is organized." />
+      <SettingsHeading eyebrow="Personalize" title="Appearance" description="Browser chrome belongs to the current profile and is selected when that profile is created." />
       <section className="settings-group">
-        <h2>Browser theme</h2>
+        <h2>Profile chrome</h2>
         <div className="theme-grid">
-          {(Object.keys(THEME_LABELS) as ThemeId[]).map((theme) => (
-            <button key={theme} className={`theme-card theme-card--${theme}${preferences.theme === theme ? " is-active" : ""}`} type="button" onClick={() => setTheme(theme)}>
-              <span className="theme-card__preview"><i /><b /><b /><b /><em /></span>
-              <span className="theme-card__copy"><strong>{THEME_LABELS[theme].name}</strong><small>{THEME_LABELS[theme].caption}</small></span>
-              {preferences.theme === theme && <span className="theme-card__check"><Check aria-hidden="true" /></span>}
-            </button>
-          ))}
+          <div className={`theme-card theme-card--${preferences.theme} is-active`}>
+            <span className="theme-card__preview"><i /><b /><b /><b /><em /></span>
+            <span className="theme-card__copy"><strong>{THEME_LABELS[preferences.theme].name}</strong><small>{THEME_LABELS[preferences.theme].caption} · fixed for this profile</small></span>
+            <span className="theme-card__check"><Check aria-hidden="true" /></span>
+          </div>
         </div>
       </section>
       <section className="settings-group">
@@ -151,7 +178,7 @@ function TabSettings() {
           ))}
         </div>
       </section>
-      <ToggleRow title="Restore the previous session" description="Reopen tabs and their order when VibeSurfer starts." preference="reopenSession" />
+      <ToggleRow title="Restore the previous session" description="Reopen tabs and their order when vibesurfer starts." preference="reopenSession" />
     </>
   );
 }
@@ -168,107 +195,64 @@ function GenerationSettings() {
       <SettingsHeading
         eyebrow="Page synthesis"
         title="Generation"
-        description="Control how much the model reasons, which context follows navigation, and how finished artifacts are styled."
+        description="Every uncached page uses exactly two requests: Director establishes the page brief, then Builder renders it."
       />
       <section className="settings-group">
-        <h2>Default mode</h2>
+        <h2>Generation pipeline</h2>
         <div className="generation-mode-grid">
-          {(["quick", "deep"] as GenerationMode[]).map((mode) => (
-            <button
-              key={mode}
-              type="button"
-              className={settings.defaultMode === mode ? "is-active" : undefined}
-              onClick={() => patchGenerationSettings({
-                defaultMode: mode,
-                maxRequests: mode === "deep" ? Math.max(3, settings.maxRequests) : settings.maxRequests,
-              })}
-            >
-              <span><strong>{mode === "quick" ? "Quick" : "Deep"}</strong><small>{mode === "quick" ? "One model request, then deterministic validation." : "Architecture, page plan, construction and one bounded repair pass."}</small></span>
-              {settings.defaultMode === mode && <Check aria-hidden="true" />}
-            </button>
-          ))}
+          <div className="is-active"><span><strong>1 · Director</strong><small>Chooses identity, palette, fonts, favicon, composition, imagery, and capabilities.</small></span><Check aria-hidden="true" /></div>
+          <div className="is-active"><span><strong>2 · Builder</strong><small>Receives only the approved brief and selected capability contracts, then returns HTML.</small></span><Check aria-hidden="true" /></div>
         </div>
-      </section>
-      <section className="settings-group">
-        <h2>Editable page instruction</h2>
-        <label className="settings-textarea">
-          <span className="sr-only">Editable page generation instruction</span>
-          <textarea
-            value={settings.customInstruction}
-            maxLength={20_000}
-            rows={7}
-            placeholder="For example: Favor dense editorial layouts, concise copy, and accessible navigation."
-            onChange={(event) => patchGenerationSettings({ customInstruction: event.target.value })}
-          />
-          <small>{settings.customInstruction.length.toLocaleString()} / 20,000 · Security instructions remain immutable.</small>
-        </label>
       </section>
       <section className="settings-group">
         <h2>Artifact styling</h2>
         <GenerationToggle
           title="Compile Tailwind utilities"
-          description="Let the model use Tailwind classes, then compile them to static CSS before rendering."
+          description="Give the model the full stock Tailwind utility set, then compile only the classes used by each page."
           checked={settings.style.tailwindEnabled}
           onCheckedChange={(tailwindEnabled) => patchStyleSettings({ tailwindEnabled })}
         />
+        <GenerationToggle
+          title="Allow generated JavaScript"
+          description="Let the model add inline JavaScript for menus, tabs, filters, dialogs, and other page interactions. Applies only to newly generated pages."
+          checked={settings.style.allowGeneratedScripts}
+          onCheckedChange={(allowGeneratedScripts) => patchStyleSettings({ allowGeneratedScripts })}
+        />
+        <div className={`settings-callout settings-callout--compact${settings.style.allowGeneratedScripts ? " is-enabled" : ""}`} role="note">
+          <TriangleAlert aria-hidden="true" />
+          <span>
+            <strong>Security warning</strong>
+            <small>Generated JavaScript is untrusted code. It runs only inside the isolated page sandbox with network APIs, storage, popups, direct parent access, and native APIs blocked, but it can still alter the page, capture interactions inside it, consume CPU, or freeze the tab.</small>
+          </span>
+        </div>
       </section>
       <section className="settings-group">
         <h2>Images</h2>
         <GenerationToggle
-          title="Resolve image intents"
-          description="Replace semantic image tags with safe local or placeholder assets during compilation."
-          checked={settings.images.enabled}
-          onCheckedChange={(enabled) => patchImageSettings({ enabled, provider: enabled ? "tag-placeholder" : "off" })}
-        />
-        <label className="settings-field">
-          <span><strong>Image source</strong><small>No provider credential is ever exposed to the generated document.</small></span>
-          <select
-            value={settings.images.enabled ? settings.images.provider : "off"}
-            disabled={!settings.images.enabled}
-            onChange={(event) => {
-              const provider = event.target.value as typeof settings.images.provider;
-              patchImageSettings({ provider, enabled: provider !== "off" });
-            }}
-          >
-            <option value="off">Off</option>
-            <option value="tag-placeholder">Keyword placeholder</option>
-            <option value="local-library">Local fallback library</option>
-          </select>
-        </label>
-        <GenerationToggle
-          title="Allow external image requests"
-          description="Off by default. When enabled, the trusted compiler may fetch allowlisted providers; the iframe still cannot."
-          checked={settings.images.allowExternalRequests}
-          onCheckedChange={(allowExternalRequests) => patchImageSettings({ allowExternalRequests })}
+          title="Use LoremFlickr images"
+          description="Resolve generated image intents into relevant LoremFlickr photos that load after the HTML."
+          checked={settings.images.enabled
+            && settings.images.provider === "tag-placeholder"
+            && settings.images.allowExternalRequests}
+          onCheckedChange={(enabled) => patchImageSettings({
+            enabled,
+            provider: enabled ? "tag-placeholder" : "off",
+            allowExternalRequests: enabled,
+            safeContent: true,
+          })}
         />
       </section>
       <section className="settings-group">
-        <h2>Continuity and repair</h2>
+        <h2>Continuity</h2>
         <GenerationToggle
           title="Include same-site navigation history"
           description="Give the model bounded summaries of previously generated pages so the imagined site stays coherent."
           checked={settings.privacy.includeNavigationHistory}
           onCheckedChange={(includeNavigationHistory) => patchPrivacySettings({ includeNavigationHistory })}
         />
-        <GenerationToggle
-          title="Automatic repair"
-          description="Run at most one additional repair request when structural validation fails."
-          checked={settings.autoRepair}
-          onCheckedChange={(autoRepair) => patchGenerationSettings({ autoRepair })}
-        />
       </section>
       <section className="settings-group generation-limits">
         <h2>Budgets</h2>
-        <label className="settings-field">
-          <span><strong>Maximum requests</strong><small>Per navigation; Deep mode uses more than Quick.</small></span>
-          <input
-            type="number"
-            min={settings.defaultMode === "deep" ? 3 : 1}
-            max={4}
-            value={settings.maxRequests}
-            onChange={(event) => patchGenerationSettings({ maxRequests: clampNumber(event.target.value, settings.defaultMode === "deep" ? 3 : 1, 4) })}
-          />
-        </label>
         <label className="settings-field">
           <span><strong>Maximum output tokens</strong><small>Provider limits may be lower.</small></span>
           <input
@@ -514,18 +498,72 @@ function ProviderConnections({
 
 function ProfileSettings() {
   const activeProfileId = useBrowserStore((state) => state.activeProfileId);
+  const profiles = useBrowserStore((state) => state.profiles);
   const setProfile = useBrowserStore((state) => state.setProfile);
+  const createProfile = useBrowserStore((state) => state.createProfile);
+  const updateProfile = useBrowserStore((state) => state.updateProfile);
+  const updateWorldPrompt = useBrowserStore((state) => state.updateWorldPrompt);
+  const deleteProfile = useBrowserStore((state) => state.deleteProfile);
+  const startProfileFromScratch = useBrowserStore((state) => state.startProfileFromScratch);
+  const profile = profiles.find((item) => item.id === activeProfileId) ?? profiles[0]!;
+  const [promptDraft, setPromptDraft] = useState(profile.worldPrompt.prompt);
+  const [customName, setCustomName] = useState("Custom world");
+  const [customSkin, setCustomSkin] = useState<"native" | "sedative" | "ie-classic" | "cyberpunk">("native");
+  const [customWorldPrompt, setCustomWorldPrompt] = useState("");
+  useEffect(() => setPromptDraft(profile.worldPrompt.prompt), [profile.id, profile.worldPrompt.prompt]);
   return (
     <>
-      <SettingsHeading eyebrow="Identity" title="Profile" description="Provider credentials are scoped to this local browser workspace." />
+      <SettingsHeading eyebrow="Identity" title="Profiles" description="Each profile is a complete browser workspace with its own tabs, chrome, world prompt, model settings, history, sites, and connections." />
       <div className="profile-settings-list">
-        {PROFILES.map((profile) => (
-          <button key={profile.id} type="button" className={profile.id === activeProfileId ? "is-active" : ""} onClick={() => setProfile(profile.id)}>
-            <span className="avatar avatar--large">{profile.avatar}</span><span><strong>{profile.name}</strong><small>{profile.caption}</small></span>
-            {profile.id === activeProfileId && <Check aria-hidden="true" />}
+        {profiles.map((item) => (
+          <button key={item.id} type="button" className={item.id === activeProfileId ? "is-active" : ""} onClick={() => setProfile(item.id)}>
+            <span className="avatar avatar--large">{item.avatar}</span><span><strong>{item.name}</strong><small>{THEME_LABELS[item.chromeSkin].name} · prompt r{item.worldPrompt.revision}</small></span>
+            {item.id === activeProfileId && <Check aria-hidden="true" />}
           </button>
         ))}
       </div>
+      <section className="settings-group">
+        <h2>Current profile</h2>
+        <div className="provider-form__grid">
+          <label><span>Name</span><input value={profile.name} maxLength={80} onChange={(event) => updateProfile(profile.id, { name: event.target.value })} /></label>
+          <label><span>Avatar</span><input value={profile.avatar} maxLength={4} onChange={(event) => updateProfile(profile.id, { avatar: event.target.value })} /></label>
+          <label className="provider-form__wide"><span>Chrome skin</span><input value={THEME_LABELS[profile.chromeSkin].name} readOnly /></label>
+        </div>
+      </section>
+      <section className="settings-group">
+        <h2>World prompt</h2>
+        <label className="settings-textarea">
+          <textarea value={promptDraft} maxLength={20_000} rows={8} placeholder="Describe the universe-level rules for newly imagined sites." onChange={(event) => setPromptDraft(event.target.value)} />
+          <small>{promptDraft.length.toLocaleString()} / 20,000 · Saving creates revision {profile.worldPrompt.revision + 1}. Existing SiteWorlds keep their frozen snapshot.</small>
+        </label>
+        {promptDraft !== profile.worldPrompt.prompt && (
+          <div className="settings-callout settings-callout--compact" role="note">
+            <TriangleAlert aria-hidden="true" />
+            <span><strong>New identities only</strong><small>This revision will affect only SiteWorlds created afterward. Existing and restored incarnations keep their saved prompt snapshot.</small></span>
+          </div>
+        )}
+        <div className="provider-form__footer"><span /><button className="button button--primary" type="button" disabled={promptDraft === profile.worldPrompt.prompt} onClick={() => updateWorldPrompt(promptDraft)}>Save new revision</button></div>
+      </section>
+      <section className="settings-group">
+        <h2>Create profile</h2>
+        <div className="segmented-control">
+          <button type="button" onClick={() => createProfile({ preset: "native" })}>Native</button>
+          <button type="button" onClick={() => createProfile({ preset: "quiet" })}>Quiet Web</button>
+          <button type="button" onClick={() => createProfile({ preset: "explorer" })}>Internet Explorer</button>
+          <button type="button" onClick={() => createProfile({ preset: "cyberpunk" })}>Cyberpunk</button>
+        </div>
+        <div className="provider-form__grid">
+          <label><span>Custom name</span><input value={customName} onChange={(event) => setCustomName(event.target.value)} /></label>
+          <label><span>Chrome skin</span><select value={customSkin} onChange={(event) => setCustomSkin(event.target.value as typeof customSkin)}>{Object.entries(THEME_LABELS).map(([id, label]) => <option key={id} value={id}>{label.name}</option>)}</select></label>
+          <label className="provider-form__wide"><span>Custom world prompt</span><textarea value={customWorldPrompt} maxLength={20_000} rows={4} placeholder="Describe the world this profile should browse." onChange={(event) => setCustomWorldPrompt(event.target.value)} /></label>
+        </div>
+        <button className="button" type="button" disabled={!customName.trim()} onClick={() => createProfile({ name: customName, chromeSkin: customSkin, worldPrompt: customWorldPrompt })}>Create custom profile</button>
+      </section>
+      <section className="settings-group">
+        <h2>Danger zone</h2>
+        <div className="setting-row"><span><strong>Start profile from scratch</strong><small>Closes all tabs and archives every active SiteWorld. History and static artifacts are preserved.</small></span><button className="button icon-danger" type="button" onClick={() => { if (window.confirm("Archive active sites and close every tab in this profile?")) void archivePersistedProfileSiteWorlds(profile.id).then(startProfileFromScratch).catch((error) => window.alert(errorMessage(error))); }}>Start from scratch</button></div>
+        <div className="setting-row"><span><strong>Delete profile</strong><small>Removes its workspace, sites, artifacts, jobs, and provider connections. The last profile cannot be deleted.</small></span><button className="button icon-danger" type="button" disabled={profiles.length <= 1} onClick={() => { if (window.confirm(`Delete ${profile.name}?`)) void deletePersistedProfileData(profile.id).then(() => deleteProfile(profile.id)).catch((error) => window.alert(errorMessage(error))); }}>Delete profile</button></div>
+      </section>
     </>
   );
 }
@@ -533,13 +571,13 @@ function ProfileSettings() {
 function WebContentSettings() {
   return (
     <>
-      <SettingsHeading eyebrow="Rendering" title="Web content" description="Generated artifacts and arbitrary websites require different security and rendering boundaries." />
+      <SettingsHeading eyebrow="Rendering" title="Web content" description="Pages and arbitrary web content use separate rendering boundaries." />
       <section className="architecture-card">
         <div><span>React chrome</span><strong>Tabs, omnibox, menus</strong></div>
         <ChevronRight aria-hidden="true" />
         <div><span>Page surface</span><strong>Opaque sandboxed iframe</strong></div>
       </section>
-      <div className="settings-callout"><LockKeyhole aria-hidden="true" /><span><strong>Private bridge, narrow powers</strong><small>A one-time MessageChannel lets generated links and safe GET forms request virtual navigation. The document cannot reach Tauri, credentials, the top window, popups, or arbitrary network endpoints.</small></span></div>
+      <div className="settings-callout"><LockKeyhole aria-hidden="true" /><span><strong>Isolated page runtime</strong><small>Links and forms navigate through the browser while page content stays separate from application data and native APIs.</small></span></div>
       <div className="settings-callout"><Globe2 aria-hidden="true" /><span><strong>Live web is explicit</strong><small>Addresses generate artifacts without contacting their origin. The live site opens only when you choose the external-browser command.</small></span></div>
     </>
   );
@@ -560,7 +598,7 @@ function PrivacySettings() {
 function GeneralSettings() {
   return (
     <>
-      <SettingsHeading eyebrow="VibeSurfer" title="General" description="Startup and everyday browser behavior." />
+      <SettingsHeading eyebrow="vibesurfer" title="General" description="Startup and everyday browser behavior." />
       <ToggleRow title="Restore the previous session" description="Continue with the same tabs after restart." preference="reopenSession" />
       <section className="settings-group"><h2>Home page</h2><div className="readonly-field">vibe://new-tab</div></section>
     </>

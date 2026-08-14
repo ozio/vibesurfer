@@ -1,21 +1,22 @@
-# VibeSurfer
+# vibesurfer
 
-VibeSurfer is a generative browser: type an HTTP(S) address and it imagines the page that could exist there instead of fetching that origin. The result is a validated HTML artifact with its own title, favicon, links, navigation history, and persistent site context. Following a generated link asks the model for the next page in the same imagined world.
+vibesurfer is a generative browser: type an HTTP(S) address and it imagines the page that could exist there instead of fetching that origin. The result is a validated HTML artifact with its own title, favicon, links, navigation history, and persistent site context. Following a generated link asks the model for the next page in the same imagined world.
 
 The repository contains both a fast browser preview and the Tauri 2 desktop runtime. They share the browser UI, but only the desktop runtime owns provider credentials, durable artifacts, and the generation sidecar.
 
-> **Important:** entering `https://example.com/path` is a generation request. VibeSurfer does not contact `example.com`. Opening a real website is a separate, explicit action in the system browser.
+> **Important:** entering `https://example.com/path` is a generation request. vibesurfer does not contact `example.com`. Opening a real website is a separate, explicit action in the system browser.
 
 ## What works today
 
 - Generated navigation from the address bar, links, forms, middle-click, modifier-click, and `target="_blank"`.
-- Back and forward restore committed artifacts without spending model tokens; regenerate creates a new artifact version.
-- Per-tab generated title and favicon metadata, navigation history, a local workspace profile, horizontal or vertical tabs, and theme packs.
+- Desktop registration for `vibe://` and `vibes://`; each invocation opens one fresh blank tab and ignores the URL payload.
+- Back and forward restore committed artifacts without spending model tokens; regenerate preserves the current site identity, while Reimagine creates a new incarnation transactionally.
+- Profile-scoped workspaces with independent tabs, chrome skin, world prompt revision, model controls, generation settings, history, artifacts, provider connections, and site worlds.
 - Deterministic, network-free mock generation for development and CI.
 - BYOK connections for OpenAI, Anthropic, Google, and HTTPS OpenAI-compatible endpoints in the desktop app.
-- Quick and Deep generation pipelines with ordered progress, cancellation, deterministic validation, and bounded repair.
-- Editable page-generation instructions layered below immutable protocol and security instructions.
-- Optional Tailwind artifact compilation and configurable semantic image resolution.
+- An exact two-request Director → Builder pipeline with ordered progress, cancellation, and deterministic validation; there is no semantic repair request.
+- Editable profile world prompts snapshotted into new site identities below immutable protocol and security instructions.
+- Optional Tailwind artifact compilation, generated JavaScript interactions, and configurable semantic image resolution.
 - Sandboxed generated documents connected to the trusted browser chrome through a private, typed message bridge.
 - SQLite artifact/site-world persistence and operating-system credential-vault storage in the Tauri runtime.
 
@@ -46,24 +47,16 @@ The React application owns interaction and lightweight session state. In desktop
 
 The worker protocol is newline-delimited JSON. Each request has a `requestId`; generation also has a `jobId`. Events are ordered and normalized (`generation.started`, phase/metadata/validation/warning events, then exactly one completed, failed, or cancelled terminal event). See [the worker protocol](generation-worker/README.md) for the exact contract.
 
-## Generation modes
+## Generation pipeline
 
-### Quick
+Every uncached page uses exactly two schema-constrained model requests with the same selected model, reasoning effort, and service tier:
 
-Quick makes one schema-constrained model request, compiles the returned document, validates it, and commits one artifact. It is the lower-latency and lower-token option.
+1. **Page Director** receives the URL/navigation context, the profile world-prompt snapshot, any frozen SiteWorld identity and history, plus the complete versioned capability catalog. It returns a strict identity/direction contract with free-form creative rationale and implementation notes.
+2. **Page Builder** receives the immutable security/output protocol, URL, world-prompt snapshot, approved brief, and only the capability contracts selected by Director. It cannot replace the approved identity, palette, fonts, or favicon.
 
-### Deep
+The resulting HTML is sanitized, compiled, image-resolved, and validated deterministically. A failure does not trigger another model request and does not replace the previously committed artifact. Cached URLs, history restores, and same-document fragments make no model calls.
 
-Deep uses separate site-architecture, page-plan, and page-build requests. It then performs deterministic validation and may make at most one repair request when validation fails and the request budget permits it. Bounded navigation history and the current site world are included so related pages remain coherent.
-
-Both modes build prompts in distinct layers:
-
-1. immutable protocol and security rules;
-2. the editable user instruction;
-3. mode-specific guidance;
-4. bounded page, site-world, and navigation context.
-
-Changing the editable instruction cannot remove the artifact safety rules.
+Site identity is keyed by profile and origin. Same-origin navigation and new tabs reuse the active SiteWorld incarnation; another profile can imagine the hostname differently. Reimagine commits a candidate before archiving the current incarnation, and archived artifacts remain static and restorable.
 
 ## Providers and credentials
 
@@ -84,29 +77,23 @@ If a normal API provider has no credential, generation fails with `provider-not-
 
 The Codex bridge reuses an authenticated system ChatGPT session, reports account status, loads the account's current model/effort/service-tier catalog through the official App Server protocol, and can start the official `codex login` flow. On macOS it probes a compatible CLI bundled with ChatGPT before falling back to `codex` on `PATH`, so an obsolete global CLI cannot hide a valid ChatGPT session. `VIBESURFER_CODEX_PATH` can explicitly name another CLI.
 
-For generation, Rust revalidates the signed-in binary and canonicalizes the selected model, reasoning effort, and speed before giving the worker only the absolute executable path. No API key or auth payload crosses the renderer/worker protocol. Each structured stage runs through `codex exec` with user config/rules ignored, an ephemeral read-only empty workspace, network and tools disabled, schema and instructions in mode-0600 temporary files, and a sanitized environment. A future second auth layer may add an app-owned device-code session; the current connection deliberately leaves the system ChatGPT account and its credentials under Codex/ChatGPT ownership.
+For generation, Rust revalidates the signed-in binary and canonicalizes the selected model, reasoning effort, and speed before giving the worker only the absolute executable path. No API key or auth payload crosses the renderer/worker protocol. Each structured stage runs through Codex App Server over stdio with an ephemeral read-only empty workspace, project context, network, apps, and shell tools disabled, a schema-constrained turn, and a sanitized environment. App Server text deltas drive the progressive HTML preview. A future second auth layer may add an app-owned device-code session; the current connection deliberately leaves the system ChatGPT account and its credentials under Codex/ChatGPT ownership.
 
 ## Page compilation
 
-Model output is never inserted into the page surface verbatim. Before commit, the worker parses and transforms the full document, removes active or remote content, normalizes virtual navigation, compiles styles, resolves image intents, and validates the result.
+Model output is never inserted into the page surface verbatim. While output streams, the worker repeatedly parses and sanitizes the accumulated partial HTML and updates one sandboxed frame; scripts never run during this preview. Before commit, it transforms the full document, removes disallowed active or remote content, normalizes virtual navigation, compiles styles, resolves image intents, and validates the result.
 
-Tailwind applies only to generated artifacts; the browser chrome uses its own semantic CSS token system. When Tailwind is enabled, the pinned compiler produces static CSS without a CDN. A compilation failure falls back to a safe deterministic stylesheet and emits a warning. Tailwind can be disabled in generation settings.
+Tailwind applies only to page artifacts; the browser chrome uses its own semantic CSS token system. When Tailwind is enabled, the pinned compiler exposes the complete stock Tailwind 4 theme, accepts safe arbitrary values, and emits static CSS only for the literal classes used by that page. It adds no application palette, font, container, card, radius, or other visual theme. A compilation failure falls back to a neutral reset and emits a warning. Tailwind can be disabled in generation settings.
 
-Image handling is also configurable:
-
-- **Off** replaces image intents with neutral local placeholders;
-- **Local library** resolves deterministic local placeholders;
-- **Keyword placeholder** uses semantic tags and falls back locally unless trusted external image requests are explicitly enabled.
-
-Provider credentials and generated-frame code never participate in image fetching. External image access is off by default and belongs to the trusted compiler boundary, not the iframe.
+One **Use LoremFlickr images** toggle controls image handling. It is enabled by default and resolves short, subject-specific keyword tags to ordinary remote image URLs through the fixed LoremFlickr/Flickr CDN allowlist. Each image gets its own cache-busting selection while remaining stable when a persisted artifact is reopened. Images load independently after the HTML, while every other remote image host and all CSS/script network access remain blocked. If the toggle is off, unresolved intents are omitted rather than replaced with an invented gradient or local fake image.
 
 ## Sandbox and security boundary
 
-Generated pages render inside a local, self-contained `artifact-frame.html` shell with `sandbox="allow-scripts"`. They receive no same-origin, popup, download, top-navigation, or privileged form capability. The shell's only executable is a classic host runtime authorized by its exact SHA-256 hash in both CSP layers; it has no script subresources or network permission. Every runtime instance announces a random instance ID, base64url nonce, and artifact identity before receiving a fresh `MessageChannel`. The host then sends one bounded passive display payload over that private port, and the shell sanitizes it again before rendering. WebKit restarts replace only the stale private channel, and subsequent communication is schema-checked on the active port.
+Generated pages render inside a local, self-contained `artifact-frame.html` shell with `sandbox="allow-scripts"`. They receive no same-origin, popup, download, top-navigation, or privileged form capability. The host runtime is authorized by its exact SHA-256 hash in both CSP layers; it has no script subresources or general network permission, while `img-src` is narrowly allowlisted for LoremFlickr. Generated JavaScript is off by default. If the user opts in, only sanitized inline classic scripts from the final artifact run through a dedicated CSP nonce after the body exists; external/module scripts, inline handlers, and all preview scripts remain blocked. Every runtime instance announces a random instance ID, base64url nonce, and artifact identity before receiving a fresh `MessageChannel`; that fragment identity is scrubbed before generated code can execute. The shell sanitizes each update again while preserving scroll, and WebKit restarts replace only the stale private channel.
 
 The compiler removes or rejects, among other things:
 
-- all generated scripts, inline event handlers, frames, embeds, objects, and meta refreshes;
+- all generated scripts unless explicitly enabled, plus every external/module script, inline event handler, frame, embed, object, and meta refresh;
 - external stylesheets, CSS imports/URLs, direct remote image sources, and `<base>` rewrites;
 - `javascript:`, `file:`, and unsupported URL schemes; `data:` is allowed only for bounded, allowlisted passive media;
 - unbounded documents, messages, and artifact payloads.
@@ -219,9 +206,9 @@ docs/architecture/           accepted runtime and browser-surface decisions
 
 ## Current limitations
 
-- Legacy real-web tabs are deliberately network-inert. A live site opens only through an explicit command in the external system browser; entering its address in VibeSurfer still generates an imagined artifact.
-- Codex account-backed generation still needs the host-owned Codex App Server adapter described above.
-- `generation.preview` exists in the worker event vocabulary but progressive fragment rendering is reserved for future work; completed artifacts are the stable contract.
+- Legacy real-web tabs are deliberately network-inert. A live site opens only through an explicit command in the external system browser; entering its address in vibesurfer still generates an imagined artifact.
+- The current Codex route depends on a compatible authenticated system ChatGPT/Codex installation; app-owned device-code sign-in remains future work.
+- Progressive previews are transient and sanitized; only the completed, validated artifact is persisted as the stable page contract.
 - Release sidecars are target-specific. A distributable desktop application should be built and smoke-tested on each target operating system.
 
 ## CI

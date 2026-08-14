@@ -100,7 +100,7 @@ test("Codex choices resolve to a concrete immutable job snapshot", () => {
   assert.equal(useBrowserStore.getState().generationJobs[jobId].serviceTier, "fast");
 });
 
-test("job provider follows the final per-mode model instead of the active model", () => {
+test("job provider follows the profile's selected model", () => {
   const store = useBrowserStore.getState();
   store.upsertProviderConnection({
     id: "anthropic-main",
@@ -111,12 +111,12 @@ test("job provider follows the final per-mode model instead of the active model"
     status: "valid",
     modelIds: ["anthropic:claude-test"],
   });
-  store.patchGenerationSettings({ defaultModelByMode: { quick: "anthropic:claude-test" } });
+  store.setModel("anthropic:claude-test");
 
   const jobId = store.navigate("welcome", "example.com");
   assert.ok(jobId);
   const job = useBrowserStore.getState().generationJobs[jobId];
-  assert.equal(useBrowserStore.getState().activeModelId, "mock:preview");
+  assert.equal(useBrowserStore.getState().activeModelId, "anthropic:claude-test");
   assert.equal(job.modelId, "anthropic:claude-test");
   assert.equal(job.providerId, "anthropic");
 });

@@ -42,6 +42,7 @@ export interface ArtifactRenderPayload {
   pageUrl: string;
   title: string;
   html: string;
+  executeScripts?: boolean;
 }
 
 export interface ArtifactRenderCommand extends ArtifactFrameEventBase, ArtifactRenderPayload {
@@ -72,6 +73,26 @@ export interface ArtifactHashChangeEvent extends ArtifactFrameEventBase {
   hash: string;
 }
 
+export interface ArtifactLinkHoverEvent extends ArtifactFrameEventBase {
+  type: "link-hover";
+  href?: string;
+}
+
+export interface ArtifactContextMenuEvent extends ArtifactFrameEventBase {
+  type: "context-menu";
+  x: number;
+  y: number;
+  href?: string;
+  linkText?: string;
+  ariaLabel?: string;
+  context?: string;
+}
+
+export interface ArtifactBrowserCommandEvent extends ArtifactFrameEventBase {
+  type: "browser-command";
+  command: "open-settings";
+}
+
 export interface ArtifactFormSubmitEvent extends ArtifactFrameEventBase {
   type: "form-submit";
   action: string;
@@ -94,6 +115,9 @@ export type ArtifactFrameEvent =
   | ArtifactReadyEvent
   | ArtifactNavigateEvent
   | ArtifactHashChangeEvent
+  | ArtifactLinkHoverEvent
+  | ArtifactContextMenuEvent
+  | ArtifactBrowserCommandEvent
   | ArtifactFormSubmitEvent
   | ArtifactTitleChangeEvent
   | ArtifactRuntimeErrorEvent;
@@ -142,6 +166,7 @@ export function createArtifactRenderCommand(
     pageUrl,
     title,
     html: payload.html,
+    executeScripts: payload.executeScripts === true,
   };
   if (estimateMessageBytes(command) > MAX_ARTIFACT_RENDER_BYTES) {
     throw new Error("Artifact render payload exceeds the size limit");
@@ -208,6 +233,30 @@ export function parseArtifactFrameEvent(
       if (!href || !hash || !hash.startsWith("#")) return invalid("Invalid hash event");
       return valid({ ...base, type: "hash-change", href, hash });
     }
+    case "link-hover": {
+      const href = value.href === undefined ? undefined : boundedHttpUrl(value.href);
+      if (value.href !== undefined && !href) return invalid("Invalid link hover event");
+      return valid({ ...base, type: "link-hover", ...(href ? { href } : {}) });
+    }
+    case "context-menu": {
+      const x = boundedCoordinate(value.x);
+      const y = boundedCoordinate(value.y);
+      const href = value.href === undefined ? undefined : boundedHttpUrl(value.href);
+      if (x === undefined || y === undefined || (value.href !== undefined && !href)) {
+        return invalid("Invalid context menu event");
+      }
+      return valid({
+        ...base,
+        type: "context-menu",
+        x,
+        y,
+        ...(href ? { href } : {}),
+        ...optionalTextFields(value),
+      });
+    }
+    case "browser-command":
+      if (value.command !== "open-settings") return invalid("Invalid browser command event");
+      return valid({ ...base, type: "browser-command", command: "open-settings" });
     case "form-submit": {
       const action = boundedHttpUrl(value.action);
       const fields = parseFormFields(value.fields);
@@ -284,6 +333,12 @@ function boundedHttpUrl(value: unknown) {
 
 function optionalBoundedString(value: unknown, maxLength: number) {
   return typeof value === "string" && value.length <= maxLength ? value : undefined;
+}
+
+function boundedCoordinate(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100_000
+    ? value
+    : undefined;
 }
 
 function estimateMessageBytes(value: unknown) {

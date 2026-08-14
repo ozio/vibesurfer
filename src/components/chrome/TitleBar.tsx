@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Waves } from "lucide-react";
 import type { Platform, TabLayout } from "../../types/browser";
 import { WindowControls } from "./WindowControls";
 
@@ -10,7 +9,7 @@ interface TitleBarProps {
   children?: ReactNode;
 }
 
-export function TitleBar({ platform, layout, title = "VibeSurfer", children }: TitleBarProps) {
+export function TitleBar({ platform, layout, title = "vibesurfer", children }: TitleBarProps) {
   return (
     <header
       className={`titlebar titlebar--${layout}`}
@@ -23,8 +22,8 @@ export function TitleBar({ platform, layout, title = "VibeSurfer", children }: T
       {platform === "macos" && <WindowControls platform={platform} />}
       {layout === "vertical" && (
         <div className="titlebar__brand">
-          <Waves aria-hidden="true" />
-          <span>VibeSurfer</span>
+          <img src="/favicon.png" alt="" aria-hidden="true" />
+          <span>vibesurfer</span>
         </div>
       )}
       {layout === "horizontal" ? children : <div className="titlebar__drag-space" />}

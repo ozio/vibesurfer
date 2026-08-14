@@ -41,6 +41,7 @@ impl Storage {
         connection.pragma_update(None, "journal_mode", "WAL")?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
         connection.execute_batch(SCHEMA)?;
+        migrate_site_world_incarnations(&connection)?;
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -100,6 +101,36 @@ impl Storage {
         row.map(tuple_to_artifact).transpose()
     }
 
+    pub fn latest_artifact_for_url(
+        &self,
+        profile_id: &str,
+        site_id: &str,
+        url: &str,
+    ) -> Result<Option<ArtifactRecord>, StorageError> {
+        let connection = self.connection_guard()?;
+        let row = connection
+            .query_row(
+                "SELECT id, profile_id, site_id, url, title, html, created_at, payload
+                 FROM artifacts WHERE profile_id = ?1 AND site_id = ?2 AND url = ?3
+                 ORDER BY created_at DESC, id DESC LIMIT 1",
+                params![profile_id, site_id, url],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, String>(7)?,
+                    ))
+                },
+            )
+            .optional()?;
+        row.map(tuple_to_artifact).transpose()
+    }
+
     pub fn list_artifacts(
         &self,
         profile_id: &str,
@@ -135,6 +166,11 @@ impl Storage {
         if site_world.revision < 0 {
             return Err(StorageError::InvalidSiteWorldRevision);
         }
+        if site_world.state != "active" && site_world.state != "archived" {
+            return Err(StorageError::Database(rusqlite::Error::InvalidParameterName(
+                "site world state must be active or archived".into(),
+            )));
+        }
         let payload = serde_json::to_string(&site_world.payload)?;
         if payload.len() > MAX_SITE_WORLD_BYTES {
             return Err(StorageError::SiteWorldTooLarge);
@@ -143,29 +179,40 @@ impl Storage {
         let mut connection = self.connection_guard()?;
         let transaction = connection.transaction()?;
         let existing_revision = transaction.query_row(
-            "SELECT MAX(revision) FROM site_worlds
-             WHERE profile_id=?1 AND (id=?2 OR origin=?3)",
-            params![site_world.profile_id, site_world.id, site_world.origin],
+            "SELECT revision FROM site_worlds WHERE profile_id=?1 AND id=?2",
+            params![site_world.profile_id, site_world.id],
             |row| row.get::<_, Option<i64>>(0),
-        )?;
+        ).optional()?.flatten();
         if existing_revision.is_some_and(|revision| revision > site_world.revision) {
             return Ok(false);
         }
 
+        if site_world.state == "active" {
+            transaction.execute(
+                "UPDATE site_worlds SET state='archived', archived_at=?3, updated_at=?3
+                 WHERE profile_id=?1 AND origin=?2 AND state='active' AND id<>?4",
+                params![site_world.profile_id, site_world.origin, site_world.updated_at, site_world.id],
+            )?;
+        }
         transaction.execute(
-            "DELETE FROM site_worlds WHERE profile_id=?1 AND (id=?2 OR origin=?3)",
-            params![site_world.profile_id, site_world.id, site_world.origin],
-        )?;
-        transaction.execute(
-            "INSERT INTO site_worlds (id, profile_id, origin, revision, payload, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO site_worlds
+               (id, profile_id, origin, state, revision, payload, created_at, updated_at, archived_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(id) DO UPDATE SET
+               profile_id=excluded.profile_id, origin=excluded.origin, state=excluded.state,
+               revision=excluded.revision, payload=excluded.payload,
+               created_at=excluded.created_at, updated_at=excluded.updated_at,
+               archived_at=excluded.archived_at",
             params![
                 site_world.id,
                 site_world.profile_id,
                 site_world.origin,
+                site_world.state,
                 site_world.revision,
                 payload,
+                site_world.created_at,
                 site_world.updated_at,
+                site_world.archived_at,
             ],
         )?;
         transaction.commit()?;
@@ -180,7 +227,7 @@ impl Storage {
         let connection = self.connection_guard()?;
         let row = connection
             .query_row(
-                "SELECT id, profile_id, origin, revision, updated_at, payload
+                "SELECT id, profile_id, origin, state, revision, created_at, updated_at, archived_at, payload
                  FROM site_worlds WHERE id=?1 AND profile_id=?2",
                 params![id, profile_id],
                 |row| {
@@ -188,9 +235,12 @@ impl Storage {
                         row.get::<_, String>(0)?,
                         row.get::<_, String>(1)?,
                         row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, String>(4)?,
+                        row.get::<_, String>(3)?,
+                        row.get::<_, i64>(4)?,
                         row.get::<_, String>(5)?,
+                        row.get::<_, String>(6)?,
+                        row.get::<_, Option<String>>(7)?,
+                        row.get::<_, String>(8)?,
                     ))
                 },
             )
@@ -205,7 +255,7 @@ impl Storage {
     ) -> Result<Vec<SiteWorldRecord>, StorageError> {
         let connection = self.connection_guard()?;
         let mut statement = connection.prepare(
-            "SELECT id, profile_id, origin, revision, updated_at, payload
+            "SELECT id, profile_id, origin, state, revision, created_at, updated_at, archived_at, payload
              FROM site_worlds WHERE profile_id=?1
              ORDER BY updated_at DESC, id ASC LIMIT ?2",
         )?;
@@ -214,9 +264,12 @@ impl Storage {
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
-                row.get::<_, i64>(3)?,
-                row.get::<_, String>(4)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, i64>(4)?,
                 row.get::<_, String>(5)?,
+                row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(7)?,
+                row.get::<_, String>(8)?,
             ))
         })?;
         rows.map(|row| tuple_to_site_world(row?)).collect()
@@ -233,6 +286,73 @@ impl Storage {
         Ok(self
             .connection_guard()?
             .execute("DELETE FROM site_worlds WHERE profile_id=?1", [profile_id])?)
+    }
+
+    pub fn archive_profile_site_worlds(
+        &self,
+        profile_id: &str,
+        timestamp: &str,
+    ) -> Result<usize, StorageError> {
+        Ok(self.connection_guard()?.execute(
+            "UPDATE site_worlds SET state='archived', archived_at=?2, updated_at=?2
+             WHERE profile_id=?1 AND state='active'",
+            params![profile_id, timestamp],
+        )?)
+    }
+
+    pub fn activate_site_world(
+        &self,
+        profile_id: &str,
+        id: &str,
+        timestamp: &str,
+    ) -> Result<bool, StorageError> {
+        let mut connection = self.connection_guard()?;
+        let transaction = connection.transaction()?;
+        let origin = transaction
+            .query_row(
+                "SELECT origin FROM site_worlds WHERE profile_id=?1 AND id=?2",
+                params![profile_id, id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        let Some(origin) = origin else { return Ok(false); };
+        transaction.execute(
+            "UPDATE site_worlds SET state='archived', archived_at=?3, updated_at=?3
+             WHERE profile_id=?1 AND origin=?2 AND state='active' AND id<>?4",
+            params![profile_id, origin, timestamp, id],
+        )?;
+        transaction.execute(
+            "UPDATE site_worlds SET state='active', archived_at=NULL, updated_at=?3
+             WHERE profile_id=?1 AND origin=?2 AND id=?4",
+            params![profile_id, origin, timestamp, id],
+        )?;
+        transaction.commit()?;
+        Ok(true)
+    }
+
+    pub fn delete_profile_data(&self, profile_id: &str) -> Result<usize, StorageError> {
+        let mut connection = self.connection_guard()?;
+        let transaction = connection.transaction()?;
+        let tables = [
+            "artifacts",
+            "generation_jobs",
+            "site_worlds",
+            "page_summaries",
+            "navigation_edges",
+            "provider_connections",
+            "settings",
+            "usage_records",
+            "cached_assets",
+        ];
+        let mut deleted = 0;
+        for table in tables {
+            deleted += transaction.execute(
+                &format!("DELETE FROM {table} WHERE profile_id=?1"),
+                [profile_id],
+            )?;
+        }
+        transaction.commit()?;
+        Ok(deleted)
     }
 
     pub fn mark_job_started(
@@ -392,17 +512,74 @@ fn tuple_to_artifact(row: ArtifactTuple) -> Result<ArtifactRecord, StorageError>
     })
 }
 
-type SiteWorldTuple = (String, String, String, i64, String, String);
+type SiteWorldTuple = (
+    String,
+    String,
+    String,
+    String,
+    i64,
+    String,
+    String,
+    Option<String>,
+    String,
+);
 
 fn tuple_to_site_world(row: SiteWorldTuple) -> Result<SiteWorldRecord, StorageError> {
     Ok(SiteWorldRecord {
         id: row.0,
         profile_id: row.1,
         origin: row.2,
-        revision: row.3,
-        updated_at: row.4,
-        payload: serde_json::from_str(&row.5)?,
+        state: row.3,
+        revision: row.4,
+        created_at: row.5,
+        updated_at: row.6,
+        archived_at: row.7,
+        payload: serde_json::from_str(&row.8)?,
     })
+}
+
+fn migrate_site_world_incarnations(connection: &Connection) -> Result<(), StorageError> {
+    let has_state = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM pragma_table_info('site_worlds') WHERE name='state')",
+        [],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if !has_state {
+        connection.execute_batch(
+            r#"
+            BEGIN IMMEDIATE;
+            CREATE TABLE site_worlds_incarnations (
+              id TEXT PRIMARY KEY,
+              profile_id TEXT NOT NULL,
+              origin TEXT NOT NULL,
+              state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active', 'archived')),
+              revision INTEGER NOT NULL,
+              payload TEXT NOT NULL,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+              archived_at TEXT
+            );
+            INSERT INTO site_worlds_incarnations
+              (id, profile_id, origin, state, revision, payload, created_at, updated_at, archived_at)
+            SELECT id, profile_id, origin, 'active', revision, payload, updated_at, updated_at, NULL
+            FROM site_worlds;
+            DROP TABLE site_worlds;
+            ALTER TABLE site_worlds_incarnations RENAME TO site_worlds;
+            COMMIT;
+            "#,
+        )?;
+    }
+    connection.execute_batch(
+        r#"
+        CREATE UNIQUE INDEX IF NOT EXISTS site_worlds_one_active_origin
+          ON site_worlds(profile_id, origin) WHERE state='active';
+        CREATE INDEX IF NOT EXISTS site_worlds_profile_updated
+          ON site_worlds(profile_id, updated_at DESC);
+        INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+          VALUES (2, CURRENT_TIMESTAMP);
+        "#,
+    )?;
+    Ok(())
 }
 
 const SCHEMA: &str = r#"
@@ -426,6 +603,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
 );
 CREATE INDEX IF NOT EXISTS artifacts_profile_created
   ON artifacts(profile_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS artifacts_profile_url_created
+  ON artifacts(profile_id, url, created_at DESC);
 CREATE INDEX IF NOT EXISTS artifacts_site_url
   ON artifacts(site_id, url);
 
@@ -444,10 +623,12 @@ CREATE TABLE IF NOT EXISTS site_worlds (
   id TEXT PRIMARY KEY,
   profile_id TEXT NOT NULL,
   origin TEXT NOT NULL,
+  state TEXT NOT NULL DEFAULT 'active' CHECK(state IN ('active', 'archived')),
   revision INTEGER NOT NULL,
   payload TEXT NOT NULL,
+  created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  UNIQUE(profile_id, origin)
+  archived_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS page_summaries (
@@ -527,7 +708,7 @@ mod tests {
             title: "Example".into(),
             html: "<!doctype html><title>Example</title>".into(),
             created_at: "2026-08-12T00:00:00Z".into(),
-            payload: json!({"mode": "quick"}),
+            payload: json!({"pipeline": ["page-director", "page-builder"]}),
         };
         storage.save_artifact(&artifact).unwrap();
         assert!(storage
@@ -540,6 +721,38 @@ mod tests {
             .unwrap();
         assert_eq!(restored.url, artifact.url);
         assert_eq!(restored.payload, artifact.payload);
+        assert!(storage
+            .latest_artifact_for_url("another-profile", &artifact.site_id, &artifact.url)
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            storage
+                .latest_artifact_for_url(&artifact.profile_id, &artifact.site_id, &artifact.url)
+                .unwrap()
+                .unwrap()
+                .id,
+            artifact.id
+        );
+
+        let other_incarnation = ArtifactRecord {
+            id: "artifact-2".into(),
+            profile_id: artifact.profile_id.clone(),
+            site_id: "example-reimagined".into(),
+            url: artifact.url.clone(),
+            title: artifact.title.clone(),
+            html: artifact.html.clone(),
+            created_at: "2026-08-12T00:00:01Z".into(),
+            payload: artifact.payload.clone(),
+        };
+        storage.save_artifact(&other_incarnation).unwrap();
+        assert_eq!(
+            storage
+                .latest_artifact_for_url(&artifact.profile_id, &artifact.site_id, &artifact.url)
+                .unwrap()
+                .unwrap()
+                .id,
+            artifact.id
+        );
     }
 
     #[test]
@@ -549,8 +762,11 @@ mod tests {
             id: "site-example-v1".into(),
             profile_id: "personal".into(),
             origin: "https://example.com".into(),
+            state: "active".into(),
             revision: 1,
+            created_at: "2026-08-12T00:00:00Z".into(),
             updated_at: "2026-08-12T00:00:01Z".into(),
+            archived_at: None,
             payload: json!({"name": "Example", "revision": 1}),
         };
         assert!(storage.upsert_site_world(&initial).unwrap());
@@ -575,10 +791,14 @@ mod tests {
             ..initial
         };
         assert!(storage.upsert_site_world(&updated).unwrap());
-        assert!(storage
-            .site_world("site-example-v1", "personal")
-            .unwrap()
-            .is_none());
+        assert_eq!(
+            storage
+                .site_world("site-example-v1", "personal")
+                .unwrap()
+                .unwrap()
+                .state,
+            "archived"
+        );
 
         let stale = SiteWorldRecord {
             revision: 1,
@@ -588,9 +808,29 @@ mod tests {
         };
         assert!(!storage.upsert_site_world(&stale).unwrap());
         let worlds = storage.list_site_worlds("personal", 500).unwrap();
-        assert_eq!(worlds.len(), 1);
-        assert_eq!(worlds[0].revision, 2);
-        assert_eq!(worlds[0].payload["name"], "Example revised");
+        assert_eq!(worlds.len(), 2);
+        let active = worlds.iter().find(|world| world.state == "active").unwrap();
+        assert_eq!(active.revision, 2);
+        assert_eq!(active.payload["name"], "Example revised");
+        assert!(storage
+            .activate_site_world("personal", "site-example-v1", "2026-08-12T00:00:04Z")
+            .unwrap());
+        assert_eq!(
+            storage
+                .site_world("site-example-v1", "personal")
+                .unwrap()
+                .unwrap()
+                .state,
+            "active"
+        );
+        assert_eq!(
+            storage
+                .site_world("site-example-v2", "personal")
+                .unwrap()
+                .unwrap()
+                .state,
+            "archived"
+        );
         assert_eq!(
             storage
                 .delete_site_world(&stale.id, "another-profile")
@@ -598,9 +838,59 @@ mod tests {
             0
         );
         assert_eq!(storage.delete_site_world(&stale.id, "personal").unwrap(), 1);
+        assert_eq!(storage.delete_site_world(&initial.id, "personal").unwrap(), 1);
         assert!(storage
             .list_site_worlds("personal", 500)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn legacy_site_worlds_migrate_to_active_incarnations() {
+        let path = std::env::temp_dir().join(format!(
+            "vibesurfer-site-world-migration-{}.sqlite",
+            uuid::Uuid::new_v4()
+        ));
+        {
+            let connection = rusqlite::Connection::open(&path).unwrap();
+            connection.execute_batch(
+                r#"
+                CREATE TABLE site_worlds (
+                  id TEXT PRIMARY KEY,
+                  profile_id TEXT NOT NULL,
+                  origin TEXT NOT NULL,
+                  revision INTEGER NOT NULL,
+                  payload TEXT NOT NULL,
+                  updated_at TEXT NOT NULL,
+                  UNIQUE(profile_id, origin)
+                );
+                INSERT INTO site_worlds (id, profile_id, origin, revision, payload, updated_at)
+                VALUES ('legacy-site', 'personal', 'https://legacy.example', 4, '{"name":"Legacy"}', '2026-08-12T00:00:00Z');
+                "#,
+            ).unwrap();
+        }
+
+        let storage = Storage::open(&path).unwrap();
+        let migrated = storage.site_world("legacy-site", "personal").unwrap().unwrap();
+        assert_eq!(migrated.state, "active");
+        assert_eq!(migrated.created_at, "2026-08-12T00:00:00Z");
+        let replacement = SiteWorldRecord {
+            id: "replacement-site".into(),
+            profile_id: "personal".into(),
+            origin: "https://legacy.example".into(),
+            state: "active".into(),
+            revision: 1,
+            created_at: "2026-08-12T00:00:01Z".into(),
+            updated_at: "2026-08-12T00:00:01Z".into(),
+            archived_at: None,
+            payload: json!({"name": "Replacement"}),
+        };
+        assert!(storage.upsert_site_world(&replacement).unwrap());
+        assert_eq!(
+            storage.site_world("legacy-site", "personal").unwrap().unwrap().state,
+            "archived"
+        );
+        drop(storage);
+        std::fs::remove_file(path).unwrap();
     }
 }

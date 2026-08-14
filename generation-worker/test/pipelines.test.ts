@@ -1,28 +1,31 @@
 import { describe, expect, it } from "vitest";
 
 import { runGenerationPipeline, UnsafeOutputError, type PipelineEmitter } from "../src/pipelines/index.js";
+import { createProgressivePagePreview } from "../src/pipelines/shared.js";
 import { DeterministicMockExecutor } from "../src/providers/mock.js";
 import type { GenerateObjectRequest, GeneratedObject, ModelExecutor } from "../src/providers/executor.js";
+import type { DirectorResult, SiteIdentity } from "../src/domain.js";
 import { generationCommand } from "./helpers.js";
 
 function emitter() {
   const phases: string[] = [];
-  const validations: Array<{ repair: boolean }> = [];
+  const validations: Array<{ issueCount: number }> = [];
   const value: PipelineEmitter = {
     phase: (phase) => void phases.push(phase),
     metadata: () => undefined,
-    validation: (_issues, repair) => void validations.push({ repair }),
+    preview: () => undefined,
+    validation: (issues) => void validations.push({ issueCount: issues.length }),
     warning: () => undefined,
   };
   return { value, phases, validations };
 }
 
-class BrokenThenRepairExecutor implements ModelExecutor {
+class BrokenBuilderExecutor implements ModelExecutor {
   readonly actualProviderKind = "mock" as const;
   readonly providerId = "mock";
   readonly modelId = "mock-v1";
   readonly calls: string[] = [];
-  readonly #delegate = new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "repair" });
+  readonly #delegate = new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "broken" });
 
   async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GeneratedObject<T>> {
     this.calls.push(request.purpose);
@@ -34,43 +37,136 @@ class BrokenThenRepairExecutor implements ModelExecutor {
   }
 }
 
-describe("generation pipelines", () => {
-  it("uses exactly one structured request in Quick mode", async () => {
-    const request = generationCommand();
-    const executor = new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "quick" });
+class MutatingExistingDirectorExecutor implements ModelExecutor {
+  readonly actualProviderKind = "mock" as const;
+  readonly providerId = "mock";
+  readonly modelId = "mock-v1";
+  readonly calls: string[] = [];
+  readonly #delegate = new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "mutating-existing" });
+
+  async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GeneratedObject<T>> {
+    this.calls.push(request.purpose);
+    const result = await this.#delegate.generateObject(request);
+    if (request.purpose !== "page-director") return result;
+    const output = structuredClone(result.output) as T & { direction: { palette: { accent: string } } };
+    output.direction.palette.accent = "#ff0000";
+    return { ...result, output };
+  }
+}
+
+class DivergentNewDirectorExecutor implements ModelExecutor {
+  readonly actualProviderKind = "mock" as const;
+  readonly providerId = "mock";
+  readonly modelId = "mock-v1";
+  readonly #delegate = new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "divergent-new" });
+
+  async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GeneratedObject<T>> {
+    const result = await this.#delegate.generateObject(request);
+    if (request.purpose !== "page-director") return result;
+    const output = structuredClone(result.output) as T & {
+      direction: { era: string; palette: { accent: string } };
+    };
+    output.direction.era = "slightly different wording";
+    output.direction.palette.accent = "#ff0000";
+    return { ...result, output };
+  }
+}
+
+describe("directed generation pipeline", () => {
+  it("coalesces rapid HTML deltas but always emits the latest trailing preview", async () => {
+    const previews: string[] = [];
+    const events = emitter();
+    events.value.preview = (html) => void previews.push(html);
+    const progressive = createProgressivePagePreview({ request: generationCommand(), emit: events.value });
+    await progressive.handle({ html: "<main><h1>First fragment</h1></main>" });
+    await progressive.handle({ html: "<main><h1>Second fragment</h1></main>" });
+    await progressive.handle({ html: "<main><h1>Latest fragment</h1><p>Trailing HTML</p></main>" });
+    await progressive.flush();
+    expect(previews.length).toBeGreaterThanOrEqual(2);
+    expect(previews.at(-1)).toContain("Latest fragment");
+  });
+
+  it("uses exactly Director then Builder and hides the full catalog from Builder", async () => {
+    const request = generationCommand({ url: "https://bububu.com/" });
+    const executor = new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "bububu" });
     const events = emitter();
     const result = await runGenerationPipeline({ request, executor, signal: new AbortController().signal, emit: events.value });
-    expect(executor.calls).toEqual(["quick-page"]);
-    expect(result.usage.requests).toBe(1);
-    expect(result.artifact.payload).toMatchObject({ mode: "quick", modelId: "mock-v1" });
+
+    expect(executor.calls).toEqual(["page-director", "page-builder"]);
+    expect(result.usage.requests).toBe(2);
+    expect(result.artifact.modelExchanges.map((exchange) => exchange.purpose)).toEqual(["page-director", "page-builder"]);
+    expect(result.artifact.modelExchanges[0]!.prompt).toContain("<capability_catalog>");
+    expect(result.artifact.modelExchanges[0]!.prompt).toContain("unknown hostname");
+    expect(result.artifact.modelExchanges[1]!.prompt).not.toContain("<capability_catalog>");
+    expect(result.artifact.modelExchanges[1]!.prompt).toContain("<approved_page_brief>");
+    expect(result.artifact.modelExchanges[1]!.prompt).toContain("Selected Iconify set: `streamline-cyber`");
+    expect(result.artifact.modelExchanges[1]!.response).toContain("<iconify-icon");
+    expect(result.artifact.html).toContain("data-iconify-rendered");
+    expect(result.artifact.html).toContain("<svg");
+    expect(result.artifact.html).not.toContain("code.iconify.design");
+    expect(result.artifact.payload).toMatchObject({ modelId: "mock-v1", siteIdentity: { classification: "original" } });
+    expect(result.artifact.payload).toMatchObject({ pageDirection: { iconSet: "streamline-cyber" } });
+    expect(result.artifact.payload).toMatchObject({ siteIdentity: { name: expect.stringMatching(/Exomonster/), purpose: expect.stringMatching(/deep-space/) } });
     expect(events.phases.at(-1)).toBe("committing");
   });
 
-  it("uses architect, planner, and builder in Deep mode when validation succeeds", async () => {
-    const request = generationCommand({ mode: "deep" });
-    const executor = new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "deep" });
-    const result = await runGenerationPipeline({ request, executor, signal: new AbortController().signal, emit: emitter().value });
-    expect(executor.calls).toEqual(["site-architect", "page-planner", "page-builder"]);
-    expect(result.usage.requests).toBe(3);
-  });
-
-  it("runs at most one repair when deterministic validation fails", async () => {
-    const request = generationCommand({ mode: "deep" });
-    const executor = new BrokenThenRepairExecutor();
+  it("never makes a semantic repair request after deterministic validation fails", async () => {
+    const executor = new BrokenBuilderExecutor();
     const events = emitter();
-    const result = await runGenerationPipeline({ request, executor, signal: new AbortController().signal, emit: events.value });
-    expect(executor.calls).toEqual(["site-architect", "page-planner", "page-builder", "page-repair"]);
-    expect(result.usage.requests).toBe(4);
-    expect(events.validations).toContainEqual({ repair: true });
+    await expect(runGenerationPipeline({
+      request: generationCommand(),
+      executor,
+      signal: new AbortController().signal,
+      emit: events.value,
+    })).rejects.toBeInstanceOf(UnsafeOutputError);
+    expect(executor.calls).toEqual(["page-director", "page-builder"]);
+    expect(events.validations).toContainEqual({ issueCount: expect.any(Number) });
   });
 
-  it("honors a three-request Deep budget by refusing a fourth repair", async () => {
-    const base = generationCommand({ mode: "deep" });
-    const request = { ...base, settings: { ...base.settings, maxRequests: 3 } };
-    const executor = new BrokenThenRepairExecutor();
-    await expect(
-      runGenerationPipeline({ request, executor, signal: new AbortController().signal, emit: emitter().value }),
-    ).rejects.toBeInstanceOf(UnsafeOutputError);
-    expect(executor.calls).toEqual(["site-architect", "page-planner", "page-builder"]);
+  it("uses the new SiteIdentity as canonical when duplicated direction fields diverge", async () => {
+    const result = await runGenerationPipeline({
+      request: generationCommand({ url: "https://new-world.example/" }),
+      executor: new DivergentNewDirectorExecutor(),
+      signal: new AbortController().signal,
+      emit: emitter().value,
+    });
+    const identity = result.artifact.payload.siteIdentity as SiteIdentity;
+    const direction = result.artifact.payload.pageDirection as DirectorResult["direction"];
+    expect(direction.era).toBe(identity.era);
+    expect(direction.palette).toEqual(identity.palette);
+  });
+
+  it("rejects an existing-site Director that changes the frozen visual identity", async () => {
+    const seedRequest = generationCommand({ url: "https://bububu.com/" });
+    const seed = await runGenerationPipeline({
+      request: seedRequest,
+      executor: new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "existing-seed" }),
+      signal: new AbortController().signal,
+      emit: emitter().value,
+    });
+    const identity = seed.artifact.payload.siteIdentity as SiteIdentity;
+    const request = generationCommand({
+      url: "https://bububu.com/species",
+      context: {
+        ...seedRequest.context,
+        identityStrategy: "reuse",
+        siteWorld: {
+          id: "site-bububu",
+          profileId: "personal",
+          origin: "https://bububu.com",
+          state: "active",
+          revision: 1,
+          promptSnapshot: seedRequest.worldPromptSnapshot,
+          identity,
+          pageSummaries: [],
+          createdAt: "2026-08-12T00:00:00.000Z",
+          updatedAt: "2026-08-12T00:00:01.000Z",
+        },
+      },
+    });
+    const executor = new MutatingExistingDirectorExecutor();
+    await expect(runGenerationPipeline({ request, executor, signal: new AbortController().signal, emit: emitter().value }))
+      .rejects.toThrow("immutable SiteIdentity field: palette");
+    expect(executor.calls).toEqual(["page-director"]);
   });
 });

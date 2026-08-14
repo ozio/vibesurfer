@@ -23,7 +23,7 @@ export function isExplicitRelativeReference(value: string) {
 }
 
 export function normalizeVirtualUrl(rawValue: string, baseUrl?: string): VirtualLocation | undefined {
-  const value = rawValue.trim();
+  const value = repairEscapedNavigationUrl(rawValue);
   if (!value) return undefined;
 
   const base = baseUrl ? parseHttpUrl(baseUrl) : undefined;
@@ -55,6 +55,28 @@ export function normalizeVirtualUrl(rawValue: string, baseUrl?: string): Virtual
     search: candidate.search,
     hash: candidate.hash,
   };
+}
+
+export function repairEscapedNavigationUrl(rawValue: string) {
+  let value = rawValue.trim();
+  if ((value.startsWith('\\"') && value.endsWith('\\"')) ||
+      (value.startsWith('"') && value.endsWith('"'))) {
+    const wrapperLength = value.startsWith('\\"') ? 2 : 1;
+    value = value.slice(wrapperLength, -wrapperLength);
+  }
+
+  const absoluteWrapper = /^(https?:\/\/[^/?#]+)\/(?:(?:%5c)|\\)*%22\/?(?=#|$|[^/])/i;
+  const relativeWrapper = /^\/(?:(?:%5c)|\\)*%22\/?(?=#|$|[^/])/i;
+  const encodedWrapperEnd = /(?:(?:%5c)|\\)*%22$/i;
+  const hadEncodedWrapper = (absoluteWrapper.test(value) || relativeWrapper.test(value))
+    && encodedWrapperEnd.test(value);
+  if (hadEncodedWrapper) {
+    value = value
+      .replace(absoluteWrapper, "$1/")
+      .replace(relativeWrapper, "/")
+      .replace(encodedWrapperEnd, "");
+  }
+  return value;
 }
 
 export function resolveVirtualLink(href: string, baseUrl: string) {
@@ -91,6 +113,16 @@ export function resolveNavigation(
       title: "Settings",
       kind: "settings",
       favicon: "⚙",
+      requiresGeneration: false,
+    };
+  }
+
+  if (value === "vibe://history") {
+    return {
+      location: value,
+      title: "History",
+      kind: "history",
+      favicon: "◷",
       requiresGeneration: false,
     };
   }

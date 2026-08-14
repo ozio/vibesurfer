@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, CircleAlert, Cpu, ExternalLink, Search, Sparkles, WandSparkles } from "lucide-react";
 import { Dialog, Popover } from "radix-ui";
 import { modelCatalog } from "../../data/catalog";
@@ -22,6 +22,12 @@ export function ModelControl() {
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogError, setCatalogError] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [activeModelIndex, setActiveModelIndex] = useState<number | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const modelRowRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const restoreTriggerOnCloseRef = useRef(false);
+  const modelListId = useId();
   const models = useMemo(() => modelCatalog(providerConnections, activeProfileId), [activeProfileId, providerConnections]);
   const activeModel = models.find((model) => model.id === activeModelId) ?? models[0];
   const visibleModels = useMemo(
@@ -35,6 +41,12 @@ export function ModelControl() {
     ? selectedCodexModel.displayName
     : activeModel.name;
 
+  const setPickerVisibility = (open: boolean) => {
+    setQuery("");
+    setActiveModelIndex(null);
+    setPickerOpen(open);
+  };
+
   useEffect(() => {
     const open = () => setLoginOpen(true);
     window.addEventListener("vibesurfer:open-codex", open);
@@ -42,7 +54,7 @@ export function ModelControl() {
   }, []);
 
   useEffect(() => {
-    const open = () => setPickerOpen(true);
+    const open = () => setPickerVisibility(true);
     window.addEventListener("vibesurfer:open-model-picker", open);
     return () => window.removeEventListener("vibesurfer:open-model-picker", open);
   }, []);
@@ -88,17 +100,54 @@ export function ModelControl() {
   const chooseModel = (modelId: string) => {
     const model = models.find((item) => item.id === modelId);
     if (model?.requiresCodex) {
-      setPickerOpen(false);
+      setPickerVisibility(false);
       setLoginOpen(true);
       return;
     }
     if (!model?.available) {
-      setPickerOpen(false);
+      setPickerVisibility(false);
       openSettings("models");
       return;
     }
     setModel(model.id);
-    setPickerOpen(false);
+    setPickerVisibility(false);
+  };
+
+  const focusModelAt = (index: number) => {
+    if (visibleModels.length === 0) return;
+    const nextIndex = (index + visibleModels.length) % visibleModels.length;
+    setActiveModelIndex(nextIndex);
+    modelRowRefs.current[nextIndex]?.focus();
+  };
+
+  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || visibleModels.length === 0) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusModelAt(activeModelIndex === null ? 0 : activeModelIndex + 1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusModelAt(activeModelIndex === null ? visibleModels.length - 1 : activeModelIndex - 1);
+    }
+  };
+
+  const handleModelKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number, modelId: string) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusModelAt(index + 1);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusModelAt(index - 1);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      focusModelAt(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      focusModelAt(visibleModels.length - 1);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      chooseModel(modelId);
+    }
   };
 
   const beginLogin = async () => {
@@ -119,9 +168,9 @@ export function ModelControl() {
 
   return (
     <>
-      <Popover.Root open={pickerOpen} onOpenChange={setPickerOpen}>
+      <Popover.Root open={pickerOpen} onOpenChange={setPickerVisibility}>
         <Popover.Trigger asChild>
-          <button className="model-pill" type="button" aria-label={`Model: ${activeModelName}`}>
+          <button ref={triggerRef} className="model-pill" type="button" aria-label={`Model: ${activeModelName}`}>
             <span className="model-pill__mark"><Sparkles aria-hidden="true" /></span>
             <span className="model-pill__copy">
               <small>Model</small>
@@ -132,20 +181,61 @@ export function ModelControl() {
           </button>
         </Popover.Trigger>
         <Popover.Portal>
-          <Popover.Content className="popover model-popover" align="end" sideOffset={8} collisionPadding={12}>
+          <Popover.Content
+            className="popover model-popover"
+            align="end"
+            sideOffset={8}
+            collisionPadding={12}
+            onOpenAutoFocus={(event) => {
+              event.preventDefault();
+              searchRef.current?.focus();
+            }}
+            onEscapeKeyDown={() => {
+              restoreTriggerOnCloseRef.current = true;
+            }}
+            onCloseAutoFocus={(event) => {
+              if (!restoreTriggerOnCloseRef.current) return;
+              event.preventDefault();
+              restoreTriggerOnCloseRef.current = false;
+              triggerRef.current?.focus();
+            }}
+          >
             <div className="popover__header">
               <div><strong>Choose a model</strong><small>Applies to the next generation</small></div>
             </div>
             <label className="model-search">
               <Search aria-hidden="true" />
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search models" />
+              <input
+                ref={searchRef}
+                role="combobox"
+                aria-label="Search models"
+                aria-autocomplete="list"
+                aria-controls={modelListId}
+                aria-expanded={pickerOpen}
+                aria-activedescendant={activeModelIndex === null ? undefined : `${modelListId}-option-${activeModelIndex}`}
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setActiveModelIndex(null);
+                }}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Search models"
+              />
             </label>
-            <div className="model-list">
-              {visibleModels.map((model) => (
+            <div className="model-list" id={modelListId} role="listbox" aria-label="Models">
+              {visibleModels.map((model, index) => (
                 <button
                   key={model.id}
+                  ref={(node) => {
+                    modelRowRefs.current[index] = node;
+                  }}
+                  id={`${modelListId}-option-${index}`}
                   className={`model-row${activeModelId === model.id ? " is-active" : ""}`}
                   type="button"
+                  role="option"
+                  aria-selected={activeModelId === model.id}
+                  onFocus={() => setActiveModelIndex(index)}
+                  onKeyDown={(event) => handleModelKeyDown(event, index, model.id)}
                   onClick={() => chooseModel(model.id)}
                 >
                   <span className="model-row__icon">{model.group === "local" ? <Cpu aria-hidden="true" /> : <WandSparkles aria-hidden="true" />}</span>
@@ -156,8 +246,20 @@ export function ModelControl() {
                   {!model.available ? <span className="model-row__connect">Set up</span> : activeModelId === model.id ? <Check aria-hidden="true" /> : model.requiresCodex ? <span className="model-row__connect">Configure</span> : null}
                 </button>
               ))}
+              {visibleModels.length === 0 && (
+                <div className="model-list__empty" role="status">No models match your search.</div>
+              )}
             </div>
-            <button className="popover__footer-action" type="button" onClick={() => openSettings("models")}>Manage models and accounts…</button>
+            <button
+              className="popover__footer-action"
+              type="button"
+              onClick={() => {
+                setPickerVisibility(false);
+                openSettings("models");
+              }}
+            >
+              Manage models and accounts…
+            </button>
             <Popover.Arrow className="popover__arrow" />
           </Popover.Content>
         </Popover.Portal>

@@ -1,0 +1,44 @@
+@import "./artifact-fonts.css";
+
+/*
+ * A deliberately low-specificity browser baseline for generated documents.
+ * It supplies the ordinary web defaults Tailwind's utility-only build does
+ * not: readable flow spacing, conventional links, controls, tables and focus.
+ * Page-authored CSS and utility classes remain free to override every value.
+ */
+@layer vibesurfer-artifact-base {
+  :where(*, *::before, *::after) { box-sizing: border-box; }
+  :where(html) { min-height: 100%; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  :where(body) {
+    min-height: 100%;
+    margin: 0;
+    color: #111;
+    background: #fff;
+    font-family: var(--vibe-font-global-sans);
+    line-height: 1.5;
+    text-rendering: optimizeLegibility;
+  }
+  :where(h1, h2, h3, h4, h5, h6) { margin-block: 0 0.55em; line-height: 1.15; }
+  :where(h1) { font-size: 2em; }
+  :where(h2) { font-size: 1.5em; }
+  :where(h3) { font-size: 1.17em; }
+  :where(p, ul, ol, dl, blockquote, pre, table, figure) { margin-block: 0 1em; }
+  :where(ul, ol) { padding-inline-start: 2em; }
+  :where(dd) { margin-inline-start: 2em; }
+  :where(blockquote) { margin-inline: 2.5em; }
+  :where(a:any-link) { color: #0000ee; text-decoration: underline; text-underline-offset: 0.12em; }
+  :where(a:visited) { color: #551a8b; }
+  :where(a:hover) { text-decoration-thickness: 0.12em; }
+  :where(:focus-visible) { outline: 2px solid #0b57d0; outline-offset: 2px; }
+  :where(button, input, select, textarea) { margin: 0; color: inherit; font: inherit; }
+  :where(button, input:is([type="button"], [type="submit"], [type="reset"]), select) { cursor: pointer; }
+  :where(textarea) { resize: vertical; }
+  :where(img, svg, video, canvas) { max-width: 100%; height: auto; }
+  :where(img, svg, video, canvas, audio, iframe) { vertical-align: middle; }
+  :where(table) { border-spacing: 0; border-collapse: collapse; text-indent: 0; }
+  :where(th) { text-align: start; }
+  :where(code, kbd, samp, pre) { font-family: var(--vibe-font-global-mono); }
+  :where(hr) { height: 0; overflow: visible; border: 0; border-top: 1px solid currentColor; opacity: 0.3; }
+  :where(summary) { cursor: pointer; }
+  :where([hidden]) { display: none !important; }
+}

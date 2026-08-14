@@ -1,0 +1,79 @@
+/*
+ * Fonts available inside generated artifacts. The historical commercial family
+ * names are deliberately not redistributed: prompts pair local() candidates
+ * with these packaged OFL substitutes and broad Noto fallbacks.
+ * See docs/third-party-fonts.md for source and license details.
+ */
+
+/* Metric-compatible and era-appropriate Latin/Cyrillic/Greek/Hebrew faces. */
+@import "@fontsource-variable/arimo/wght.css";
+@import "@fontsource-variable/arimo/wght-italic.css";
+@import "@fontsource/tinos/400.css";
+@import "@fontsource/tinos/400-italic.css";
+@import "@fontsource/tinos/700.css";
+@import "@fontsource/tinos/700-italic.css";
+@import "@fontsource/cousine/400.css";
+@import "@fontsource/cousine/400-italic.css";
+@import "@fontsource/cousine/700.css";
+@import "@fontsource/cousine/700-italic.css";
+@import "@fontsource-variable/roboto-condensed/wght.css";
+@import "@fontsource-variable/roboto-condensed/wght-italic.css";
+@import "@fontsource-variable/source-sans-3/wght.css";
+@import "@fontsource-variable/source-sans-3/wght-italic.css";
+@import "@fontsource-variable/gelasio/wght.css";
+@import "@fontsource-variable/gelasio/wght-italic.css";
+@import "@fontsource/comic-neue/400.css";
+@import "@fontsource/comic-neue/400-italic.css";
+@import "@fontsource/comic-neue/700.css";
+@import "@fontsource/comic-neue/700-italic.css";
+@import "@fontsource/anton/400.css";
+@import "@fontsource/archivo-black/400.css";
+
+/* Broad fallbacks. WOFF2 unicode ranges keep unused scripts off the hot path. */
+@import "@fontsource-variable/noto-sans/wght.css";
+@import "@fontsource-variable/noto-sans/wght-italic.css";
+@import "@fontsource-variable/noto-serif/wght.css";
+@import "@fontsource-variable/noto-serif/wght-italic.css";
+@import "@fontsource-variable/noto-sans-mono/wght.css";
+@import "@fontsource-variable/noto-sans-arabic/wght.css";
+@import "@fontsource-variable/noto-sans-hebrew/wght.css";
+@import "@fontsource-variable/noto-sans-thai/wght.css";
+@import "@fontsource-variable/noto-sans-devanagari/wght.css";
+@import "@fontsource/noto-sans-jp/400.css";
+@import "@fontsource/noto-sans-kr/400.css";
+@import "@fontsource/noto-sans-sc/400.css";
+@import "@fontsource/noto-sans-tc/400.css";
+
+/*
+ * Historical family aliases used by generated pages. Local originals win
+ * when the operating system has them; otherwise the build serves an
+ * era-appropriate open substitute. These aliases cover the Latin face while
+ * the explicit global fallback variables below cover all other scripts.
+ */
+@font-face { font-family: "Tahoma"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Tahoma"), url("@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Verdana"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Verdana"), url("@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "MS Sans Serif"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("MS Sans Serif"), url("@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Trebuchet MS"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Trebuchet MS"), url("@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Lucida Sans Unicode"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Lucida Sans Unicode"), url("@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Arial"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Arial"), url("@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Helvetica"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Helvetica"), url("@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Geneva"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Geneva"), url("@fontsource-variable/arimo/files/arimo-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Arial Narrow"; font-style: normal; font-weight: 100 900; font-stretch: condensed; font-display: swap; src: local("Arial Narrow"), url("@fontsource-variable/roboto-condensed/files/roboto-condensed-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Helvetica Neue"; font-style: normal; font-weight: 200 900; font-display: swap; src: local("Helvetica Neue"), url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Lucida Grande"; font-style: normal; font-weight: 200 900; font-display: swap; src: local("Lucida Grande"), url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Myriad"; font-style: normal; font-weight: 200 900; font-display: swap; src: local("Myriad"), url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Myriad Pro"; font-style: normal; font-weight: 200 900; font-display: swap; src: local("Myriad Pro"), url("@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "MS Serif"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("MS Serif"), url("@fontsource/tinos/files/tinos-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Times New Roman"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Times New Roman"), url("@fontsource/tinos/files/tinos-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Georgia"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Georgia"), url("@fontsource-variable/gelasio/files/gelasio-latin-wght-normal.woff2") format("woff2-variations"); }
+@font-face { font-family: "Courier New"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Courier New"), url("@fontsource/cousine/files/cousine-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Monaco"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Monaco"), url("@fontsource/cousine/files/cousine-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Comic Sans MS"; font-style: normal; font-weight: 400 700; font-display: swap; src: local("Comic Sans MS"), url("@fontsource/comic-neue/files/comic-neue-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Impact"; font-style: normal; font-weight: 400; font-display: swap; src: local("Impact"), url("@fontsource/anton/files/anton-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Arial Black"; font-style: normal; font-weight: 400 900; font-display: swap; src: local("Arial Black"), url("@fontsource/archivo-black/files/archivo-black-latin-400-normal.woff2") format("woff2"); }
+
+:root {
+  --vibe-font-global-sans: "Noto Sans Variable", "Noto Sans Arabic Variable", "Noto Sans Hebrew Variable", "Noto Sans Thai Variable", "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", "Noto Sans TC", sans-serif;
+  --vibe-font-global-serif: "Noto Serif Variable", "Noto Sans Arabic Variable", "Noto Sans Hebrew Variable", "Noto Sans Thai Variable", "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", "Noto Sans TC", serif;
+  --vibe-font-global-mono: "Noto Sans Mono Variable", "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", "Noto Sans TC", monospace;
+}

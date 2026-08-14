@@ -3,7 +3,9 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
+const generatedScriptNonce = "dmliaWVzdXJmZXItYXJ0aWZhY3Q";
 const shell = readFileSync(resolve(root, "dist/artifact-frame.html"), "utf8");
+const sourceShell = readFileSync(resolve(root, "artifact-frame.html"), "utf8");
 const runtimeSource = readFileSync(resolve(root, "src/artifacts/frame-runtime.js"), "utf8");
 const tauriConfig = JSON.parse(readFileSync(resolve(root, "src-tauri/tauri.conf.json"), "utf8"));
 
@@ -21,7 +23,30 @@ assert(!/\btype\s*=/i.test(scripts[0][1]), "Artifact shell runtime must be a cla
 assert(scripts[0][2] === runtimeSource, "Built artifact shell runtime bytes drifted from frame-runtime.js.");
 assert(!runtimeSource.toLowerCase().includes("</script"), "Artifact runtime contains a closing script sequence.");
 assert(!/__FRAME_RUNTIME_CSP_HASH__/.test(shell), "Artifact shell CSP hash placeholder was not replaced.");
-assert(!/<(?:link\b|iframe\b|object\b|embed\b)/i.test(shell), "Artifact shell contains a subresource or nested browsing context.");
+assert(!/<(?:iframe\b|object\b|embed\b)/i.test(shell), "Artifact shell contains a nested browsing context or active object.");
+const links = Array.from(shell.matchAll(/<link\b([^>]*)>/gi), (match) => match[1]);
+assert(links.length === 1, `Artifact shell must contain exactly one trusted runtime stylesheet; found ${links.length}.`);
+assert(/\brel=["']stylesheet["']/i.test(links[0]), "Artifact shell runtime registry must be a stylesheet.");
+const runtimeStylesheetHref = links[0].match(/\bhref=["']([^"']+)["']/i)?.[1] ?? "";
+assert(/^\/assets\/artifactFrame-[A-Za-z0-9_-]+\.css$/.test(runtimeStylesheetHref), "Artifact shell runtime registry must resolve to its dedicated local build asset.");
+assert(/<link\b[^>]*\bdata-vibesurfer-artifact-runtime\b[^>]*\bhref=["']\/src\/artifacts\/artifact-base\.css["']/i.test(sourceShell), "Artifact shell source must identify the trusted runtime registry.");
+const fontCss = readFileSync(resolve(root, `dist${runtimeStylesheetHref}`), "utf8");
+assert(fontCss.includes("@layer vibesurfer-artifact-base"), "Artifact runtime stylesheet is missing the neutral browser baseline.");
+for (const family of [
+  "Tahoma", "Verdana", "MS Sans Serif", "MS Serif", "Trebuchet MS", "Arial Narrow",
+  "Lucida Sans Unicode", "Georgia", "Courier New", "Comic Sans MS", "Impact", "Arial",
+  "Arial Black", "Times New Roman", "Helvetica Neue", "Lucida Grande", "Helvetica", "Geneva",
+  "Monaco", "Myriad", "Myriad Pro",
+]) {
+  assert(
+    fontCss.includes(`font-family:${family}`) && fontCss.includes(`src:local(${family}),url(/assets/`),
+    `Artifact font registry is missing the local-first ${family} compatibility alias.`,
+  );
+}
+for (const family of ["Noto Sans Arabic Variable", "Noto Sans Hebrew Variable", "Noto Sans Thai Variable", "Noto Sans Devanagari Variable", "Noto Sans JP", "Noto Sans KR", "Noto Sans SC", "Noto Sans TC"]) {
+  assert(fontCss.includes(`font-family:'${family}'`) || fontCss.includes(`font-family:${family}`), `Artifact font registry is missing ${family}.`);
+}
+assert(/\.woff2(?:["')])/.test(fontCss), "Artifact font registry must ship modern WOFF2 font assets.");
 
 const hash = `sha256-${createHash("sha256").update(runtimeSource).digest("base64")}`;
 const contentAttributes = Array.from(shell.matchAll(/\bcontent="([^"]*)"/gi), (match) => match[1]);
@@ -30,11 +55,14 @@ const outerCsp = tauriConfig.app?.security?.csp ?? "";
 const shellScripts = directive(shellCsp, "script-src");
 const outerScripts = directive(outerCsp, "script-src");
 
-assert(shellScripts === `script-src '${hash}'`, "Artifact shell CSP does not pin the exact runtime hash.");
+assert(shellScripts === `script-src '${hash}' 'nonce-${generatedScriptNonce}'`, "Artifact shell CSP does not pin the exact runtime hash and generated-script nonce.");
 assert(outerScripts.includes(`'${hash}'`), "Tauri CSP does not authorize the exact artifact runtime hash.");
+assert(outerScripts.includes(`'nonce-${generatedScriptNonce}'`), "Tauri CSP does not authorize the generated-script nonce.");
 assert(!/'unsafe-inline'|\bdata:|\bblob:/.test(outerScripts), "Tauri script-src contains a broad script source.");
 assert(directive(outerCsp, "frame-src") === "frame-src 'self'", "Tauri must frame only local application assets.");
 assert(directive(shellCsp, "connect-src") === "connect-src 'none'", "Artifact shell must disable network connections.");
+assert(directive(shellCsp, "font-src") === "font-src 'self' data:", "Artifact shell fonts must be limited to packaged or embedded assets.");
+assert(directive(shellCsp, "style-src") === "style-src 'self' 'unsafe-inline'", "Artifact shell must allow only packaged and inline styles.");
 
 process.stdout.write(`artifact frame shell verified (${runtimeSource.length} bytes, ${hash})\n`);
 

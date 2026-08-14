@@ -129,7 +129,11 @@ function normalizePageSummary(value: unknown): PageSummary | undefined {
   return parsed.success ? parsed.data : undefined;
 }
 
-function normalizeSiteWorld(value: unknown): SiteWorld | undefined {
+function normalizeSiteWorld(
+  value: unknown,
+  fallbackProfileId: string,
+  fallbackPromptSnapshot: { revision: number; prompt: string },
+): SiteWorld | undefined {
   const input = record(value);
   if (Object.keys(input).length === 0) {
     return undefined;
@@ -156,28 +160,74 @@ function normalizeSiteWorld(value: unknown): SiteWorld | undefined {
     ? visual.palette.map(string).filter((item): item is string => /^#[0-9a-f]{6}$/i.test(item ?? "")).slice(0, 8)
     : [];
   const origin = normalizeHttpUrl(input.origin);
+  const identity = record(input.identity);
+  const identityVisual = record(identity.visualLanguage);
+  const identityPalette = record(identity.palette);
+  const identityFonts = record(identity.fonts);
+  const promptSnapshot = record(input.promptSnapshot);
+  const now = new Date().toISOString();
+  const first = palette[0] ?? "#0f172a";
+  const second = palette[1] ?? "#2563eb";
+  const third = palette[2] ?? "#f8fafc";
   const parsed = SiteWorldSchema.safeParse({
     id: string(input.id) ?? `site-${new URL(origin).hostname}`,
+    profileId: string(input.profileId) ?? fallbackProfileId,
     origin: new URL(origin).origin,
+    state: input.state === "archived" ? "archived" : "active",
     revision: Math.max(0, Math.round(number(input.revision) ?? 0)),
-    name: string(input.name) ?? new URL(origin).hostname,
-    purpose: string(input.purpose) ?? "A coherent fictional website",
-    audience: string(input.audience) ?? "General visitors",
-    visualLanguage: {
-      palette: palette.length >= 2 ? palette : ["#0f172a", "#2563eb", "#f8fafc"],
-      typography: string(visual.typography) ?? "Humanist sans serif",
-      density: ["compact", "comfortable", "spacious"].includes(string(visual.density) ?? "")
-        ? string(visual.density)
-        : "comfortable",
-      radius: ["none", "subtle", "rounded", "pill"].includes(string(visual.radius) ?? "")
-        ? string(visual.radius)
-        : "rounded",
-      mood: string(visual.mood ?? visual.tone) ?? "clear and contemporary",
+    promptSnapshot: {
+      revision: Math.max(0, Math.round(number(promptSnapshot.revision) ?? fallbackPromptSnapshot.revision)),
+      prompt: string(promptSnapshot.prompt) ?? fallbackPromptSnapshot.prompt,
     },
-    establishedFacts: Array.isArray(input.establishedFacts)
-      ? input.establishedFacts.map(string).filter((item): item is string => Boolean(item)).slice(0, 24)
+    identity: {
+      classification: identity.classification === "recognizable" ? "recognizable" : "original",
+      locale: string(identity.locale) ?? "en",
+      era: string(identity.era) ?? "contemporary",
+      name: string(identity.name ?? input.name) ?? new URL(origin).hostname,
+      purpose: string(identity.purpose ?? input.purpose) ?? "A coherent fictional website",
+      audience: string(identity.audience ?? input.audience) ?? "General visitors",
+      visualLanguage: {
+        palette: (Array.isArray(identityVisual.palette)
+          ? identityVisual.palette.map(string).filter((item): item is string => /^#[0-9a-f]{6}$/i.test(item ?? ""))
+          : palette.length >= 2 ? palette : [first, second, third]).slice(0, 8),
+        typography: string(identityVisual.typography ?? visual.typography) ?? "Arimo Variable",
+        density: ["compact", "comfortable", "spacious"].includes(string(identityVisual.density ?? visual.density) ?? "")
+          ? string(identityVisual.density ?? visual.density)
+          : "comfortable",
+        radius: ["none", "subtle", "rounded", "pill"].includes(string(identityVisual.radius ?? visual.radius) ?? "")
+          ? string(identityVisual.radius ?? visual.radius)
+          : "rounded",
+        mood: string(identityVisual.mood ?? visual.mood ?? visual.tone) ?? "clear and contemporary",
+      },
+      palette: {
+        background: string(identityPalette.background) ?? third,
+        surface: string(identityPalette.surface) ?? "#ffffff",
+        text: string(identityPalette.text) ?? first,
+        mutedText: string(identityPalette.mutedText) ?? "#64748b",
+        accent: string(identityPalette.accent) ?? second,
+        accentText: string(identityPalette.accentText) ?? "#ffffff",
+        border: string(identityPalette.border) ?? "#cbd5e1",
+      },
+      fonts: {
+        body: string(identityFonts.body) ?? "Arimo Variable",
+        heading: string(identityFonts.heading) ?? "Arimo Variable",
+        ...(string(identityFonts.mono) ? { mono: string(identityFonts.mono) } : {}),
+      },
+      layoutSystem: string(identity.layoutSystem) ?? "Responsive page-specific layout",
+      favicon: record(identity.favicon).kind === "glyph"
+        ? identity.favicon
+        : { kind: "glyph", glyph: new URL(origin).hostname[0]?.toUpperCase() ?? "•", foreground: "#ffffff", background: second, shape: "rounded-square" },
+      establishedFacts: Array.isArray(identity.establishedFacts ?? input.establishedFacts)
+        ? ((identity.establishedFacts ?? input.establishedFacts) as unknown[]).map(string).filter((item): item is string => Boolean(item)).slice(0, 24)
+        : [],
+      routeHints: routes.slice(0, 30),
+    },
+    pageSummaries: Array.isArray(input.pageSummaries ?? input.visitedPageSummaries)
+      ? ((input.pageSummaries ?? input.visitedPageSummaries) as unknown[]).map(normalizePageSummary).filter(Boolean).slice(0, 100)
       : [],
-    routeHints: routes.slice(0, 30),
+    createdAt: string(input.createdAt) ?? now,
+    updatedAt: string(input.updatedAt) ?? now,
+    ...(string(input.archivedAt) ? { archivedAt: string(input.archivedAt) } : {}),
   });
   return parsed.success ? parsed.data : undefined;
 }
@@ -187,7 +237,7 @@ function normalizeImageMode(settings: Record<string, unknown>): "off" | "local" 
     return "off";
   }
   const mode = string(settings.mode ?? settings.provider);
-  return mode === "off" ? "off" : mode === "tag-placeholder" ? "tag-placeholder" : "local";
+  return mode === "off" ? "off" : "tag-placeholder";
 }
 
 export interface NormalizedHostGeneration {
@@ -205,7 +255,13 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
   const rawNavigation = record(context.navigationIntent ?? request.navigationIntent);
   const trigger = string(rawNavigation.kind ?? rawNavigation.trigger) ?? "address";
   const navigationKind = trigger === "form" ? "form" : trigger === "link" ? "link" : trigger === "regenerate" ? "regenerate" : "address";
-  const siteWorld = normalizeSiteWorld(context.siteWorld ?? request.siteWorld);
+  const profileId = string(request.profileId) ?? "personal";
+  const rawPromptSnapshot = record(request.worldPromptSnapshot);
+  const worldPromptSnapshot = {
+    revision: Math.max(0, Math.round(number(rawPromptSnapshot.revision) ?? 0)),
+    prompt: string(rawPromptSnapshot.prompt ?? request.editableInstruction ?? settings.customInstruction) ?? "",
+  };
+  const siteWorld = normalizeSiteWorld(context.siteWorld ?? request.siteWorld, profileId, worldPromptSnapshot);
   const historySource = Array.isArray(context.relevantHistory)
     ? context.relevantHistory
     : Array.isArray(request.relevantHistory)
@@ -227,16 +283,20 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
   };
   const normalizedProvider = normalizeProvider(providerValue, input.credential, string(request.modelId));
   const url = normalizeHttpUrl(request.url ?? request.requestedUrl);
-  const mode = request.mode === "deep" ? "deep" : "quick";
-  const requestedMaxRequests = integerInRange(settings.maxRequests, 4, 1, 4);
+  const imageMode = normalizeImageMode(images);
 
   const command = GenerateCommandSchema.parse({
     v: 1,
     type: "generate",
     requestId: input.requestId,
     jobId: input.jobId,
+    profileId,
+    siteWorldId: string(request.siteWorldId) ?? siteWorld?.id ?? `site-${new URL(url).hostname}`,
     url,
-    mode,
+    browserTheme: request.browserTheme,
+    ...(record(request.discovery).kind === "lucky-urls"
+      ? { discovery: { kind: "lucky-urls", count: 10 } }
+      : {}),
     provider: {
       connectionId: normalizedProvider.connection.id,
       modelId: normalizedProvider.modelId,
@@ -245,19 +305,19 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
         : {}),
       ...(normalizedProvider.serviceTier ? { serviceTier: normalizedProvider.serviceTier } : {}),
     },
-    editableInstruction: string(request.editableInstruction ?? settings.customInstruction) ?? "",
+    worldPromptSnapshot,
     settings: {
       tailwindEnabled: boolean(settings.tailwindEnabled ?? style.tailwindEnabled) ?? true,
       tailwindVersion: string(settings.tailwindVersion ?? style.tailwindVersion) ?? "4.3.3",
+      allowGeneratedScripts: boolean(settings.allowGeneratedScripts ?? style.allowGeneratedScripts) ?? false,
       images: {
-        mode: normalizeImageMode(images),
-        fetchExternal: boolean(images.fetchExternal ?? images.allowExternalRequests) ?? false,
+        mode: imageMode,
+        fetchExternal: imageMode === "tag-placeholder"
+          && (boolean(images.fetchExternal ?? images.allowExternalRequests) ?? true),
         safeContent: boolean(images.safeContent) ?? true,
       },
-      autoRepair: boolean(settings.autoRepair) ?? true,
-      maxRequests: mode === "deep" ? Math.max(3, requestedMaxRequests) : requestedMaxRequests,
       maxOutputTokens: integerInRange(settings.maxOutputTokens, 20_000, 512, 100_000),
-      minInternalLinks: integerInRange(settings.minInternalLinks, 12, 4, 30),
+      minInternalLinks: integerInRange(settings.minInternalLinks, 4, 4, 30),
       maxArtifactBytes: integerInRange(settings.maxArtifactBytes, 1_000_000, 32_000, 2_000_000),
     },
     context: {
@@ -286,6 +346,12 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
       ...(string(context.parentArtifactId ?? request.parentArtifactId ?? rawNavigation.sourceArtifactId)
         ? { parentArtifactId: string(context.parentArtifactId ?? request.parentArtifactId ?? rawNavigation.sourceArtifactId) }
         : {}),
+      identityStrategy:
+        context.identityStrategy === "reimagine" || request.identityStrategy === "reimagine"
+          ? "reimagine"
+          : context.identityStrategy === "create" || request.identityStrategy === "create"
+            ? "create"
+            : "reuse",
     },
   });
 

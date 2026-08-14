@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
+
 import { Output, streamText, type LanguageModel, type LanguageModelUsage } from "ai";
 import type { z } from "zod";
 
-import type { ProviderKind, TokenUsage } from "../domain.js";
+import type { ModelExchange, ProviderKind, TokenUsage } from "../domain.js";
 import type { PromptBundle, PromptStage } from "../prompt-builder.js";
 
 export interface GenerateObjectRequest<T> {
@@ -16,6 +18,7 @@ export interface GenerateObjectRequest<T> {
 export interface GeneratedObject<T> {
   output: T;
   usage: TokenUsage;
+  exchange: ModelExchange;
 }
 
 export interface ModelExecutor {
@@ -55,6 +58,7 @@ export class AiSdkModelExecutor implements ModelExecutor {
   }
 
   async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GeneratedObject<T>> {
+    const startedAt = new Date();
     let streamFailure: unknown;
     const result = streamText({
       model: this.model,
@@ -63,7 +67,7 @@ export class AiSdkModelExecutor implements ModelExecutor {
       output: Output.object({
         schema: request.schema,
         name: `vibesurfer_${request.purpose.replaceAll("-", "_")}`,
-        description: "A strictly validated VibeSurfer generation-stage result.",
+        description: "A strictly validated vibesurfer generation-stage result.",
       }),
       maxOutputTokens: request.maxOutputTokens,
       abortSignal: request.abortSignal,
@@ -83,12 +87,55 @@ export class AiSdkModelExecutor implements ModelExecutor {
       if (streamFailure) {
         throw streamFailure;
       }
-      const [output, usage] = await Promise.all([result.output, result.totalUsage]);
-      return { output, usage: normalizeUsage(usage) };
+      const [output, usage, responseText] = await Promise.all([result.output, result.totalUsage, result.text]);
+      const normalizedUsage = normalizeUsage(usage);
+      const completedAt = new Date();
+      return {
+        output,
+        usage: normalizedUsage,
+        exchange: createModelExchange({
+          request,
+          providerId: this.providerId,
+          modelId: this.modelId,
+          actualProviderKind: this.actualProviderKind,
+          startedAt,
+          completedAt,
+          response: responseText || JSON.stringify(output, null, 2),
+          usage: normalizedUsage,
+        }),
+      };
     } catch (error) {
       throw streamFailure ?? error;
     }
   }
+}
+
+interface ModelExchangeInput<T> {
+  request: GenerateObjectRequest<T>;
+  providerId: string;
+  modelId: string;
+  actualProviderKind: ProviderKind;
+  startedAt: Date;
+  completedAt: Date;
+  response: string;
+  usage: TokenUsage;
+}
+
+export function createModelExchange<T>(input: ModelExchangeInput<T>): ModelExchange {
+  return {
+    id: randomUUID(),
+    purpose: input.request.purpose,
+    providerId: input.providerId,
+    modelId: input.modelId,
+    actualProviderKind: input.actualProviderKind,
+    startedAt: input.startedAt.toISOString(),
+    completedAt: input.completedAt.toISOString(),
+    durationMs: Math.max(0, input.completedAt.getTime() - input.startedAt.getTime()),
+    systemPrompt: input.request.prompt.system,
+    prompt: input.request.prompt.prompt,
+    response: input.response,
+    usage: input.usage,
+  };
 }
 
 export function addUsage(left: TokenUsage, right: TokenUsage): TokenUsage {

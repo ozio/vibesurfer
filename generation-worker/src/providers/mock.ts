@@ -1,17 +1,19 @@
 import { createHash } from "node:crypto";
 
 import {
-  PagePlanSchema,
+  ExistingSiteDirectorResultSchema,
+  NewSiteDirectorResultSchema,
   PageResultSchema,
-  SiteArchitectureSchema,
+  type ApprovedPageBrief,
   type FaviconDescriptor,
-  type PagePlan,
   type PageResult,
-  type SiteArchitecture,
+  type SiteIdentity,
   type SiteWorldPatch,
 } from "../domain.js";
+import { ICONIFY_WEB_COMPONENT_SCRIPT, iconifyPack, type IconSet } from "../iconify/catalog.js";
 import type { PromptStage } from "../prompt-builder.js";
 import {
+  createModelExchange,
   type GeneratedObject,
   type GenerateObjectRequest,
   type ModelExecutor,
@@ -28,6 +30,20 @@ function requestedUrl(prompt: string): URL {
   } catch {
     return new URL("https://example.test/");
   }
+}
+
+function approvedBrief(prompt: string): ApprovedPageBrief | undefined {
+  const match = prompt.match(/<approved_page_brief>\s*([\s\S]*?)\s*<\/approved_page_brief>/);
+  if (!match?.[1]) return undefined;
+  try {
+    return JSON.parse(match[1]) as ApprovedPageBrief;
+  } catch {
+    return undefined;
+  }
+}
+
+function approvedIdentity(prompt: string): SiteIdentity | undefined {
+  return approvedBrief(prompt)?.identity;
 }
 
 function abortError(): Error {
@@ -123,30 +139,131 @@ function makeFavicon(site: SiteWorldPatch, seed: number): FaviconDescriptor {
   };
 }
 
-function makeArchitecture(url: URL, seed: number): SiteArchitecture {
+function makeIdentity(url: URL, seed: number): SiteIdentity {
   const sitePatch = makeSitePatch(url, seed);
-  return SiteArchitectureSchema.parse({
-    sitePatch,
+  const [ink, accent, paper] = palette(seed);
+  if (url.hostname === "bububu.com" || url.hostname === "www.bububu.com") {
+    const paletteRoles = {
+      background: "#090612",
+      surface: "#191225",
+      text: "#f7f1ff",
+      mutedText: "#b5a4c6",
+      accent: "#bdff59",
+      accentText: "#111606",
+      border: "#49345f",
+    };
+    return {
+      classification: "original",
+      locale: "en-US",
+      era: "near-future field science",
+      name: "Bububu Exomonster Signal Index",
+      purpose: "A live search index for migratory monsters detected in deep-space radio noise.",
+      audience: "Night-shift xenozoologists, radio amateurs, and orbital field crews",
+      visualLanguage: {
+        palette: Object.values(paletteRoles).slice(0, 6),
+        typography: "Cousine field notes with Anton specimen headers",
+        density: "compact",
+        radius: "subtle",
+        mood: "nocturnal, curious, instrument-like",
+      },
+      establishedFacts: ["Bububu triangulates nonhuman migrations from public observatory signals."],
+      routeHints: [
+        ["/", "Signal search", "Search recent detections"],
+        ["/species", "Species index", "Browse confirmed exomonsters"],
+        ["/signals", "Live signals", "Inspect incoming radio traces"],
+        ["/map", "Migration map", "Track current migration corridors"],
+        ["/observatories", "Observatories", "Browse participating listening stations"],
+        ["/field-notes", "Field notes", "Read recent xenozoologist reports"],
+        ["/corridors", "Signal corridors", "Compare long-range movement patterns"],
+        ["/alerts", "Detection alerts", "Review high-confidence encounters"],
+        ["/specimens", "Specimen records", "Inspect recovered trace evidence"],
+        ["/calendar", "Migration calendar", "See predicted seasonal crossings"],
+        ["/submit", "Submit a signal", "Send an amateur observatory report"],
+        ["/about", "About Bububu", "Meet the distributed index collective"],
+      ].map(([path, label, purpose]) => ({ path: path!, label: label!, purpose: purpose! })),
+      palette: paletteRoles,
+      fonts: { body: "Cousine", heading: "Anton", mono: "Noto Sans Mono Variable" },
+      layoutSystem: "Asymmetric specimen index with a persistent signal rail",
+      favicon: { kind: "glyph", glyph: "β", foreground: "#090612", background: "#bdff59", shape: "rounded-square" },
+    };
+  }
+  const recognizableHosts = ["google.com", "wikipedia.org", "youtube.com"];
+  return {
+    ...sitePatch,
+    classification: recognizableHosts.some((host) => url.hostname === host || url.hostname.endsWith(`.${host}`))
+      ? "recognizable"
+      : "original",
+    locale: "en-US",
+    era: "contemporary",
+    palette: {
+      background: paper,
+      surface: "#ffffff",
+      text: ink,
+      mutedText: "#64748b",
+      accent,
+      accentText: "#ffffff",
+      border: "#cbd5e1",
+    },
+    fonts: { body: "Arimo Variable", heading: "Source Sans 3 Variable", mono: "Cousine" },
+    layoutSystem: "A responsive editorial shell with a dense link directory",
     favicon: makeFavicon(sitePatch, seed),
-    designRationale: "The calm editorial shell and dense route map make the invented service feel established while keeping navigation legible.",
-  });
+  };
 }
 
-function makePlan(url: URL, seed: number): PagePlan {
-  const site = makeSitePatch(url, seed);
-  return PagePlanSchema.parse({
-    pagePurpose: `Orient visitors to the fictional ${site.name} experience at ${url.pathname}.`,
-    title: url.pathname === "/" ? site.name : `${site.name} — ${url.pathname.split("/").filter(Boolean).join(" ")}`,
+function makeDirectorResult(url: URL, seed: number, prompt: string): unknown {
+  const availableCapabilities = (() => {
+    const match = prompt.match(/<capability_catalog>\s*([\s\S]*?)\s*<\/capability_catalog>/);
+    if (!match?.[1]) return ["semantic-navigation", "favicon-glyph", "inline-page-css"];
+    try {
+      const catalog = JSON.parse(match[1]) as { capabilities?: Record<string, string> };
+      return Object.keys(catalog.capabilities ?? {});
+    } catch {
+      return ["semantic-navigation", "favicon-glyph", "inline-page-css"];
+    }
+  })();
+  const identityFromContext = (() => {
+    const match = prompt.match(/<navigation_context>\s*([\s\S]*?)\s*<\/navigation_context>/);
+    if (!match?.[1]) return undefined;
+    try {
+      const context = JSON.parse(match[1]) as { siteWorld?: { identity?: SiteIdentity } };
+      return context.siteWorld?.identity;
+    } catch {
+      return undefined;
+    }
+  })();
+  const identity = identityFromContext ?? makeIdentity(url, seed);
+  const iconSet: IconSet | null = (() => {
+    const hostname = url.hostname.replace(/^www\./, "");
+    if (["google.com", "wikipedia.org", "youtube.com"].includes(hostname)) return null;
+    if (hostname === "bububu.com") return "streamline-cyber";
+    return "lucide";
+  })();
+  const direction = {
+    siteClassification: identity.classification,
+    locale: identity.locale,
+    era: identity.era,
+    palette: identity.palette,
+    fonts: identity.fonts,
+    favicon: identity.favicon,
+    density: identity.visualLanguage.density,
+    layout: identity.layoutSystem,
+    composition: ["Primary navigation", "Page-specific lead", "Dense useful content", "Onward route directory"],
     sections: [
       { id: "hero", heading: "A useful starting point", goal: "Explain the page immediately", layout: "split editorial hero" },
       { id: "highlights", heading: "Highlights", goal: "Surface the strongest destinations", layout: "responsive card grid" },
       { id: "briefing", heading: "Today at a glance", goal: "Add plausible information density", layout: "two-column briefing" },
       { id: "explore", heading: "Explore more", goal: "Provide rich onward navigation", layout: "link directory" },
     ],
-    internalLinks: site.routeHints.slice(0, 15),
-    imageIntents: ["modern city at dawn, editorial", "people collaborating in a bright studio"],
-    consistencyNotes: ["Reuse the site palette", "Keep navigation labels stable", "Use concise, factual-sounding copy"],
-  });
+    iconSet,
+    imagery: ["coastal-city", "community-studio"],
+    selectedCapabilities: availableCapabilities,
+    creativeRationale: `A concrete service for ${url.hostname}, with an identity tied to the hostname rather than a generic landing page.`,
+    implementationNotes: "Keep the route hierarchy visible and render the approved visual system exactly.",
+  };
+  const additions = { facts: [`The requested route is ${url.pathname}.`], routes: identity.routeHints.slice(0, 15) };
+  return identityFromContext
+    ? ExistingSiteDirectorResultSchema.parse({ direction, additions })
+    : NewSiteDirectorResultSchema.parse({ identity, direction, additions });
 }
 
 function escapeHtml(value: string): string {
@@ -156,6 +273,16 @@ function escapeHtml(value: string): string {
 function makeHtml(url: URL, site: SiteWorldPatch, title: string, prompt: string): string {
   const tailwind = prompt.includes("Use Tailwind CSS");
   const imagesOff = prompt.includes("Do not rely on photography");
+  const iconSet = approvedBrief(prompt)?.direction.iconSet ?? null;
+  const selectedIcon = iconSet
+    ? iconifyPack(iconSet).semanticMap.home ?? iconifyPack(iconSet).flavor[0] ?? iconifyPack(iconSet).names[0]
+    : undefined;
+  const iconScript = selectedIcon
+    ? `<script src="${ICONIFY_WEB_COMPONENT_SCRIPT}"></script>`
+    : "";
+  const iconMarkup = selectedIcon
+    ? `<iconify-icon icon="${iconSet}:${selectedIcon}" aria-hidden="true"></iconify-icon> `
+    : "";
   const nav = site.routeHints
     .slice(0, 15)
     .map((route) => `<a href="${escapeHtml(route.path)}" class="text-sm font-medium hover:underline focus:outline-none focus:ring-2 focus:ring-blue-500">${escapeHtml(route.label)}</a>`)
@@ -166,7 +293,7 @@ function makeHtml(url: URL, site: SiteWorldPatch, title: string, prompt: string)
       (route, index) => `<article class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <p class="text-xs font-semibold uppercase tracking-wide text-blue-600">0${index + 1}</p>
         <h2 class="mt-2 text-xl font-bold text-slate-900">${escapeHtml(route.label)}</h2>
-        <p class="mt-2 text-sm leading-6 text-slate-600">${escapeHtml(route.purpose)} with context invented for this generated page.</p>
+        <p class="mt-2 text-sm leading-6 text-slate-600">${escapeHtml(route.purpose)} with related context and useful details.</p>
         <a class="mt-4 inline-flex font-semibold text-blue-700 hover:underline" href="${escapeHtml(route.path)}">Explore ${escapeHtml(route.label)}</a>
       </article>`,
     )
@@ -191,7 +318,8 @@ function makeHtml(url: URL, site: SiteWorldPatch, title: string, prompt: string)
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>${escapeHtml(title)}</title>
-  <meta name="description" content="A fictional generated page for ${escapeHtml(url.href)}">
+  <meta name="description" content="A page for ${escapeHtml(url.href)}">
+  ${iconScript}
   ${style}
 </head>
 <body class="${bodyClass}">
@@ -201,9 +329,9 @@ function makeHtml(url: URL, site: SiteWorldPatch, title: string, prompt: string)
   <main>
     <section class="${shellClass} ${heroClass}">
       <div>
-        <p class="text-sm font-bold uppercase tracking-wide text-blue-700">Generated destination</p>
+        <p class="text-sm font-bold uppercase tracking-wide text-blue-700">${iconMarkup}${escapeHtml(url.hostname)}</p>
         <h1 class="mt-4 max-w-4xl text-5xl font-black tracking-tight sm:text-7xl">${escapeHtml(title)}</h1>
-        <p class="mt-6 max-w-2xl text-lg leading-8 text-slate-600">A coherent, entirely imagined page shaped by the address <strong>${escapeHtml(url.href)}</strong>. Pick any route to generate the next part of this world.</p>
+        <p class="mt-6 max-w-2xl text-lg leading-8 text-slate-600">Browse the latest highlights, collections, and useful routes from across the site.</p>
       </div>
       ${image}
     </section>
@@ -216,22 +344,20 @@ function makeHtml(url: URL, site: SiteWorldPatch, title: string, prompt: string)
       ${nav}
     </section>
   </main>
-  <footer class="${shellClass} border-t border-slate-200 py-8 text-sm text-slate-500">This is a fictional VibeSurfer page, not the live website.</footer>
+  <footer class="${shellClass} border-t border-slate-200 py-8 text-sm text-slate-500">${escapeHtml(title)}</footer>
 </body>
 </html>`;
 }
 
 function makePageResult(url: URL, seed: number, prompt: string): PageResult {
-  const sitePatch = makeSitePatch(url, seed);
+  const sitePatch = approvedIdentity(prompt) ?? makeSitePatch(url, seed);
   const suffix = url.pathname === "/" ? "" : ` — ${url.pathname.split("/").filter(Boolean).join(" ")}`;
   const title = `${sitePatch.name}${suffix}`;
   return PageResultSchema.parse({
     meta: {
       title,
-      description: `A fictional generated destination for ${url.href}.`,
+      description: `A destination page for ${url.href}.`,
       pageSummary: `An editorial landing page for ${title} with highlights and a dense set of internally consistent routes.`,
-      favicon: makeFavicon(sitePatch, seed),
-      sitePatch,
     },
     html: makeHtml(url, sitePatch, title, prompt),
   });
@@ -253,6 +379,7 @@ export class DeterministicMockExecutor implements ModelExecutor {
   }
 
   async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GeneratedObject<T>> {
+    const startedAt = new Date();
     this.calls.push(request.purpose);
     await abortableDelay(this.#latencyMs, request.abortSignal);
     if (request.abortSignal.aborted) {
@@ -263,36 +390,43 @@ export class DeterministicMockExecutor implements ModelExecutor {
     const seed = hashInt(`${this.#seed}:${url.href}`);
     let candidate: unknown;
     switch (request.purpose) {
-      case "site-architect":
-        candidate = makeArchitecture(url, seed);
+      case "page-director":
+        candidate = makeDirectorResult(url, seed, request.prompt.prompt);
         break;
-      case "page-planner":
-        candidate = makePlan(url, seed);
-        break;
-      case "quick-page":
       case "page-builder":
-      case "page-repair":
         candidate = makePageResult(url, seed, request.prompt.prompt);
         break;
     }
 
     const output = request.schema.parse(candidate);
-    if (request.onPartial && (request.purpose === "quick-page" || request.purpose === "page-builder" || request.purpose === "page-repair")) {
+    if (request.onPartial && request.purpose === "page-builder") {
       const page = candidate as PageResult;
-      await request.onPartial({ meta: { title: page.meta.title, favicon: page.meta.favicon } });
+      await request.onPartial({ meta: { title: page.meta.title } });
       await request.onPartial(page);
     }
 
     const inputTokens = Math.ceil((request.prompt.system.length + request.prompt.prompt.length) / 4);
     const outputTokens = Math.ceil(JSON.stringify(output).length / 4);
+    const usage = {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      requests: 1,
+    };
+    const completedAt = new Date();
     return {
       output,
-      usage: {
-        inputTokens,
-        outputTokens,
-        totalTokens: inputTokens + outputTokens,
-        requests: 1,
-      },
+      usage,
+      exchange: createModelExchange({
+        request,
+        providerId: this.providerId,
+        modelId: this.modelId,
+        actualProviderKind: this.actualProviderKind,
+        startedAt,
+        completedAt,
+        response: JSON.stringify(output, null, 2),
+        usage,
+      }),
     };
   }
 }

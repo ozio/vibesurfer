@@ -3,9 +3,8 @@ export type ThemeId = "native" | "sedative" | "ie-classic" | "cyberpunk";
 export type ColorScheme = "system" | "light" | "dark";
 export type TabLayout = "horizontal" | "vertical";
 export type Density = "comfortable" | "compact";
-export type TabKind = "new-tab" | "remote" | "generated" | "settings";
+export type TabKind = "new-tab" | "remote" | "generated" | "settings" | "history";
 export type LoadState = "idle" | "loading" | "error";
-export type GenerationMode = "quick" | "deep";
 export type NavigationDisposition = "current" | "foreground-tab" | "background-tab";
 export type NavigationTrigger =
   | "address-bar"
@@ -51,6 +50,8 @@ export interface HistoryEntry {
   virtualLocation?: VirtualLocation;
   artifactId?: string;
   generationJobId?: string;
+  siteWorldId?: string;
+  archivedSiteWorldId?: string;
 }
 
 export interface BrowserTab {
@@ -62,13 +63,18 @@ export interface BrowserTab {
   prompt?: string;
   virtualLocation?: VirtualLocation;
   artifactId?: string;
+  fallbackArtifactId?: string;
   generationJobId?: string;
+  siteWorldId?: string;
+  archivedSiteWorldId?: string;
+  luckyJobId?: string;
   opener?: TabOpenerContext;
   loadState: LoadState;
   reloadKey: number;
   history: HistoryEntry[];
   historyIndex: number;
   generatedWith?: string;
+  hasUnseenUpdate?: boolean;
 }
 
 export interface TokenUsage {
@@ -76,6 +82,22 @@ export interface TokenUsage {
   outputTokens?: number;
   totalTokens?: number;
   reasoningTokens?: number;
+  requests?: number;
+}
+
+export interface ModelExchange {
+  id: string;
+  purpose: "page-director" | "page-builder";
+  providerId: string;
+  modelId: string;
+  actualProviderKind: string;
+  startedAt: string;
+  completedAt: string;
+  durationMs: number;
+  systemPrompt: string;
+  prompt: string;
+  response: string;
+  usage: TokenUsage;
 }
 
 export interface GlyphFavicon {
@@ -116,8 +138,14 @@ export interface ArtifactSitePatch {
   routeHints: RouteHint[];
 }
 
+export interface SiteAdditions {
+  facts: string[];
+  routes: RouteHint[];
+}
+
 export interface PageArtifact {
   id: string;
+  profileId?: string;
   url: string;
   title: string;
   html: string;
@@ -125,7 +153,6 @@ export interface PageArtifact {
   siteWorldId: string;
   generationJobId: string;
   modelId: string;
-  mode: GenerationMode;
   promptVersion: number;
   settingsFingerprint: string;
   createdAt: string;
@@ -134,8 +161,14 @@ export interface PageArtifact {
   faviconUrl?: string;
   parentArtifactId?: string;
   usage?: TokenUsage;
+  modelExchanges?: ModelExchange[];
   warnings: ArtifactWarning[];
+  allowGeneratedScripts?: boolean;
   sitePatch?: ArtifactSitePatch;
+  siteIdentity?: SiteIdentity;
+  siteAdditions?: SiteAdditions;
+  pageDirection?: PageDirection;
+  worldPromptSnapshot?: ProfilePromptSnapshot;
 }
 
 export interface SiteVisualLanguage {
@@ -160,9 +193,59 @@ export interface PageSummary {
   outboundRoutes: string[];
 }
 
+export interface ProfilePromptSnapshot {
+  revision: number;
+  prompt: string;
+}
+
+export interface RolePalette {
+  background: string;
+  surface: string;
+  text: string;
+  mutedText: string;
+  accent: string;
+  accentText: string;
+  border: string;
+}
+
+export interface SiteIdentity extends ArtifactSitePatch {
+  classification: "recognizable" | "original";
+  locale: string;
+  era: string;
+  palette: RolePalette;
+  fonts: { body: string; heading: string; mono?: string };
+  layoutSystem: string;
+  favicon: GlyphFavicon;
+}
+
+export interface PageDirection {
+  siteClassification: "recognizable" | "original";
+  locale: string;
+  era: string;
+  palette: RolePalette;
+  fonts: { body: string; heading: string; mono?: string };
+  favicon: GlyphFavicon;
+  density: "compact" | "comfortable" | "spacious";
+  layout: string;
+  composition: string[];
+  sections: Array<{ id: string; heading: string; goal: string; layout: string }>;
+  iconSet: "lucide" | "carbon" | "ph" | "pepicons-pop" | "streamline-cyber" | "pixelarticons" | "fa" | "streamline-freehand" | "flat-color-icons" | "game-icons" | null;
+  imagery: string[];
+  selectedCapabilities: string[];
+  creativeRationale: string;
+  implementationNotes: string;
+}
+
 export interface SiteWorld {
   id: string;
+  profileId: string;
   origin: string;
+  state: "active" | "archived";
+  promptSnapshot: ProfilePromptSnapshot;
+  identity: SiteIdentity;
+  pageSummaries: PageSummary[];
+  archivedAt?: string;
+  // Flattened compatibility fields are kept for the existing UI and migration.
   name: string;
   purpose: string;
   audience: string;
@@ -179,7 +262,7 @@ export type GenerationJobStatus = "queued" | "running" | "completed" | "failed" 
 export type GenerationPhase =
   | "queued"
   | "preparing-context"
-  | "planning"
+  | "directing"
   | "generating"
   | "validating"
   | "compiling-styles"
@@ -212,6 +295,7 @@ export interface GenerationError {
 
 export interface GenerationJob {
   id: string;
+  purpose?: "page" | "lucky-urls";
   profileId: string;
   tabId: string;
   requestedUrl: string;
@@ -224,7 +308,10 @@ export interface GenerationJob {
   modelId: string;
   reasoningEffort?: string;
   serviceTier?: string;
-  mode: GenerationMode;
+  identityStrategy?: "reuse" | "create" | "reimagine";
+  browserTheme: ThemeId;
+  worldPromptSnapshot: ProfilePromptSnapshot;
+  generationSettingsSnapshot: GenerationSettings;
   status: GenerationJobStatus;
   phase: GenerationPhase;
   navigationIntent: NavigationIntent;
@@ -238,6 +325,22 @@ export interface GenerationJob {
   createdAt: string;
   startedAt?: string;
   updatedAt: string;
+}
+
+export type BrowsingHistoryStatus = "loading" | "cached" | "completed" | "error";
+
+export interface BrowsingHistoryEntry {
+  id: string;
+  profileId: string;
+  url: string;
+  title: string;
+  status: BrowsingHistoryStatus;
+  openedAt: string;
+  updatedAt: string;
+  favicon?: string;
+  artifactId?: string;
+  generationJobId?: string;
+  errorMessage?: string;
 }
 
 export type GenerationRuntimeEvent =
@@ -332,13 +435,8 @@ export interface GenerationPrivacySettings {
 }
 
 export interface GenerationSettings {
-  defaultMode: GenerationMode;
-  defaultModelByMode: Partial<Record<GenerationMode, string>>;
-  customInstruction: string;
   promptVersion: number;
-  maxRequests: number;
   maxOutputTokens: number;
-  autoRepair: boolean;
   reuseCachedPages: boolean;
   style: ArtifactStyleSettings;
   images: ImageGenerationSettings;
@@ -350,6 +448,18 @@ export interface BrowserProfile {
   name: string;
   avatar: string;
   caption: string;
+  chromeSkin: ThemeId;
+  worldPrompt: ProfilePromptSnapshot;
+  createdAt: string;
+}
+
+export interface ProfileWorkspace {
+  tabs: BrowserTab[];
+  activeTabId: string;
+  activeModelId: string;
+  preferences: BrowserPreferences;
+  codexSelection: CodexGenerationSelection;
+  generationSettings: GenerationSettings;
 }
 
 export interface ModelOption {

@@ -1,4 +1,4 @@
-# VibeSurfer generation worker
+# vibesurfer generation worker
 
 This directory is an isolated TypeScript process that turns virtual HTTP(S) locations into validated page artifacts. It communicates exclusively as newline-delimited JSON on stdin/stdout. Provider credentials arrive in an input message, remain in an in-memory registry for the lifetime of the request, and are never accepted as command-line arguments, persisted, or echoed.
 
@@ -29,10 +29,10 @@ The Rust host starts each worker with:
 The worker responds:
 
 ```json
-{"type":"initialized","requestId":"init-1","protocolVersion":1,"workerVersion":"0.1.0","capabilities":{"modes":["quick","deep"],"providers":["mock","openai","anthropic","google","openai-compatible","codex"]}}
+{"type":"initialized","requestId":"init-1","protocolVersion":1,"workerVersion":"0.1.0","capabilities":{"generationStages":["page-director","page-builder"],"providers":["mock","openai","anthropic","google","openai-compatible","codex"]}}
 ```
 
-`codex` is not treated as an OpenAI API-key provider. The Rust host authenticates and canonicalizes the request, then starts the worker with a host-owned absolute Codex executable path. The worker runs schema-constrained stages through that system session with user config/rules, tools, network access, and persistence disabled.
+`codex` is not treated as an OpenAI API-key provider. The Rust host authenticates and canonicalizes the request, then starts the worker with a host-owned absolute Codex executable path. The worker runs schema-constrained stages through Codex App Server with an empty read-only workspace, project context, tools, network access, and persistence disabled. Accumulated agent-message deltas feed the same partial-output path as streaming SDK providers.
 
 ### Generate
 
@@ -44,15 +44,20 @@ The host-facing command is:
   "requestId": "request-1",
   "jobId": "job-1",
   "request": {
+    "profileId": "personal",
+    "siteWorldId": "site-example-v1",
     "url": "https://example.com/news",
-    "mode": "quick",
+    "browserTheme": "native",
     "provider": {
       "id": "openai-personal",
       "kind": "openai",
       "displayName": "OpenAI",
       "modelId": "MODEL_ID_SELECTED_BY_THE_HOST"
     },
-    "editableInstruction": "Prefer a restrained editorial design.",
+    "worldPromptSnapshot": {
+      "revision": 3,
+      "prompt": "Prefer a restrained editorial world."
+    },
     "settings": {
       "style": { "tailwindEnabled": true, "tailwindVersion": "4.3.3" },
       "images": {
@@ -61,8 +66,6 @@ The host-facing command is:
         "safeContent": true,
         "allowExternalRequests": false
       },
-      "autoRepair": true,
-      "maxRequests": 4,
       "maxOutputTokens": 20000,
       "minInternalLinks": 12,
       "maxArtifactBytes": 1000000
@@ -72,6 +75,7 @@ The host-facing command is:
       "sourcePage": null,
       "relevantHistory": [],
       "parentArtifactId": null,
+      "identityStrategy": "reuse",
       "navigationIntent": {
         "trigger": "link",
         "disposition": "current",
@@ -89,7 +93,7 @@ The host-facing command is:
 
 For compatibility with the frontend domain types, the normalizer also accepts `providerId` / `providerKind` / `modelId` at request level, `settings.tailwindEnabled`, and navigation intent outside `context`.
 
-Quick mode performs exactly one structured model request. Deep mode performs site architecture, page planning, and page building as three requests, followed by no more than one repair request when deterministic validation reports an error and `maxRequests` permits it.
+Every uncached page performs exactly two structured requests. `page-director` receives the full versioned capability catalog and returns a new identity when required plus a hybrid page direction. The catalog exposes ten stylistically distinct Iconify prefixes but no individual icon names; Director selects one `iconSet` or `null`. The worker validates the selected fonts/capabilities and sends `page-builder` an approved brief containing only selected contracts plus the selected pack's compact semantic map, flavor names, palette type, and attribution. Builder cannot see alternative packs or change the approved identity, palette, fonts, or favicon. Deterministic compiler/validation failures end the job; there is no model repair stage.
 
 ### Generation events
 
@@ -99,15 +103,15 @@ Job events are top-level objects. Every event has `requestId`, `jobId`, monotoni
 generation.started
 generation.phase       { phase, progress }
 generation.metadata    { title?, favicon?, summary? }
-generation.preview     { html }                         reserved for progressive rendering
-generation.validation  { issues, repairWillRun }
+generation.preview     { html }                         sanitized accumulated HTML
+generation.validation  { issues }
 generation.warning     { code, message }
 generation.completed   { artifact, usage }
 generation.failed      { error: { code, message, retryable } }
 generation.cancelled
 ```
 
-The terminal artifact always includes `id`, `siteId`, `url`, `title`, `html`, `createdAt`, and `payload`. `payload` preserves favicon, summary, site patch, provider/model/mode, prompt/settings versions, usage, warnings, and parent artifact linkage when the Rust storage layer projects the record into its smaller database type.
+The terminal artifact always includes `id`, `siteId`, `url`, `title`, `html`, `createdAt`, two `modelExchanges`, and `payload`. `payload` preserves the Director-approved identity/direction, favicon, summary, compatible site additions, provider/model, prompt/settings versions, usage, warnings, world-prompt snapshot, and parent artifact linkage when the Rust storage layer projects the record into its smaller database type.
 
 ### Cancel
 
@@ -129,11 +133,13 @@ The worker also supports versioned `provider.upsert`, `provider.remove`, `provid
 
 ## Page compiler
 
-Model output is never sent directly to the iframe. The compiler removes scripts, frames, embeds, base/meta redirects, external stylesheets, inline event handlers, dangerous URL schemes, CSS imports/URLs, and direct image sources. It normalizes navigation URLs, forces forms to GET, injects title/viewport metadata, resolves image intents, and then validates size, link density, accessibility basics, resource isolation, and compiled styles.
+Model output is never sent directly to the iframe. The compiler removes scripts, frames, embeds, base/meta redirects, external stylesheets, inline event handlers, dangerous URL schemes, and CSS imports/URLs. It normalizes navigation URLs, forces forms to GET, injects title/viewport metadata, resolves image intents to the fixed image-provider allowlist, and then validates size, link density, accessibility basics, resource isolation, and compiled styles.
 
-Tailwind mode uses the pinned Tailwind compiler with an embedded deterministic theme, so it needs no CDN or native runtime module. Model-supplied class candidates have fixed length/count limits, and arbitrary square-bracket utilities are rejected before compilation. Compiled CSS is sanitized again to remove imports and network-bearing functions. If compilation ever fails, a safe deterministic stylesheet is injected and a warning is emitted.
+Iconify uses a reproducible local snapshot rather than runtime network access. Refresh it from the official Iconify API with `npm run iconify:catalog`; `scripts/build-iconify-catalog.mjs` reads `/collection`, excludes hidden names, considers aliases and categories, checks expected licenses, selects semantic/flavor names, then fetches only those icons' SVG bodies. Builder authors `<iconify-icon icon="prefix:name">` against that whitelist. During preview and final compilation the worker replaces each approved element's contents with trusted inline SVG, scopes SVG IDs, removes invalid/mixed-set names and the CDN marker, caps icon count, and injects required CC BY attribution. The iframe CSP remains `connect-src 'none'` and executes no Iconify CDN code.
 
-Image modes are `off`, `local`, and `tag-placeholder`; the latter downloads through the worker only when external access is explicitly enabled and otherwise falls back locally. External resolution keeps the imagined page origin/host on an exclusion list and checks the initial provider URL, every redirect, and the final response URL against both that list and the fixed provider allowlist. A page cannot cause its own imagined origin to be contacted by choosing an image-provider hostname. At most 24 image intents are kept, at most four resolve concurrently, and each response body is streamed under a 5,000,000-byte cap with early reader cancellation and request abort.
+Tailwind mode uses the pinned compiler with Tailwind's complete embedded stock theme, so it needs no CDN or native runtime module. The compiler emits only utilities referenced by the current page and adds no application-owned palette, font, container, radius, shadow, or component theme. Model-supplied class candidates have fixed length/count limits; stock classes and safe arbitrary values are accepted while network-bearing and breakout syntax is rejected. Compiled CSS is sanitized again. If compilation ever fails, a theme-free neutral reset is injected and a warning is emitted.
+
+The default `tag-placeholder` mode maps semantic image intents to direct LoremFlickr URLs, matching galyunet. The page receives no general network ability: both sanitizers and both CSP layers allow only LoremFlickr and its Flickr CDN redirect hosts for image elements. Photos therefore load independently after streamed HTML without base64 artifact bloat. `off` and legacy local modes omit unresolved images rather than replacing them with generated gradients or other invented visuals. At most 24 intents are kept.
 
 The OpenAI-compatible contract test uses the real AI SDK adapter against an ephemeral loopback HTTP provider. It enters directly at the in-memory registry boundary only because the production protocol correctly requires HTTPS provider base URLs; the test asserts that this production schema still rejects its HTTP loopback URL.
 
