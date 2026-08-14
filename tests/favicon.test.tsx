@@ -30,4 +30,31 @@ describe("Favicon", () => {
     expect(container).toHaveTextContent("🧭");
     expect(container.querySelector("svg")).toBeNull();
   });
+
+  test("renders the persisted favicon colors and shape instead of the browser accent", () => {
+    const { container } = render(
+      <Favicon
+        source={{ kind: "glyph", glyph: "R", foreground: "#ffe07a", background: "#0057a8", shape: "circle" }}
+        title="Rambler"
+        generated
+      />,
+    );
+
+    const tile = container.querySelector(".favicon--letter");
+    expect(tile).toHaveTextContent("R");
+    expect(tile).toHaveClass("favicon--circle");
+    expect(tile).toHaveStyle({ color: "#ffe07a", backgroundColor: "#0057a8" });
+  });
+
+  test("gives legacy glyphs stable origin-specific fallback colors", () => {
+    const first = render(<Favicon source="R" title="Rambler" seed="https://rambler.ru" generated />);
+    const firstColor = first.container.querySelector<HTMLElement>(".favicon--letter")?.style.backgroundColor;
+    first.unmount();
+    const second = render(<Favicon source="R" title="Radio" seed="https://radio.example" generated />);
+    const secondColor = second.container.querySelector<HTMLElement>(".favicon--letter")?.style.backgroundColor;
+
+    expect(firstColor).toBeTruthy();
+    expect(secondColor).toBeTruthy();
+    expect(firstColor).not.toBe(secondColor);
+  });
 });

@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { deterministicGlyphFavicon } from "../lib/favicon";
 import { isTauri } from "../lib/platform";
 import type {
   ArtifactSitePatch,
@@ -308,7 +309,7 @@ export function fromSiteWorldRecord(record: SiteWorldRecord): SiteWorld | undefi
     palette: { background: "#f8fafc", surface: "#ffffff", text: "#0f172a", mutedText: "#64748b", accent: "#2563eb", accentText: "#ffffff", border: "#cbd5e1" },
     fonts: { body: "Arimo Variable", heading: "Arimo Variable" },
     layoutSystem: stringValue(visualLanguage.layout) ?? "Page-specific layout",
-    favicon: { kind: "glyph", glyph: name.slice(0, 1).toUpperCase() || "•", foreground: "#ffffff", background: "#2563eb", shape: "rounded-square" },
+    favicon: deterministicGlyphFavicon(origin, name.slice(0, 1).toUpperCase() || "•"),
   };
   const resolvedIdentity = identity ?? fallbackIdentity;
   const summaries = pageSummaries(payload.pageSummaries ?? payload.visitedPageSummaries);

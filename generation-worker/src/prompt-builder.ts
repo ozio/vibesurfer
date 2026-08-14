@@ -185,7 +185,7 @@ function stageInstruction(input: PromptInput): string {
         "Direct the requested page; do not generate HTML.",
         input.context.siteWorld && input.context.identityStrategy === "reuse"
           ? "The supplied SiteIdentity is frozen. Return only a page-specific direction and non-contradictory additions. Never return or revise identity, favicon, palette, typography, purpose, audience, locale, or era."
-          : "Return a complete durable SiteIdentity plus the page direction. For an unknown hostname, invent an unusual, concrete entity and a visual language specific to its name; creative interpretation is required. For a recognizable hostname, preserve its canonical function and familiar interface.",
+          : "Return a complete durable SiteIdentity plus the page direction. Give the origin a distinctive persistent favicon using one or two UTF characters, a legible foreground, a non-generic background color, and a circle, square, or rounded-square shape; it must remain usable at 16px and must not default every origin to the same blue tile. For an unknown hostname, invent an unusual, concrete entity and a visual language specific to its name; creative interpretation is required. For a recognizable hostname, preserve its canonical function and familiar interface.",
         "Select fonts and capabilities only from the supplied versioned catalog. Choose iconSet by visual language from the supplied iconSets, or null when icons would not improve the design. Never return an unlisted prefix. Make palette roles explicit. Make composition and sections specific enough that Builder does not need to redesign the page.",
       ].join(" ");
     case "page-builder":

@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { faviconSourceValue } from "../lib/favicon";
 import { isTauri } from "../lib/platform";
 import { useBrowserStore, type BrowserState } from "../store/browser-store";
 import { getCachedArtifact, savePersistedSiteWorld } from "./host-api";
@@ -321,7 +322,7 @@ export function normalizeRuntimeEvent(wire: WireEvent, job: GenerationJob): Gene
         jobId,
         metadata: {
           title: stringValue(metadata.title),
-          favicon: faviconValue(metadata.favicon),
+          favicon: faviconSourceValue(metadata.favicon),
           summary: stringValue(metadata.summary),
         },
       };
@@ -799,12 +800,6 @@ function syntheticUrlForPrompt(prompt: string, siteOrigin: string | undefined, j
 function stripProviderPrefix(modelId: string): string {
   const separator = modelId.indexOf(":");
   return separator >= 0 ? modelId.slice(separator + 1) : modelId;
-}
-
-function faviconValue(value: unknown): string | undefined {
-  if (typeof value === "string") return value;
-  if (!isRecord(value)) return undefined;
-  return stringValue(value.glyph) ?? stringValue(value.src);
 }
 
 function isTerminal(event: GenerationRuntimeEvent): boolean {

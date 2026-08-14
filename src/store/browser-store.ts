@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { MODELS, PROFILE_PRESETS, PROFILES } from "../data/catalog";
+import { deterministicGlyphFavicon, faviconSourceValue } from "../lib/favicon";
 import {
   isExplicitRelativeReference,
   normalizeVirtualUrl,
@@ -18,6 +19,7 @@ import type {
   CodexGenerationSelection,
   CodexModel,
   Density,
+  FaviconSource,
   GenerationError,
   GenerationJob,
   GenerationPhase,
@@ -52,7 +54,7 @@ export interface NavigateOptions {
 
 export interface GenerationProgressPatch {
   provisionalTitle?: string;
-  provisionalFavicon?: string;
+  provisionalFavicon?: FaviconSource;
 }
 
 export interface GenerationMetadataPatch extends GenerationProgressPatch {
@@ -676,7 +678,9 @@ export const useBrowserStore = create<BrowserState>()(
         const jobTabs = tabsForWorkspace(state, job.profileId);
         const tab = jobTabs.find((item) => item.id === job.tabId);
         if (!tab) return false;
-        const favicon = faviconValue(artifact) ?? tab.favicon;
+        const now = new Date().toISOString();
+        let siteWorlds = mergeArtifactIntoSiteWorld(state.siteWorlds, artifact, job, now);
+        const favicon = siteWorlds[artifact.siteWorldId]?.identity.favicon ?? faviconValue(artifact) ?? tab.favicon;
         const history = patchCurrentHistory(tab, {
           title: artifact.title,
           favicon,
@@ -684,7 +688,6 @@ export const useBrowserStore = create<BrowserState>()(
           generationJobId: jobId,
           siteWorldId: artifact.siteWorldId,
         });
-        const now = new Date().toISOString();
         let generationJobs = {
           ...state.generationJobs,
           [jobId]: {
@@ -698,7 +701,6 @@ export const useBrowserStore = create<BrowserState>()(
             updatedAt: now,
           },
         };
-        let siteWorlds = mergeArtifactIntoSiteWorld(state.siteWorlds, artifact, job, now);
         let nextTabs = jobTabs.map((item) =>
           item.id === job.tabId && item.generationJobId === jobId
             ? {
@@ -770,7 +772,7 @@ export const useBrowserStore = create<BrowserState>()(
         const tab = jobTabs.find((item) => item.id === job.tabId);
         if (!tab) return false;
         const now = new Date().toISOString();
-        const favicon = faviconValue(artifact) ?? tab.favicon;
+        const favicon = state.siteWorlds[artifact.siteWorldId]?.identity.favicon ?? faviconValue(artifact) ?? tab.favicon;
         const history = patchCurrentHistory(tab, {
           title: artifact.title,
           favicon,
@@ -939,7 +941,21 @@ export const useBrowserStore = create<BrowserState>()(
       },
       hydrateSiteWorlds: (siteWorlds) => {
         if (siteWorlds.length === 0) return;
-        set((state) => ({ siteWorlds: mergeHydratedSiteWorlds(state.siteWorlds, siteWorlds) }));
+        set((state) => {
+          const merged = mergeHydratedSiteWorlds(state.siteWorlds, siteWorlds);
+          return {
+            siteWorlds: merged,
+            tabs: applySiteWorldFavicons(state.tabs, merged),
+            profileWorkspaces: Object.fromEntries(Object.entries(state.profileWorkspaces).map(([profileId, workspace]) => [
+              profileId,
+              { ...workspace, tabs: applySiteWorldFavicons(workspace.tabs, merged) },
+            ])),
+            browsingHistory: state.browsingHistory.map((entry) => {
+              const world = activeSiteWorldForUrl(merged, entry.profileId, entry.url);
+              return world ? { ...entry, favicon: world.identity.favicon } : entry;
+            }),
+          };
+        });
       },
       upsertSiteWorld: (siteWorld) =>
         set((state) => ({ siteWorlds: { ...state.siteWorlds, [siteWorld.id]: siteWorld } })),
@@ -1481,10 +1497,8 @@ function patchCurrentHistory(tab: BrowserTab, patch: Partial<HistoryEntry>) {
   return tab.history.map((entry, index) => (index === tab.historyIndex ? { ...entry, ...patch } : entry));
 }
 
-function faviconValue(artifact: PageArtifact) {
-  if (artifact.faviconUrl) return artifact.faviconUrl;
-  if (!artifact.favicon) return undefined;
-  return artifact.favicon.kind === "glyph" ? artifact.favicon.glyph : artifact.favicon.src;
+function faviconValue(artifact: PageArtifact): FaviconSource | undefined {
+  return artifact.favicon ?? artifact.faviconUrl;
 }
 
 function canonicalizeArtifactUrl(artifact: PageArtifact): PageArtifact {
@@ -1587,6 +1601,46 @@ function mergeHydratedSiteWorlds(
     merged[siteWorld.id] = siteWorld;
   }
   return merged;
+}
+
+function applySiteWorldFavicons(tabs: BrowserTab[], siteWorlds: Record<string, SiteWorld>): BrowserTab[] {
+  return tabs.map((tab) => {
+    const history = tab.history.map((entry) => {
+      const world = siteWorldForEntry(siteWorlds, entry.siteWorldId, entry.virtualLocation?.origin, entry.location);
+      return world ? { ...entry, favicon: world.identity.favicon } : entry;
+    });
+    const current = history[tab.historyIndex];
+    const world = siteWorldForEntry(
+      siteWorlds,
+      tab.siteWorldId ?? current?.siteWorldId,
+      tab.virtualLocation?.origin ?? current?.virtualLocation?.origin,
+      tab.location,
+    );
+    return world ? { ...tab, favicon: world.identity.favicon, history } : { ...tab, history };
+  });
+}
+
+function siteWorldForEntry(
+  siteWorlds: Record<string, SiteWorld>,
+  siteWorldId: string | undefined,
+  origin: string | undefined,
+  url: string,
+): SiteWorld | undefined {
+  if (siteWorldId && siteWorlds[siteWorldId]) return siteWorlds[siteWorldId];
+  const resolvedOrigin = origin ?? normalizeVirtualUrl(url)?.origin;
+  if (!resolvedOrigin) return undefined;
+  return Object.values(siteWorlds).find((world) => world.state === "active" && world.origin === resolvedOrigin);
+}
+
+function activeSiteWorldForUrl(
+  siteWorlds: Record<string, SiteWorld>,
+  profileId: string,
+  url: string,
+): SiteWorld | undefined {
+  const origin = normalizeVirtualUrl(url)?.origin;
+  return origin
+    ? Object.values(siteWorlds).find((world) => world.profileId === profileId && world.state === "active" && world.origin === origin)
+    : undefined;
 }
 
 function appendBrowsingHistory(
@@ -1901,9 +1955,10 @@ function migrateSiteWorld(
   const name = nonEmptyString(rawIdentity.name ?? value.name) ?? readableHost(origin);
   const purpose = stringValue(rawIdentity.purpose ?? value.purpose);
   const audience = stringValue(rawIdentity.audience ?? value.audience);
-  const favicon = isRecord(rawIdentity.favicon) && rawIdentity.favicon.kind === "glyph"
-    ? rawIdentity.favicon as unknown as SiteWorld["identity"]["favicon"]
-    : { kind: "glyph" as const, glyph: name.slice(0, 1).toUpperCase() || "•", foreground: "#ffffff", background: palette[1] ?? "#2563eb", shape: "rounded-square" as const };
+  const favicon = faviconSourceValue(rawIdentity.favicon);
+  const identityFavicon = typeof favicon === "object" && favicon.kind === "glyph"
+    ? favicon
+    : deterministicGlyphFavicon(origin, name.slice(0, 1).toUpperCase() || "•");
   const rolePalette = isRecord(rawIdentity.palette) ? rawIdentity.palette : {};
   const fonts = isRecord(rawIdentity.fonts) ? rawIdentity.fonts : {};
   const establishedFacts = (Array.isArray(rawIdentity.establishedFacts)
@@ -1941,7 +1996,7 @@ function migrateSiteWorld(
       ...(nonEmptyString(fonts.mono) ? { mono: nonEmptyString(fonts.mono) } : {}),
     },
     layoutSystem: nonEmptyString(rawIdentity.layoutSystem) ?? nonEmptyString(visual.layout) ?? "Page-specific layout",
-    favicon,
+    favicon: identityFavicon,
   };
   const pageSummaries = (Array.isArray(value.pageSummaries)
     ? value.pageSummaries
@@ -1997,7 +2052,7 @@ function migrateTab(value: unknown, index: number, generationJobs: Record<string
     id,
     title,
     location,
-    favicon: optionalString(source.favicon),
+    favicon: faviconSourceValue(source.favicon),
     kind,
     prompt: optionalString(source.prompt),
     virtualLocation,
@@ -2050,7 +2105,7 @@ function migrateHistoryEntry(
     title: stringValue(source.title) || fallback.title,
     kind,
     prompt: optionalString(source.prompt),
-    favicon: optionalString(source.favicon),
+    favicon: faviconSourceValue(source.favicon),
     virtualLocation: virtualLocationValue(source.virtualLocation) ?? normalizeVirtualUrl(location),
     artifactId: optionalString(source.artifactId),
     generationJobId: optionalString(source.generationJobId),
@@ -2078,7 +2133,7 @@ function migrateBrowsingHistoryEntry(
     status,
     openedAt,
     updatedAt: optionalString(source.updatedAt) ?? openedAt,
-    favicon: optionalString(source.favicon),
+    favicon: faviconSourceValue(source.favicon),
     artifactId: optionalString(source.artifactId),
     generationJobId: optionalString(source.generationJobId),
     errorMessage: optionalString(source.errorMessage),

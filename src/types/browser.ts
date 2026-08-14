@@ -46,7 +46,7 @@ export interface HistoryEntry {
   title: string;
   kind: TabKind;
   prompt?: string;
-  favicon?: string;
+  favicon?: FaviconSource;
   virtualLocation?: VirtualLocation;
   artifactId?: string;
   generationJobId?: string;
@@ -58,7 +58,7 @@ export interface BrowserTab {
   id: string;
   title: string;
   location: string;
-  favicon?: string;
+  favicon?: FaviconSource;
   kind: TabKind;
   prompt?: string;
   virtualLocation?: VirtualLocation;
@@ -115,6 +115,7 @@ export interface ImageFavicon {
 }
 
 export type FaviconDescriptor = GlyphFavicon | ImageFavicon;
+export type FaviconSource = string | FaviconDescriptor;
 
 export interface ArtifactWarning {
   code: string;
@@ -316,7 +317,7 @@ export interface GenerationJob {
   phase: GenerationPhase;
   navigationIntent: NavigationIntent;
   provisionalTitle?: string;
-  provisionalFavicon?: string;
+  provisionalFavicon?: FaviconSource;
   provisionalSummary?: string;
   previewHtml?: string;
   previewRevision?: number;
@@ -337,7 +338,7 @@ export interface BrowsingHistoryEntry {
   status: BrowsingHistoryStatus;
   openedAt: string;
   updatedAt: string;
-  favicon?: string;
+  favicon?: FaviconSource;
   artifactId?: string;
   generationJobId?: string;
   errorMessage?: string;
@@ -349,7 +350,7 @@ export type GenerationRuntimeEvent =
   | {
       type: "generation.metadata";
       jobId: string;
-      metadata: { title?: string; favicon?: string; summary?: string };
+      metadata: { title?: string; favicon?: FaviconSource; summary?: string };
     }
   | { type: "generation.preview"; jobId: string; html: string; revision?: number }
   | { type: "generation.completed"; jobId: string; artifact: PageArtifact }

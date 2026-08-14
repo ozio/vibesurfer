@@ -166,7 +166,7 @@ test("same-document hash tabs reuse artifact metadata and honor disposition", ()
   assert.equal(background?.location, "https://example.com/product#details");
   assert.equal(background?.artifactId, artifact.id);
   assert.equal(background?.title, artifact.title);
-  assert.equal(background?.favicon, "🧭");
+  assert.deepEqual(background?.favicon, artifact.siteIdentity?.favicon);
   assert.equal(Object.keys(state.generationJobs).length, jobCount);
 
   const foregroundId = state.addTab("#specifications", {

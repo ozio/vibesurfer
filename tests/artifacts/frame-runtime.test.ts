@@ -72,6 +72,7 @@ describe("artifact frame runtime", () => {
       expect(document.documentElement).toHaveAttribute("lang", "en");
       expect(document.documentElement).toHaveAttribute("dir", "ltr");
       expect(document.documentElement).toHaveClass("artifact-theme");
+      expect(document.documentElement).toHaveAttribute("data-vibesurfer-browser-theme", "ie-classic");
       expect(document.body).toHaveClass("artifact-body");
       expect(document.querySelector("#safe-content")).toHaveTextContent("Safe content");
 
@@ -206,7 +207,7 @@ describe("artifact frame runtime", () => {
 });
 
 const hostileArtifactHtml = `<!doctype html>
-<html lang="en" dir="ltr" class="artifact-theme" style="color: rgb(12, 34, 56); background: url(https://attacker.example/root.png)">
+<html lang="en" dir="ltr" class="artifact-theme" data-vibesurfer-browser-theme="ie-classic" style="color: rgb(12, 34, 56); background: url(https://attacker.example/root.png)">
   <head>
     <title>Untrusted title</title>
     <meta http-equiv="refresh" content="0;url=https://attacker.example/refresh">

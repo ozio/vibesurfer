@@ -18,6 +18,20 @@ import {
 const nonce = "0123456789abcdef01234567";
 
 describe("generated artifact document compiler", () => {
+  test("sets the host-selected browser theme and replaces an artifact-authored value", () => {
+    const result = compileGeneratedArtifactDocument({
+      artifactId: "theme-fixture",
+      url: "https://safe.example/",
+      title: "Themed",
+      nonce,
+      browserTheme: "ie-classic",
+      html: '<html data-vibesurfer-browser-theme="cyberpunk"><body><input type="checkbox"></body></html>',
+    });
+
+    expect(parse(result.payload.html).documentElement.getAttribute("data-vibesurfer-browser-theme"))
+      .toBe("ie-classic");
+  });
+
   test("removes active content and emits only passive sanitized markup", () => {
     const result = compileGeneratedArtifactDocument({
       artifactId: "security-fixture",

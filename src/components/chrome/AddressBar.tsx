@@ -78,6 +78,7 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
   const [focused, setFocused] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const composing = useRef(false);
+  const selectOnPointerUp = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const platform = useMemo(detectPlatform, []);
   const shortcuts = browserShortcutLabels(platform, theme);
@@ -222,9 +223,20 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
         placeholder={language.placeholder}
         onFocus={() => {
           setFocused(true);
+          inputRef.current?.select();
           requestAnimationFrame(() => inputRef.current?.select());
         }}
+        onPointerDown={(event) => {
+          selectOnPointerUp.current = document.activeElement !== event.currentTarget;
+        }}
+        onPointerUp={(event) => {
+          if (!selectOnPointerUp.current) return;
+          selectOnPointerUp.current = false;
+          event.preventDefault();
+          event.currentTarget.select();
+        }}
         onBlur={() => {
+          selectOnPointerUp.current = false;
           window.setTimeout(() => setFocused(false), 120);
         }}
         onChange={(event) => setValue(event.target.value)}

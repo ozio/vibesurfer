@@ -136,7 +136,7 @@ describe("directed generation pipeline", () => {
     expect(direction.palette).toEqual(identity.palette);
   });
 
-  it("rejects an existing-site Director that changes the frozen visual identity", async () => {
+  it("keeps the existing SiteIdentity canonical when the Director echoes different visual fields", async () => {
     const seedRequest = generationCommand({ url: "https://bububu.com/" });
     const seed = await runGenerationPipeline({
       request: seedRequest,
@@ -165,8 +165,10 @@ describe("directed generation pipeline", () => {
       },
     });
     const executor = new MutatingExistingDirectorExecutor();
-    await expect(runGenerationPipeline({ request, executor, signal: new AbortController().signal, emit: emitter().value }))
-      .rejects.toThrow("immutable SiteIdentity field: palette");
-    expect(executor.calls).toEqual(["page-director"]);
+    const result = await runGenerationPipeline({ request, executor, signal: new AbortController().signal, emit: emitter().value });
+    const direction = result.artifact.payload.pageDirection as DirectorResult["direction"];
+    expect(direction.palette).toEqual(identity.palette);
+    expect(direction.favicon).toEqual(identity.favicon);
+    expect(executor.calls).toEqual(["page-director", "page-builder"]);
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowLeft, ArrowRight, Code2, ExternalLink, Info, RefreshCw, TriangleAlert, X } from "lucide-react";
 import { Dialog } from "radix-ui";
 import { connectArtifactFrame, type ArtifactFrameConnection } from "../../artifacts/iframe-host";
@@ -125,6 +125,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
             url,
             title,
             html: job.previewHtml,
+            browserTheme: theme,
           }),
           sourceArtifactId: artifact?.id ?? job.sourceArtifactId ?? frameIdentity.key,
           sourceUrl: url,
@@ -141,6 +142,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
             title: artifact.title,
             html: artifact.html,
             allowGeneratedScripts: artifact.allowGeneratedScripts === true,
+            browserTheme: theme,
           }),
           sourceArtifactId: artifact.id,
           sourceUrl: artifact.url,
@@ -510,6 +512,14 @@ function PageContextMenu({
     onDismiss();
     action();
   };
+  const focusFirst = !onOpenLink && !canGoBack && !canGoForward;
+
+  const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>, delta: -1 | 1) => {
+    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('.menu__item:not(:disabled)'));
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    items[(current + delta + items.length) % items.length]?.focus();
+  };
 
   return (
     <>
@@ -529,6 +539,25 @@ function PageContextMenu({
         style={{ left: menu.left, top: menu.top }}
         onPointerDown={(event) => event.stopPropagation()}
         onContextMenu={(event) => event.preventDefault()}
+        onKeyDown={(event) => {
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            moveFocus(event, 1);
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            moveFocus(event, -1);
+          } else if (event.key === "Home") {
+            event.preventDefault();
+            event.currentTarget.querySelector<HTMLButtonElement>('.menu__item:not(:disabled)')?.focus();
+          } else if (event.key === "End") {
+            event.preventDefault();
+            const items = event.currentTarget.querySelectorAll<HTMLButtonElement>('.menu__item:not(:disabled)');
+            items[items.length - 1]?.focus();
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            onDismiss();
+          }
+        }}
       >
         {onOpenLink && (
           <>
@@ -538,13 +567,13 @@ function PageContextMenu({
             <div className="menu__separator" role="separator" />
           </>
         )}
-        <button className="menu__item" type="button" role="menuitem" disabled={!canGoBack} autoFocus={!onOpenLink} onClick={() => run(onBack)}>
+        <button className="menu__item" type="button" role="menuitem" disabled={!canGoBack} autoFocus={!onOpenLink && canGoBack} onClick={() => run(onBack)}>
           <ArrowLeft aria-hidden="true" /><span>Back</span>
         </button>
-        <button className="menu__item" type="button" role="menuitem" disabled={!canGoForward} onClick={() => run(onForward)}>
+        <button className="menu__item" type="button" role="menuitem" disabled={!canGoForward} autoFocus={!onOpenLink && !canGoBack && canGoForward} onClick={() => run(onForward)}>
           <ArrowRight aria-hidden="true" /><span>Forward</span>
         </button>
-        <button className="menu__item" type="button" role="menuitem" onClick={() => run(onReload)}>
+        <button className="menu__item" type="button" role="menuitem" autoFocus={focusFirst} onClick={() => run(onReload)}>
           <RefreshCw aria-hidden="true" /><span>Reload</span>
         </button>
         <div className="menu__separator" role="separator" />

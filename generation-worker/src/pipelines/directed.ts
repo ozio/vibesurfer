@@ -12,28 +12,7 @@ import { addUsage, EMPTY_USAGE } from "../providers/executor.js";
 import { compilePage, createProgressivePagePreview } from "./shared.js";
 import { type PipelineContext, type PipelineResult, UnsafeOutputError } from "./types.js";
 
-function same(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
-function assertDirectionMatchesIdentity(direction: DirectorResult["direction"], identity: SiteIdentity): void {
-  const immutablePairs: Array<[string, unknown, unknown]> = [
-    ["classification", direction.siteClassification, identity.classification],
-    ["locale", direction.locale, identity.locale],
-    ["era", direction.era, identity.era],
-    ["palette", direction.palette, identity.palette],
-    ["fonts", direction.fonts, identity.fonts],
-    ["favicon", direction.favicon, identity.favicon],
-    ["density", direction.density, identity.visualLanguage.density],
-    ["layout", direction.layout, identity.layoutSystem],
-  ];
-  const changed = immutablePairs.find(([, proposed, canonical]) => !same(proposed, canonical));
-  if (changed) {
-    throw new Error(`Director attempted to change immutable SiteIdentity field: ${changed[0]}`);
-  }
-}
-
-function alignNewDirectionWithIdentity(
+function alignDirectionWithIdentity(
   direction: DirectorResult["direction"],
   identity: SiteIdentity,
 ): DirectorResult["direction"] {
@@ -84,10 +63,11 @@ export async function runDirectedPipeline(context: PipelineContext): Promise<Pip
   const result = director.output as DirectorResult;
   const identity = existingWorld?.identity ?? result.identity;
   if (!identity) throw new Error("Director did not return a SiteIdentity for a new origin.");
-  const direction = existingWorld
-    ? result.direction
-    : alignNewDirectionWithIdentity(result.direction, identity);
-  if (existingWorld) assertDirectionMatchesIdentity(direction, identity);
+  // The structured Director schema repeats identity-owned fields inside the
+  // page direction. Models can echo those fields with harmless formatting or
+  // color differences even when explicitly told they are frozen. Treat the
+  // persisted SiteIdentity as authoritative instead of failing the whole page.
+  const direction = alignDirectionWithIdentity(result.direction, identity);
   const selectedCapabilityContracts = approveCapabilitySelection(
     request.settings,
     request.browserTheme,

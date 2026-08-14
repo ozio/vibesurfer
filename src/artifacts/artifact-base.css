@@ -41,4 +41,137 @@
   :where(hr) { height: 0; overflow: visible; border: 0; border-top: 1px solid currentColor; opacity: 0.3; }
   :where(summary) { cursor: pointer; }
   :where([hidden]) { display: none !important; }
+
+  /*
+   * IE-classic is a browser default, not a component skin. Keeping these rules
+   * in the low-priority runtime layer means ordinary page-authored CSS wins;
+   * a fully custom control can also opt out explicitly with appearance:none.
+   */
+  :where(html[data-vibesurfer-browser-theme="ie-classic"]) {
+    color-scheme: light;
+    scrollbar-color: #c8c5b8 #f5f4ec;
+    scrollbar-width: auto;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] *) {
+    scrollbar-color: #c8c5b8 #f5f4ec;
+    scrollbar-width: auto;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] ::selection) {
+    color: #ffffff;
+    background: #316ac5;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] input,
+    html[data-vibesurfer-browser-theme="ie-classic"] textarea) {
+    caret-color: #000000;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] button,
+    html[data-vibesurfer-browser-theme="ie-classic"] input:is([type="button"], [type="submit"], [type="reset"]),
+    html[data-vibesurfer-browser-theme="ie-classic"] select) {
+    min-height: 22px;
+    padding: 2px 7px;
+    color: #000000;
+    border: 2px solid;
+    border-color: #ffffff #716f64 #716f64 #ffffff;
+    border-radius: 0;
+    background-color: #ece9d8;
+    box-shadow: inset 1px 1px #dfdfdf, inset -1px -1px #aca899;
+    font-family: Tahoma, var(--vibe-font-global-sans);
+    font-size: 11px;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] button:active,
+    html[data-vibesurfer-browser-theme="ie-classic"] input:is([type="button"], [type="submit"], [type="reset"]):active) {
+    padding: 3px 6px 1px 8px;
+    border-color: #716f64 #ffffff #ffffff #716f64;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] input:not([type]),
+    html[data-vibesurfer-browser-theme="ie-classic"] input:is([type="text"], [type="search"], [type="email"], [type="url"], [type="tel"], [type="password"], [type="number"]),
+    html[data-vibesurfer-browser-theme="ie-classic"] textarea) {
+    color: #000000;
+    border: 2px solid;
+    border-color: #716f64 #ffffff #ffffff #716f64;
+    border-radius: 0;
+    background: #ffffff;
+    box-shadow: inset 1px 1px #000000, inset -1px -1px #dfdfdf;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] input:is([type="checkbox"], [type="radio"])) {
+    width: 13px;
+    height: 13px;
+    padding: 0;
+    vertical-align: -2px;
+    appearance: none;
+    border: 2px solid;
+    border-color: #716f64 #ffffff #ffffff #716f64;
+    border-radius: 0;
+    background-color: #ffffff;
+    box-shadow: inset 1px 1px #000000;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] input[type="checkbox"]:checked) {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 9 9'%3E%3Cpath fill='none' stroke='%23000' stroke-width='2' d='m1 4 2 2 5-5'/%3E%3C/svg%3E");
+    background-position: center;
+    background-repeat: no-repeat;
+    background-size: 9px 9px;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] input[type="radio"]) {
+    border-radius: 50%;
+    box-shadow: inset 1px 1px #000000, inset -1px -1px #dfdfdf;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] input[type="radio"]:checked) {
+    background: radial-gradient(circle, #000000 0 3px, #ffffff 3.5px);
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] input:is([type="checkbox"], [type="radio"]):focus-visible) {
+    outline: 1px dotted #000000;
+    outline-offset: 2px;
+  }
+  :where(html[data-vibesurfer-browser-theme="ie-classic"] :disabled) {
+    color: #aca899;
+    filter: grayscale(1);
+  }
+  html[data-vibesurfer-browser-theme="ie-classic"]::-webkit-scrollbar,
+  html[data-vibesurfer-browser-theme="ie-classic"] *::-webkit-scrollbar { width: 17px; height: 17px; }
+  html[data-vibesurfer-browser-theme="ie-classic"]::-webkit-scrollbar-track,
+  html[data-vibesurfer-browser-theme="ie-classic"] *::-webkit-scrollbar-track {
+  border: 1px solid #aca899;
+  background-color: #f5f4ec;
+  background-image: repeating-conic-gradient(#d6d2c2 0 25%, #f5f4ec 0 50%);
+  background-size: 2px 2px;
+  box-shadow: inset 1px 1px #d0cec4;
+  }
+  html[data-vibesurfer-browser-theme="ie-classic"]::-webkit-scrollbar-thumb,
+  html[data-vibesurfer-browser-theme="ie-classic"] *::-webkit-scrollbar-thumb {
+  min-width: 22px;
+  min-height: 22px;
+  border: 1px solid;
+  border-color: #ffffff #716f64 #716f64 #ffffff;
+  background: #d6d2c2;
+  box-shadow: inset 1px 1px #ece9d8;
+  }
+  html[data-vibesurfer-browser-theme="ie-classic"]::-webkit-scrollbar-button,
+  html[data-vibesurfer-browser-theme="ie-classic"] *::-webkit-scrollbar-button {
+  width: 17px;
+  height: 17px;
+  border: 1px solid;
+  border-color: #ffffff #716f64 #716f64 #ffffff;
+  background-color: #ece9d8;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 7px 7px;
+  }
+  html[data-vibesurfer-browser-theme="ie-classic"] *::-webkit-scrollbar-button:vertical:decrement,
+  html[data-vibesurfer-browser-theme="ie-classic"]::-webkit-scrollbar-button:vertical:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath fill='%23333' d='M4 1 0 6h8z'/%3E%3C/svg%3E");
+  }
+  html[data-vibesurfer-browser-theme="ie-classic"] *::-webkit-scrollbar-button:vertical:increment,
+  html[data-vibesurfer-browser-theme="ie-classic"]::-webkit-scrollbar-button:vertical:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath fill='%23333' d='m4 7 4-5H0z'/%3E%3C/svg%3E");
+  }
+  html[data-vibesurfer-browser-theme="ie-classic"] *::-webkit-scrollbar-button:horizontal:decrement,
+  html[data-vibesurfer-browser-theme="ie-classic"]::-webkit-scrollbar-button:horizontal:decrement {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath fill='%23333' d='M1 4 6 0v8z'/%3E%3C/svg%3E");
+  }
+  html[data-vibesurfer-browser-theme="ie-classic"] *::-webkit-scrollbar-button:horizontal:increment,
+  html[data-vibesurfer-browser-theme="ie-classic"]::-webkit-scrollbar-button:horizontal:increment {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3E%3Cpath fill='%23333' d='m7 4-5 4V0z'/%3E%3C/svg%3E");
+  }
+  html[data-vibesurfer-browser-theme="ie-classic"]::-webkit-scrollbar-corner,
+  html[data-vibesurfer-browser-theme="ie-classic"] *::-webkit-scrollbar-corner { background: #ece9d8; }
 }

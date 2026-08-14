@@ -404,7 +404,7 @@
       document.head.append(style);
     }
 
-    applyDocumentAttributes(document.documentElement, incoming.documentElement, ["class", "style", "dir", "lang"]);
+    applyDocumentAttributes(document.documentElement, incoming.documentElement, ["class", "style", "dir", "lang", "data-vibesurfer-browser-theme"]);
     document.documentElement.setAttribute("data-vibesurfer-artifact", "");
     applyDocumentAttributes(document.body, incoming.body, ["class", "style", "dir"]);
     const fragment = document.createDocumentFragment();

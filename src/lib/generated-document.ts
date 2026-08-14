@@ -87,7 +87,7 @@ export function buildLegacyGeneratedArtifactDocument(
 </body>
 </html>`;
 
-  return compileGeneratedArtifactDocument({ artifactId, url, title, html });
+  return compileGeneratedArtifactDocument({ artifactId, url, title, html, browserTheme: theme });
 }
 
 export function buildGeneratedDocument(prompt: string, theme: ThemeId) {

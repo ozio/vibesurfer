@@ -2,6 +2,7 @@ import { AlertTriangle, Clock3, History, RotateCcw, Trash2 } from "lucide-react"
 import { useMemo } from "react";
 import { useBrowserStore } from "../../store/browser-store";
 import type { BrowsingHistoryEntry } from "../../types/browser";
+import { Favicon } from "../ui/Favicon";
 
 export function HistoryPage() {
   const activeProfileId = useBrowserStore((state) => state.activeProfileId);
@@ -51,7 +52,9 @@ export function HistoryPage() {
             {dayEntries.map((entry) => (
               <article className={`history-entry history-entry--${entry.status}`} key={entry.id}>
                 <button className="history-entry__open" type="button" onClick={() => navigate(activeTabId, entry.url)}>
-                  <span className="history-entry__favicon">{entry.favicon ?? "✦"}</span>
+                  <span className="history-entry__favicon">
+                    <Favicon source={entry.favicon} title={entry.title} generated seed={entry.url} />
+                  </span>
                   <span className="history-entry__copy">
                     <strong>{entry.title}</strong>
                     <small>{entry.url}</small>

@@ -228,6 +228,38 @@ describe("generated PageSurface", () => {
     });
   });
 
+  test("focuses the first enabled page-menu item and supports classic arrow navigation", () => {
+    const channels = installFakeMessageChannels();
+    const frameWindow = { postMessage: vi.fn() };
+    installFrameWindow(frameWindow);
+    const artifact = pageArtifact();
+    const job = generationJob({ status: "completed", phase: "completed", artifactId: artifact.id });
+    const tab = generatedTab({ artifactId: artifact.id, generationJobId: job.id });
+    useBrowserStore.setState({
+      tabs: [tab],
+      activeTabId: tab.id,
+      artifacts: { [artifact.id]: artifact },
+      generationJobs: { [job.id]: job },
+    });
+
+    render(<PageSurface tab={tab} />);
+    const frame = screen.getByTitle("Fixture page") as HTMLIFrameElement;
+    const identity = bridgeIdentity(frame);
+    act(() => announceBootstrap(frameWindow, identity));
+    act(() => emitFrameEvent(channels[0]!.port1, identity, { type: "ready-for-render" }));
+    act(() => emitFrameEvent(channels[0]!.port1, identity, { type: "ready", title: artifact.title }));
+    act(() => emitFrameEvent(channels[0]!.port1, identity, { type: "context-menu", x: 30, y: 40 }));
+
+    const menu = screen.getByRole("menu", { name: "Page actions" });
+    const reload = screen.getByRole("menuitem", { name: "Reload" });
+    const source = screen.getByRole("menuitem", { name: "View source" });
+    expect(reload).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowDown" });
+    expect(source).toHaveFocus();
+    fireEvent.keyDown(menu, { key: "ArrowUp" });
+    expect(reload).toHaveFocus();
+  });
+
   test("updates one iframe as streamed HTML grows and swaps in the final artifact", () => {
     const channels = installFakeMessageChannels();
     const frameWindow = { postMessage: vi.fn() };

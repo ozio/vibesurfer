@@ -202,7 +202,12 @@ function SortableTab({
             {tab.loadState === "loading" ? (
               <LoaderCircle className="favicon tab-loading" aria-label="Loading" />
             ) : (
-              <Favicon source={tab.favicon} title={tab.title} generated={tab.kind === "generated" || tab.kind === "new-tab"} />
+              <Favicon
+                source={tab.favicon}
+                title={tab.title}
+                generated={tab.kind === "generated" || tab.kind === "new-tab"}
+                seed={tab.virtualLocation?.origin ?? tab.location}
+              />
             )}
             <span className="browser-tab__title">{tab.title}</span>
             {tab.hasUnseenUpdate && <span className="browser-tab__unseen" aria-label="Updated in background" />}

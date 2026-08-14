@@ -1,5 +1,6 @@
 import type { ArtifactRenderPayload } from "./bridge-protocol";
 import { repairEscapedNavigationUrl } from "../lib/navigation";
+import type { ThemeId } from "../types/browser";
 
 const BLOCKED_ELEMENTS = [
   "base",
@@ -34,6 +35,7 @@ export interface GeneratedArtifactDocumentInput {
   html: string;
   nonce?: string;
   allowGeneratedScripts?: boolean;
+  browserTheme?: ThemeId;
 }
 
 export type ArtifactSanitizationWarningCode =
@@ -74,7 +76,7 @@ export function compileGeneratedArtifactDocument(
 
   const allowGeneratedScripts = input.allowGeneratedScripts === true;
   sanitizeDocument(parsed, pageUrl, warnings, allowGeneratedScripts);
-  installDocumentMetadata(parsed, title);
+  installDocumentMetadata(parsed, title, input.browserTheme);
   const srcDoc = `<!doctype html>\n${parsed.documentElement.outerHTML}`;
 
   return {
@@ -331,8 +333,10 @@ function repairTrailingSelfLinkQuote(value: string, pageUrl: string) {
   return repaired === pageUrl ? withoutQuote : value;
 }
 
-function installDocumentMetadata(document: Document, title: string) {
+function installDocumentMetadata(document: Document, title: string, browserTheme?: ThemeId) {
   document.documentElement.setAttribute("data-vibesurfer-artifact", "");
+  document.documentElement.removeAttribute("data-vibesurfer-browser-theme");
+  if (browserTheme) document.documentElement.setAttribute("data-vibesurfer-browser-theme", browserTheme);
 
   for (const charset of document.head.querySelectorAll("meta[charset]")) charset.remove();
   for (const titleElement of document.head.querySelectorAll("title")) titleElement.remove();
