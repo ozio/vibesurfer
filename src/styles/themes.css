@@ -264,6 +264,19 @@
   background: var(--surface-2);
 }
 
+:root[data-theme="sedative"] .browser-tab--vertical {
+  border-radius: 18px;
+}
+
+:root[data-theme="sedative"] .browser-tab--vertical.is-active {
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="sedative"] .tab-strip--vertical .new-tab-button {
+  padding-inline: 13px;
+  border-radius: 18px;
+}
+
 :root[data-theme="sedative"] .vertical-sidebar__footer {
   border: 0;
   border-radius: 24px;

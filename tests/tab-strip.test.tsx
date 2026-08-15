@@ -15,6 +15,7 @@ vi.hoisted(() => {
 });
 
 import { TabStrip } from "../src/components/chrome/TabStrip";
+import { VerticalSidebar } from "../src/components/content/VerticalSidebar";
 import { useBrowserStore } from "../src/store/browser-store";
 
 const memoryStorage = new Map<string, string>();
@@ -76,6 +77,26 @@ describe("TabStrip", () => {
     expect(container.querySelector(".tab-strip")?.lastElementChild).toBe(newTabButton);
   });
 
+  it("adapts vertical tabs to a compact two-line list", () => {
+    const { container } = renderTabStrip("vertical");
+
+    expect(container.querySelectorAll(".browser-tab--vertical .browser-tab__meta")).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "New tab" })).toHaveTextContent("New tab");
+    expect(screen.queryByRole("button", { name: "Scroll tabs left" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Scroll tabs right" })).not.toBeInTheDocument();
+  });
+
+  it("uses the vertical sidebar header for tab count instead of a fake collapse action", () => {
+    render(
+      <Tooltip.Provider>
+        <VerticalSidebar />
+      </Tooltip.Provider>,
+    );
+
+    expect(screen.getByLabelText("2 open tabs")).toHaveTextContent("2");
+    expect(screen.queryByRole("button", { name: "Collapse sidebar" })).not.toBeInTheDocument();
+  });
+
   it("shows pinned overflow controls and updates their edge states", () => {
     const { container } = renderTabStrip();
     const items = container.querySelector<HTMLElement>(".tab-strip__items")!;
@@ -112,10 +133,10 @@ describe("TabStrip", () => {
   });
 });
 
-function renderTabStrip() {
+function renderTabStrip(orientation: "horizontal" | "vertical" = "horizontal") {
   return render(
     <Tooltip.Provider>
-      <TabStrip orientation="horizontal" />
+      <TabStrip orientation={orientation} />
     </Tooltip.Provider>,
   );
 }

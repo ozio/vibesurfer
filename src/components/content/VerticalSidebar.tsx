@@ -1,19 +1,23 @@
-import { PanelLeftClose, Sparkles } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import { useBrowserStore } from "../../store/browser-store";
-import { IconButton } from "../ui/IconButton";
 import { TabStrip } from "../chrome/TabStrip";
+
+const MIN_SIDEBAR_WIDTH = 216;
+const MAX_SIDEBAR_WIDTH = 360;
 
 export function VerticalSidebar() {
   const width = useBrowserStore((state) => state.preferences.sidebarWidth);
+  const tabCount = useBrowserStore((state) => state.tabs.length);
   const patchPreferences = useBrowserStore((state) => state.patchPreferences);
+  const renderedWidth = Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, width));
 
   const startResize = (event: React.PointerEvent<HTMLDivElement>) => {
     const startX = event.clientX;
-    const startWidth = width;
+    const startWidth = renderedWidth;
     event.currentTarget.setPointerCapture(event.pointerId);
 
     const move = (moveEvent: PointerEvent) => {
-      patchPreferences({ sidebarWidth: Math.max(188, Math.min(360, startWidth + moveEvent.clientX - startX)) });
+      patchPreferences({ sidebarWidth: Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, startWidth + moveEvent.clientX - startX)) });
     };
     const stop = () => {
       window.removeEventListener("pointermove", move);
@@ -24,10 +28,10 @@ export function VerticalSidebar() {
   };
 
   return (
-    <aside className="vertical-sidebar" style={{ width }}>
+    <aside className="vertical-sidebar" style={{ width: renderedWidth }}>
       <div className="vertical-sidebar__header">
-        <span><Sparkles aria-hidden="true" /> Space</span>
-        <IconButton label="Collapse sidebar" onClick={() => patchPreferences({ sidebarWidth: 188 })}><PanelLeftClose aria-hidden="true" /></IconButton>
+        <span><Sparkles aria-hidden="true" /> Tabs</span>
+        <small className="vertical-sidebar__count" aria-label={`${tabCount} open tabs`}>{tabCount}</small>
       </div>
       <TabStrip orientation="vertical" />
       <div className="vertical-sidebar__footer">

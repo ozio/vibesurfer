@@ -11,4 +11,5 @@ output/playwright/
 coverage/
 generation-worker/sidecars/
 generation-worker/.*.bun-build
+.*.bun-build
 src-tauri/gen/

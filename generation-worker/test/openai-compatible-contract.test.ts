@@ -115,13 +115,17 @@ describe("OpenAI-compatible AI SDK HTTP contract", () => {
         displayName: "Local contract provider",
         baseUrl: loopbackBaseUrl,
         supportsStructuredOutputs: true,
+        generationMode: "directed" as const,
         mockLatencyMs: 0,
       };
 
-      // The host protocol remains HTTPS-only. This test deliberately enters at
-      // the in-memory registry boundary so the real SDK transport can reach an
-      // ephemeral loopback HTTP server without weakening production validation.
-      expect(PublicProviderConnectionSchema.safeParse(connection).success).toBe(false);
+      // Local llama.cpp/Ollama-style servers are allowed over HTTP only on the
+      // loopback interface. Arbitrary non-TLS remote provider URLs stay invalid.
+      expect(PublicProviderConnectionSchema.safeParse(connection).success).toBe(true);
+      expect(PublicProviderConnectionSchema.safeParse({
+        ...connection,
+        baseUrl: "http://models.example.test/v1",
+      }).success).toBe(false);
 
       const registry = new InMemoryProviderRegistry();
       registry.upsert(connection, { apiKey: secret });

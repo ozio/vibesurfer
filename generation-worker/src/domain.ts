@@ -3,7 +3,7 @@ import { z } from "zod";
 import { IconSetSchema } from "./iconify/catalog.js";
 
 export const PROTOCOL_VERSION = 1 as const;
-export const GENERATION_PROMPT_VERSION = 11 as const;
+export const GENERATION_PROMPT_VERSION = 12 as const;
 
 export const ProviderKindSchema = z.enum([
   "mock",
@@ -331,7 +331,7 @@ export const PageArtifactSchema = z
     allowGeneratedScripts: z.boolean(),
     createdAt: z.string().datetime(),
     usage: TokenUsageSchema,
-    modelExchanges: z.array(ModelExchangeSchema).length(2),
+    modelExchanges: z.array(ModelExchangeSchema).min(1).max(2),
     warnings: z.array(ArtifactWarningSchema),
     sitePatch: SiteWorldPatchSchema,
     payload: z.record(z.string(), z.unknown()),

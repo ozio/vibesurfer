@@ -101,6 +101,9 @@ export function normalizeProvider(
     displayName: string(provider.displayName ?? provider.name) ?? id,
     ...(baseUrl ? { baseUrl: normalizeHttpUrl(baseUrl) } : {}),
     supportsStructuredOutputs: boolean(provider.supportsStructuredOutputs) ?? true,
+    generationMode: provider.generationMode === "compact" || provider.generationMode === "directed"
+      ? provider.generationMode
+      : kind === "openai-compatible" ? "compact" : "directed",
     mockLatencyMs: number(provider.mockLatencyMs) ?? 0,
   });
   return {

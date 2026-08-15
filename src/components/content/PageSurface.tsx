@@ -417,6 +417,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
           className={`page-frame ${frameReady ? "artifact-frame--ready" : "artifact-frame--connecting"}`}
           title={compiledResult.document.payload.title}
           src={frameUrl}
+          scrolling="auto"
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
           onLoad={ensureFrameConnection}
@@ -424,6 +425,14 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
             setLoadState(tab.id, "error");
             setBridgeFailure({ key: documentKey ?? compiledResult.document.artifactId, message: "The generated document could not be loaded." });
           }}
+        />
+      )}
+      {generationFailed && (hasRecoverableArtifact || hasPreview) && (
+        <GenerationFailureNotice
+          cancelled={job?.status === "cancelled"}
+          partial={hasPreview}
+          message={job?.error?.message ?? "The model did not return a usable artifact."}
+          onRetry={job?.error?.retryable === false ? undefined : () => regenerate(tab.id)}
         />
       )}
       {contextMenu && (
@@ -483,6 +492,29 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
           ? job.previewHtml
           : artifact?.html ?? compiledResult.document.payload.html}
       />
+    </div>
+  );
+}
+
+function GenerationFailureNotice({
+  cancelled,
+  partial,
+  message,
+  onRetry,
+}: {
+  cancelled: boolean;
+  partial: boolean;
+  message: string;
+  onRetry?: () => void;
+}) {
+  return (
+    <div className="generation-failure-notice" role="alert">
+      <TriangleAlert aria-hidden="true" />
+      <span>
+        <strong>{cancelled ? "Generation stopped" : "Generation failed"}</strong>
+        <small>{message} {partial ? "The partial result is still shown." : "The last complete version is still shown."}</small>
+      </span>
+      {onRetry && <button className="button" type="button" onClick={onRetry}>Try again</button>}
     </div>
   );
 }

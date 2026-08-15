@@ -31,7 +31,7 @@ export interface CompiledPage {
   issues: ReturnType<typeof validateHtml>["issues"];
 }
 
-function settingsFingerprint(request: GenerateCommand): string {
+function settingsFingerprint(request: GenerateCommand, generationMode: ModelExecutor["generationMode"]): string {
   return createHash("sha256")
     .update(String(GENERATION_PROMPT_VERSION))
     .update("\0")
@@ -40,6 +40,8 @@ function settingsFingerprint(request: GenerateCommand): string {
     .update(request.browserTheme)
     .update("\0")
     .update(JSON.stringify(request.worldPromptSnapshot))
+    .update("\0")
+    .update(generationMode ?? "directed")
     .digest("hex");
 }
 
@@ -96,7 +98,7 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
     modelId: input.executor.modelId,
     actualProviderKind: input.executor.actualProviderKind,
     promptVersion: GENERATION_PROMPT_VERSION,
-    settingsFingerprint: settingsFingerprint(input.request),
+    settingsFingerprint: settingsFingerprint(input.request, input.executor.generationMode),
     allowGeneratedScripts: input.request.settings.allowGeneratedScripts,
     createdAt: new Date().toISOString(),
     usage: input.usage,
@@ -122,8 +124,9 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
         ? { serviceTier: input.request.provider.serviceTier }
         : {}),
       actualProviderKind: input.executor.actualProviderKind,
+      pipeline: input.executor.generationMode === "compact" ? "compact" : "directed",
       promptVersion: GENERATION_PROMPT_VERSION,
-      settingsFingerprint: settingsFingerprint(input.request),
+      settingsFingerprint: settingsFingerprint(input.request, input.executor.generationMode),
       allowGeneratedScripts: input.request.settings.allowGeneratedScripts,
       usage: input.usage,
       modelExchanges: input.modelExchanges,

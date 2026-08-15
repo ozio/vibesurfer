@@ -29,6 +29,7 @@ import {
   listProviderConnections,
   removeProviderConnection as removeHostProviderConnection,
   saveProviderConnection,
+  updateProviderGenerationMode,
   verifyProviderConnection,
   type RuntimeStatus,
 } from "../../generation/host-api";
@@ -127,8 +128,8 @@ function SettingsSection({ section }: { section: string }) {
   return <GeneralSettings />;
 }
 
-function SettingsHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
-  return <header className="settings-heading"><span>{eyebrow}</span><h1>{title}</h1><p>{description}</p></header>;
+function SettingsHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description?: string }) {
+  return <header className="settings-heading"><span>{eyebrow}</span><h1>{title}</h1>{description && <p>{description}</p>}</header>;
 }
 
 function AppearanceSettings() {
@@ -195,15 +196,7 @@ function GenerationSettings() {
       <SettingsHeading
         eyebrow="Page synthesis"
         title="Generation"
-        description="Every uncached page uses exactly two requests: Director establishes the page brief, then Builder renders it."
       />
-      <section className="settings-group">
-        <h2>Generation pipeline</h2>
-        <div className="generation-mode-grid">
-          <div className="is-active"><span><strong>1 · Director</strong><small>Chooses identity, palette, fonts, favicon, composition, imagery, and capabilities.</small></span><Check aria-hidden="true" /></div>
-          <div className="is-active"><span><strong>2 · Builder</strong><small>Receives only the approved brief and selected capability contracts, then returns HTML.</small></span><Check aria-hidden="true" /></div>
-        </div>
-      </section>
       <section className="settings-group">
         <h2>Artifact styling</h2>
         <GenerationToggle
@@ -398,6 +391,7 @@ function ProviderConnections({
   const [modelId, setModelId] = useState("gpt-5.4");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [generationMode, setGenerationMode] = useState<"compact" | "directed">("compact");
   const [busyId, setBusyId] = useState<string>();
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -407,12 +401,12 @@ function ProviderConnections({
       setMessage("Open the desktop app to store a provider key in the operating-system credential vault.");
       return;
     }
-    if (!displayName.trim() || !modelId.trim() || !apiKey.trim()) {
+    if (!displayName.trim() || !modelId.trim() || (kind !== "openai-compatible" && !apiKey.trim())) {
       setMessage("Display name, model ID and API key are required.");
       return;
     }
-    if (kind === "openai-compatible" && !safeHttpsUrl(baseUrl)) {
-      setMessage("OpenAI-compatible providers require an HTTPS base URL.");
+    if (kind === "openai-compatible" && !safeProviderBaseUrl(baseUrl)) {
+      setMessage("Use HTTPS, or HTTP only for localhost/127.0.0.1/[::1].");
       return;
     }
     const id = `provider-${crypto.randomUUID()}`;
@@ -425,12 +419,29 @@ function ProviderConnections({
         kind,
         displayName: displayName.trim(),
         modelIds: [prefixedModelId],
-        apiKey,
+        apiKey: apiKey.trim() || "vibesurfer-local-no-key",
         baseUrl: kind === "openai-compatible" ? baseUrl.trim() : undefined,
+        generationMode: kind === "openai-compatible" ? generationMode : "directed",
       });
       onUpsert(connection);
       setApiKey("");
       setMessage(`${connection.displayName} was saved. Verify it before using the model.`);
+    } catch (error) {
+      setMessage(errorMessage(error));
+    } finally {
+      setBusyId(undefined);
+    }
+  };
+
+  const changeGenerationMode = async (connection: ProviderConnection, nextMode: "compact" | "directed") => {
+    setBusyId(connection.id);
+    setMessage("");
+    try {
+      const updated = await updateProviderGenerationMode(connection, nextMode);
+      onUpsert(updated);
+      setMessage(nextMode === "compact"
+        ? `${connection.displayName} will use one compact HTML request for local and smaller models.`
+        : `${connection.displayName} will use the full Director → Builder structured pipeline.`);
     } catch (error) {
       setMessage(errorMessage(error));
     } finally {
@@ -444,7 +455,9 @@ function ProviderConnections({
     try {
       const verified = await verifyProviderConnection(profileId, connection);
       onUpsert(verified);
-      setMessage(`${connection.displayName} is reachable and the credential was accepted.`);
+      setMessage(connection.kind === "openai-compatible" && (connection.generationMode ?? "compact") === "compact"
+        ? `${connection.displayName} is reachable and compact text generation passed.`
+        : `${connection.displayName} is reachable and structured generation passed.`);
     } catch (error) {
       onUpsert({ ...connection, status: "invalid" });
       setMessage(errorMessage(error));
@@ -477,6 +490,18 @@ function ProviderConnections({
           <article key={connection.id} className="provider-row">
             <span className={`provider-row__status provider-row__status--${connection.status}`} />
             <span><strong>{connection.displayName}</strong><small>{connection.kind} · {connection.modelIds.map(displayModelId).join(", ") || "No models"}</small></span>
+            {connection.kind === "openai-compatible" && (
+              <select
+                className="provider-row__mode"
+                aria-label={`Generation mode for ${connection.displayName}`}
+                value={connection.generationMode ?? "compact"}
+                disabled={Boolean(busyId)}
+                onChange={(event) => void changeGenerationMode(connection, event.target.value as "compact" | "directed")}
+              >
+                <option value="compact">Compact local</option>
+                <option value="directed">Director → Builder</option>
+              </select>
+            )}
             <button className="button" type="button" disabled={Boolean(busyId)} onClick={() => void verify(connection)}><RefreshCw aria-hidden="true" /> Verify</button>
             <button className="icon-danger" type="button" aria-label={`Remove ${connection.displayName}`} disabled={Boolean(busyId)} onClick={() => void remove(connection)}><Trash2 aria-hidden="true" /></button>
           </article>
@@ -487,8 +512,8 @@ function ProviderConnections({
           <label><span>Provider</span><select value={kind} onChange={(event) => setKind(event.target.value as typeof kind)}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option><option value="openai-compatible">OpenAI-compatible</option></select></label>
           <label><span>Display name</span><input value={displayName} maxLength={120} onChange={(event) => setDisplayName(event.target.value)} /></label>
           <label><span>Model ID</span><input value={modelId} maxLength={200} autoCapitalize="none" spellCheck={false} onChange={(event) => setModelId(event.target.value)} /></label>
-          <label><span>API key</span><input value={apiKey} type="password" maxLength={16_384} autoComplete="off" spellCheck={false} placeholder="Stored only after Save" onChange={(event) => setApiKey(event.target.value)} /></label>
-          {kind === "openai-compatible" && <label className="provider-form__wide"><span>HTTPS base URL</span><input value={baseUrl} type="url" autoCapitalize="none" spellCheck={false} placeholder="https://api.example.com/v1" onChange={(event) => setBaseUrl(event.target.value)} /></label>}
+          <label><span>{kind === "openai-compatible" ? "API key (optional for local)" : "API key"}</span><input value={apiKey} type="password" maxLength={16_384} autoComplete="off" spellCheck={false} placeholder={kind === "openai-compatible" ? "Leave empty if the local server needs none" : "Stored only after Save"} onChange={(event) => setApiKey(event.target.value)} /></label>
+          {kind === "openai-compatible" && <><label className="provider-form__wide"><span>Base URL</span><input value={baseUrl} type="url" autoCapitalize="none" spellCheck={false} placeholder="http://127.0.0.1:8080/v1" onChange={(event) => setBaseUrl(event.target.value)} /></label><label className="provider-form__wide"><span>Generation mode</span><select value={generationMode} onChange={(event) => setGenerationMode(event.target.value as "compact" | "directed")}><option value="compact">Compact local — one plain HTML request (recommended)</option><option value="directed">Director → Builder — complex structured output</option></select></label></>}
         </div>
         <div className="provider-form__footer"><small>{message || "The raw key is sent to the Rust host once and never enters persisted browser state."}</small><button className="button button--primary" type="submit" disabled={Boolean(busyId)}><KeyRound aria-hidden="true" /> Save connection</button></div>
       </form>
@@ -640,9 +665,11 @@ function displayEffort(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function safeHttpsUrl(value: string): boolean {
+function safeProviderBaseUrl(value: string): boolean {
   try {
-    return new URL(value).protocol === "https:";
+    const url = new URL(value);
+    return url.protocol === "https:"
+      || (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]", "::1"].includes(url.hostname));
   } catch {
     return false;
   }

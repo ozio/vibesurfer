@@ -379,6 +379,7 @@ export interface ProviderConnection {
   status: ProviderConnectionStatus;
   maskedSecretSuffix?: string;
   modelIds: string[];
+  generationMode?: "directed" | "compact";
   lastVerifiedAt?: string;
 }
 

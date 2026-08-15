@@ -45,6 +45,7 @@ export class InMemoryProviderRegistry {
         kind: "mock",
         displayName: "Deterministic mock",
         supportsStructuredOutputs: true,
+        generationMode: "directed",
         mockLatencyMs: 0,
       },
     });
@@ -148,6 +149,9 @@ export class InMemoryProviderRegistry {
       providerId: connectionId,
       modelId,
       actualProviderKind: record.public.kind,
+      generationMode: record.public.kind === "openai-compatible"
+        ? record.public.generationMode ?? "compact"
+        : "directed",
     });
   }
 }

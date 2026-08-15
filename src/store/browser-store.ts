@@ -155,7 +155,7 @@ export const DEFAULT_BROWSER_PREFERENCES: BrowserPreferences = {
 };
 
 export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
-  promptVersion: 10,
+  promptVersion: 12,
   maxOutputTokens: 16_000,
   reuseCachedPages: true,
   style: {

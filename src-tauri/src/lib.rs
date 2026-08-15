@@ -1,4 +1,5 @@
 mod codex_adapter;
+mod native_menu;
 mod protocol;
 mod secrets;
 mod storage;
@@ -12,6 +13,7 @@ use std::{
 };
 
 use codex_adapter::CodexCatalog;
+use native_menu::{build_native_menu, emit_native_menu_command, update_native_menu_state};
 use protocol::{
     ArtifactRecord, GenerationStartRequest, GenerationStartResult, ProviderConnectionRecord,
     ProviderVerifyRequest, RuntimeStatus, SiteWorldRecord, WORKER_PROTOCOL_VERSION,
@@ -122,6 +124,16 @@ fn provider_for_worker(
             return Err("requested model does not belong to the provider connection".into());
         }
     }
+    let generation_mode = provider
+        .payload
+        .get("generationMode")
+        .and_then(Value::as_str)
+        .filter(|value| matches!(*value, "directed" | "compact"))
+        .unwrap_or(if provider.kind == "openai-compatible" {
+            "compact"
+        } else {
+            "directed"
+        });
     Ok(json!({
         "id": provider.id,
         "connectionId": provider.id,
@@ -129,6 +141,8 @@ fn provider_for_worker(
         "displayName": provider.display_name,
         "baseUrl": provider.base_url,
         "modelId": requested_model,
+        "generationMode": generation_mode,
+        "supportsStructuredOutputs": generation_mode == "directed",
     }))
 }
 
@@ -806,7 +820,11 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
+        .on_menu_event(|app, event| emit_native_menu_command(app, event.id().as_ref()))
         .setup(|app| {
+            let (menu, native_menu_items) = build_native_menu(app.handle())?;
+            app.set_menu(menu)?;
+            app.manage(native_menu_items);
             let app_data = app.path().app_data_dir()?;
             let storage = Arc::new(Storage::open(&app_data.join("vibesurfer.sqlite3"))?);
             app.manage(AppRuntime {
@@ -857,7 +875,8 @@ pub fn run() {
             verify_provider_connection,
             start_generation,
             cancel_generation,
-            set_window_corner_radius
+            set_window_corner_radius,
+            update_native_menu_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running vibesurfer");
@@ -883,6 +902,7 @@ mod tests {
         provider_connection_id, provider_for_worker, validated_window_corner_radius, CodexProbe,
         CodexProbeState, ProviderConnectionRecord,
     };
+    use crate::native_menu::native_menu_command;
     use std::path::{Path, PathBuf};
 
     fn provider_record() -> ProviderConnectionRecord {
@@ -913,6 +933,14 @@ mod tests {
             "vibe://{}",
             "x".repeat(4_090)
         )));
+    }
+
+    #[test]
+    fn native_menu_emits_only_allowlisted_browser_commands() {
+        assert_eq!(native_menu_command("new-tab"), Some("new-tab"));
+        assert_eq!(native_menu_command("open-models"), Some("open-models"));
+        assert_eq!(native_menu_command("quit"), None);
+        assert_eq!(native_menu_command("javascript:alert(1)"), None);
     }
 
     #[test]
@@ -957,9 +985,28 @@ mod tests {
         assert_eq!(provider["kind"], "openai");
         assert!(provider["baseUrl"].is_null());
         assert_eq!(provider["modelId"], "gpt-test");
+        assert_eq!(provider["generationMode"], "directed");
         assert!(
             provider_for_worker(&provider_record(), &json!({ "modelId": "not-allowed" })).is_err()
         );
+    }
+
+    #[test]
+    fn legacy_openai_compatible_provider_defaults_to_compact_generation() {
+        let mut record = provider_record();
+        record.kind = "openai-compatible".into();
+        record.base_url = Some("http://127.0.0.1:8080/v1".into());
+        record.payload = json!({ "modelIds": ["openai-compatible:local-model"] });
+        let provider = provider_for_worker(
+            &record,
+            &json!({
+                "modelId": "local-model",
+                "generationMode": "directed"
+            }),
+        )
+        .unwrap();
+        assert_eq!(provider["generationMode"], "compact");
+        assert_eq!(provider["supportsStructuredOutputs"], false);
     }
 
     #[test]

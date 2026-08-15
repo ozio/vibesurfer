@@ -147,6 +147,7 @@ export function TabStrip({ orientation }: { orientation: TabLayout }) {
       )}
       <IconButton className="new-tab-button" label="New tab" onClick={() => addTab()}>
         <Plus aria-hidden="true" />
+        {orientation === "vertical" && <span>New tab</span>}
       </IconButton>
     </div>
   );
@@ -209,7 +210,10 @@ function SortableTab({
                 seed={tab.virtualLocation?.origin ?? tab.location}
               />
             )}
-            <span className="browser-tab__title">{tab.title}</span>
+            <span className="browser-tab__copy">
+              <span className="browser-tab__title">{tab.title}</span>
+              {orientation === "vertical" && <span className="browser-tab__meta">{tabMeta(tab)}</span>}
+            </span>
             {tab.hasUnseenUpdate && <span className="browser-tab__unseen" aria-label="Updated in background" />}
           </span>
           <button
@@ -253,6 +257,19 @@ function SortableTab({
       </ContextMenu.Portal>
     </ContextMenu.Root>
   );
+}
+
+function tabMeta(tab: BrowserTab) {
+  if (tab.kind === "new-tab") return "New page";
+  if (tab.kind === "settings") return "Browser settings";
+  if (tab.kind === "history") return "Browsing history";
+
+  const location = tab.virtualLocation?.url ?? tab.location;
+  try {
+    return new URL(location).hostname.replace(/^www\./, "") || "Local page";
+  } catch {
+    return location.replace(/^vibe:\/\//, "") || "Local page";
+  }
 }
 
 function closeOtherTabs(tabId: string) {

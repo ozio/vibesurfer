@@ -29,6 +29,7 @@ describe("provider registry", () => {
     const executor = registry.resolve(kind, "test-model", "seed");
     expect(executor).toBeInstanceOf(AiSdkModelExecutor);
     expect(executor.actualProviderKind).toBe(kind);
+    expect(executor.generationMode).toBe(kind === "openai-compatible" ? "compact" : "directed");
   });
 
   it("never disguises a missing provider credential as a mock generation", () => {

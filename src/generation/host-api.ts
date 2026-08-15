@@ -30,7 +30,7 @@ interface ProviderConnectionRecord {
   enabled: boolean;
   status: string;
   lastVerifiedAt?: string;
-  payload: { modelIds?: string[] } & Record<string, unknown>;
+  payload: { modelIds?: string[]; generationMode?: "directed" | "compact" } & Record<string, unknown>;
 }
 
 interface ArtifactRecord {
@@ -64,6 +64,7 @@ export interface SaveProviderInput {
   baseUrl?: string;
   apiKey: string;
   modelIds: string[];
+  generationMode?: "directed" | "compact";
 }
 
 export async function getRuntimeStatus(): Promise<RuntimeStatus | undefined> {
@@ -164,7 +165,10 @@ export async function saveProviderConnection(input: SaveProviderInput): Promise<
     secretRef,
     enabled: true,
     status: "unknown",
-    payload: { modelIds: input.modelIds },
+    payload: {
+      modelIds: input.modelIds,
+      generationMode: input.kind === "openai-compatible" ? input.generationMode ?? "compact" : "directed",
+    },
   };
   try {
     await invoke("upsert_provider_connection", { provider: record });
@@ -173,6 +177,28 @@ export async function saveProviderConnection(input: SaveProviderInput): Promise<
     throw error;
   }
   return fromRecord(record);
+}
+
+export async function updateProviderGenerationMode(
+  connection: ProviderConnection,
+  generationMode: "directed" | "compact",
+): Promise<ProviderConnection> {
+  requireTauri();
+  if (connection.kind !== "openai-compatible" || !connection.secretRef) return connection;
+  const updated = { ...connection, generationMode, status: "unknown" as const, lastVerifiedAt: undefined };
+  const record: ProviderConnectionRecord = {
+    id: connection.id,
+    profileId: connection.profileId,
+    kind: connection.kind,
+    displayName: connection.displayName,
+    baseUrl: connection.baseUrl,
+    secretRef: connection.secretRef,
+    enabled: connection.enabled,
+    status: updated.status,
+    payload: { modelIds: connection.modelIds, generationMode },
+  };
+  await invoke("upsert_provider_connection", { provider: record });
+  return updated;
 }
 
 export async function verifyProviderConnection(profileId: string, connection: ProviderConnection): Promise<ProviderConnection> {
@@ -189,6 +215,9 @@ export async function verifyProviderConnection(profileId: string, connection: Pr
         displayName: connection.displayName,
         baseUrl: connection.baseUrl,
         modelId: stripProviderPrefix(connection.modelIds[0]),
+        generationMode: connection.kind === "openai-compatible"
+          ? connection.generationMode ?? "compact"
+          : "directed",
       },
     },
   });
@@ -218,6 +247,9 @@ function fromRecord(record: ProviderConnectionRecord): ProviderConnection {
     modelIds: Array.isArray(record.payload.modelIds)
       ? record.payload.modelIds.filter((model): model is string => typeof model === "string")
       : [],
+    generationMode: record.kind === "openai-compatible"
+      ? record.payload.generationMode === "directed" ? "directed" : "compact"
+      : "directed",
     lastVerifiedAt: record.lastVerifiedAt,
   };
 }

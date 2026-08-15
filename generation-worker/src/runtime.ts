@@ -148,23 +148,43 @@ export class WorkerRuntime {
       this.registry.upsert(normalized.connection, normalized.credentials);
       const executor = this.registry.resolve(connection.id, normalized.modelId, `verify:${command.requestId}`);
       if (executor.actualProviderKind !== "mock") {
-        const signal = AbortSignal.timeout(25_000);
-        const schema = z.object({ ok: z.boolean() }).strict();
-        const prompt = {
-          system: "This is a minimal provider connectivity check. Return only the requested structured object and do not include secrets or request metadata.",
-          prompt: "Return an object whose ok field is true.",
-          fingerprint: "provider-connectivity-check-v1",
-          version: 1,
-        };
-        const result = await executor.generateObject({
-          purpose: "page-director",
-          schema,
-          prompt,
-          abortSignal: signal,
-          maxOutputTokens: 512,
-        });
-        if (!result.output.ok) {
-          throw new Error("Provider returned a negative verification result.");
+        const signal = AbortSignal.timeout(90_000);
+        if (executor.generationMode === "compact") {
+          if (!executor.generateText) {
+            throw new Error("The provider adapter cannot perform compact text generation.");
+          }
+          const result = await executor.generateText({
+            purpose: "page-builder",
+            prompt: {
+              system: "This is a minimal provider connectivity check. Do not include secrets or request metadata.",
+              prompt: "Reply with exactly VIBESURFER_OK",
+              fingerprint: "provider-compact-connectivity-check-v1",
+              version: 1,
+            },
+            abortSignal: signal,
+            maxOutputTokens: 64,
+          });
+          if (!result.text.includes("VIBESURFER_OK")) {
+            throw new Error("Provider text generation did not complete the compatibility check.");
+          }
+        } else {
+          const schema = z.object({ ok: z.boolean() }).strict();
+          const prompt = {
+            system: "This is a minimal provider connectivity check. Return only the requested structured object and do not include secrets or request metadata.",
+            prompt: "Return an object whose ok field is true.",
+            fingerprint: "provider-connectivity-check-v1",
+            version: 1,
+          };
+          const result = await executor.generateObject({
+            purpose: "page-director",
+            schema,
+            prompt,
+            abortSignal: signal,
+            maxOutputTokens: 512,
+          });
+          if (!result.output.ok) {
+            throw new Error("Provider returned a negative verification result.");
+          }
         }
       }
       await this.#send({

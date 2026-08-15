@@ -32,7 +32,10 @@ export class UnsafeOutputError extends Error {
   readonly issues: HtmlIssue[];
 
   constructor(issues: HtmlIssue[]) {
-    super("The page did not pass document validation.");
+    const errors = issues.filter((issue) => issue.severity === "error");
+    super(errors.length > 0
+      ? `The page did not pass document validation: ${errors.map((issue) => issue.message).join(" ")}`
+      : "The page did not pass document validation.");
     this.name = "UnsafeOutputError";
     this.issues = issues;
   }

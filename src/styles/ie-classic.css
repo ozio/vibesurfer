@@ -355,7 +355,7 @@
 
 :root[data-theme="ie-classic"] .address-bar__site-info {
   width: 23px;
-  height: 22px;
+  height: 24px;
   flex-basis: 23px;
   color: #1f6fb2;
   border: 1px solid #7f9db9;
@@ -369,14 +369,15 @@
   background: white;
 }
 
-:root[data-theme="ie-classic"] .address-bar__site-info svg {
+:root[data-theme="ie-classic"] .address-bar__site-info .favicon {
   width: 14px;
   height: 14px;
+  flex-basis: 14px;
   stroke-width: 2.2;
 }
 
 :root[data-theme="ie-classic"] .address-bar input {
-  height: 22px;
+  height: 24px;
   min-width: 70px;
   padding: 1px 22px 1px 1px;
   color: #000;
@@ -702,15 +703,83 @@
 }
 
 :root[data-theme="ie-classic"] .vertical-sidebar__header {
+  height: 38px;
+  flex-basis: 38px;
+  margin: 0;
+  padding: 0 9px;
+  border-bottom: 1px solid #24569d;
   color: white;
   background: linear-gradient(180deg, #5b93e5, #316ac5);
 }
 
-:root[data-theme="ie-classic"] .browser-tab--vertical {
-  margin-bottom: 2px;
-  border: 1px solid #7f9db9;
+:root[data-theme="ie-classic"] .vertical-sidebar__count {
+  color: #163f78;
+  border: 1px solid #24569d;
   border-radius: 0;
-  background: rgba(255,255,255,.72);
+  background: #dceaff;
+}
+
+:root[data-theme="ie-classic"] .tab-strip--vertical {
+  gap: 2px;
+  padding: 4px 5px 8px;
+}
+
+:root[data-theme="ie-classic"] .tab-strip--vertical .tab-strip__items {
+  gap: 1px;
+  padding: 0;
+}
+
+:root[data-theme="ie-classic"] .browser-tab--vertical {
+  min-height: 40px;
+  margin: 0;
+  padding: 3px 5px 3px 7px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="ie-classic"] .browser-tab--vertical .browser-tab__drag-target {
+  min-height: 34px;
+  gap: 8px;
+}
+
+:root[data-theme="ie-classic"] .browser-tab--vertical.is-active {
+  color: #ffffff;
+  background: #316ac5;
+  box-shadow: inset 2px 0 #103f83;
+}
+
+:root[data-theme="ie-classic"] .browser-tab--vertical .browser-tab__meta {
+  color: #536579;
+}
+
+:root[data-theme="ie-classic"] .browser-tab--vertical.is-active .browser-tab__meta {
+  color: #eaf2ff;
+}
+
+:root[data-theme="ie-classic"] .browser-tab--vertical.is-active .browser-tab__close {
+  color: #ffffff;
+}
+
+:root[data-theme="ie-classic"] .tab-strip--vertical .new-tab-button {
+  display: flex;
+  width: 100%;
+  height: 32px;
+  flex-basis: 32px;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 3px;
+  padding: 0 7px;
+  color: #163f78;
+  border: 0;
+  border-top: 1px solid #9aafc8;
+  border-radius: 0;
+  background: transparent;
+}
+
+:root[data-theme="ie-classic"] .tab-strip--vertical .new-tab-button span {
+  white-space: nowrap;
 }
 
 :root[data-theme="ie-classic"] .browser-statusbar {
@@ -1478,27 +1547,50 @@
   overflow-y: hidden;
 }
 
-:root[data-theme="ie-classic"] .browser-tab--horizontal:hover:not(.is-active),
-:root[data-theme="ie-classic"] .browser-tab--vertical:hover:not(.is-active) {
+:root[data-theme="ie-classic"] .browser-tab--horizontal:hover:not(.is-active) {
   color: #000000;
   border-color: #7f9db9;
   background: linear-gradient(180deg, #ffffff 0%, #eaf4ff 45%, #c8e2fb 100%);
   box-shadow: inset 0 1px #ffffff;
 }
 
-:root[data-theme="ie-classic"] .browser-tab:active:not(.is-dragging) {
+:root[data-theme="ie-classic"] .browser-tab--vertical:hover:not(.is-active) {
+  color: #000000;
+  border: 0;
+  background: #dbeaff;
+  box-shadow: none;
+}
+
+:root[data-theme="ie-classic"] .browser-tab--horizontal:active:not(.is-dragging) {
   border-color: #716f64 #ffffff #ffffff #716f64;
   background: linear-gradient(180deg, #c8d8e8, #edf5fc);
   box-shadow: inset 1px 1px #716f64, inset -1px -1px #ffffff;
   transform: translate(1px, 1px);
 }
 
-:root[data-theme="ie-classic"] .browser-tab.is-active:active {
+:root[data-theme="ie-classic"] .browser-tab--horizontal.is-active:active {
   border-color: #7f9db9;
   border-bottom-color: #ffffff;
   background: #ffffff;
   box-shadow: inset 0 2px #f5a623;
   transform: none;
+}
+
+:root[data-theme="ie-classic"] .browser-tab--vertical:active:not(.is-dragging) {
+  border: 0;
+  background: #c7d9f2;
+  box-shadow: none;
+  transform: none;
+}
+
+:root[data-theme="ie-classic"] .browser-tab--vertical.is-active:active {
+  color: #ffffff;
+  background: #316ac5;
+  box-shadow: inset 2px 0 #103f83;
+}
+
+:root[data-theme="ie-classic"] .menu__item[data-highlighted] .menu__item-copy small {
+  color: #ffffff;
 }
 
 :root[data-theme="ie-classic"] .browser-tab__close:hover {
@@ -1571,7 +1663,6 @@
   background: #f5f4ec;
 }
 
-:root[data-theme="ie-classic"] .generation-mode-grid > button,
 :root[data-theme="ie-classic"] .settings-field,
 :root[data-theme="ie-classic"] .provider-list__empty,
 :root[data-theme="ie-classic"] .provider-row,
@@ -1584,12 +1675,10 @@
   box-shadow: none;
 }
 
-:root[data-theme="ie-classic"] .generation-mode-grid > button:hover,
 :root[data-theme="ie-classic"] .settings-field:hover {
   border-color: #7f9db9;
 }
 
-:root[data-theme="ie-classic"] .generation-mode-grid > button.is-active,
 :root[data-theme="ie-classic"] .settings-model-list > button.is-active,
 :root[data-theme="ie-classic"] .profile-settings-list > button.is-active {
   border-color: #316ac5;
@@ -1621,7 +1710,6 @@
 
 :root[data-theme="ie-classic"] .theme-card:active,
 :root[data-theme="ie-classic"] .layout-options > button:active,
-:root[data-theme="ie-classic"] .generation-mode-grid > button:active,
 :root[data-theme="ie-classic"] .setting-row:active {
   border-color: #716f64 #ffffff #ffffff #716f64;
   box-shadow: inset 1px 1px #716f64, inset -1px -1px #ffffff;
@@ -1687,6 +1775,55 @@
 
 :root[data-theme="ie-classic"] .dialog__close:hover {
   background: linear-gradient(180deg, #ffb19e, #f05a40 50%, #d33222);
+}
+
+:root[data-theme="ie-classic"] .generation-inspector {
+  width: min(760px, calc(100vw - 40px));
+  height: min(600px, calc(100vh - 48px));
+  padding: 27px 0 0;
+}
+
+:root[data-theme="ie-classic"] .generation-inspector__header {
+  position: static;
+  min-height: 68px;
+  padding: 15px 18px 13px;
+  border-bottom: 1px solid #aca899;
+  background: #ece9d8;
+  box-shadow: inset 0 1px #ffffff;
+}
+
+:root[data-theme="ie-classic"] .generation-inspector__header p {
+  max-width: 620px;
+  color: #444444;
+}
+
+:root[data-theme="ie-classic"] .generation-inspector__summary > div {
+  padding: 10px 14px;
+}
+
+:root[data-theme="ie-classic"] .generation-inspector__metadata {
+  padding: 11px 14px;
+}
+
+:root[data-theme="ie-classic"] .generation-inspector__exchanges {
+  padding: 10px;
+}
+
+:root[data-theme="ie-classic"] .generation-failure-notice {
+  bottom: 7px;
+  min-height: 46px;
+  padding: 6px 7px 6px 9px;
+  color: #000000;
+  border: 1px solid #9d260f;
+  border-radius: 0;
+  background: #ffffe1;
+  box-shadow: 2px 2px 4px rgba(0,0,0,.3);
+  backdrop-filter: none;
+  transform: translateX(-50%);
+}
+
+:root[data-theme="ie-classic"] .generation-failure-notice small {
+  color: #333333;
 }
 
 :root[data-theme="ie-classic"] .codex-dialog__icon {

@@ -201,7 +201,7 @@ impl WorkerManager {
         };
         send_message(&mut stdin, &request).await?;
 
-        let result = tokio::time::timeout(Duration::from_secs(30), async {
+        let result = tokio::time::timeout(Duration::from_secs(95), async {
             while let Some(line) = lines.next_line().await? {
                 if line.len() > MAX_WORKER_LINE_BYTES {
                     return Err(WorkerError::Protocol("worker line exceeds limit".into()));

@@ -61,7 +61,7 @@ export function BrowserStatusBar({
           <dl className="generation-inspector__metadata">
             <div><dt>URL</dt><dd>{artifact?.url ?? location}</dd></div>
             <div><dt>Model</dt><dd>{artifact?.modelId ?? modelName}</dd></div>
-            {artifact && <div><dt>Pipeline</dt><dd>Director → Builder</dd></div>}
+            {artifact && <div><dt>Pipeline</dt><dd>{exchanges.length === 1 ? "Compact local" : "Director → Builder"}</dd></div>}
             {artifact && <div><dt>Generated</dt><dd>{formatTimestamp(artifact.createdAt)}</dd></div>}
           </dl>
           <section className="generation-inspector__exchanges" aria-label="Model requests and responses">

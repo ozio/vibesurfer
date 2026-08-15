@@ -21,11 +21,29 @@ export interface GeneratedObject<T> {
   exchange: ModelExchange;
 }
 
+export type GenerationMode = "directed" | "compact";
+
+export interface GenerateTextRequest {
+  purpose: PromptStage;
+  prompt: PromptBundle;
+  abortSignal: AbortSignal;
+  maxOutputTokens: number;
+  onPartialText?: (accumulatedText: string) => void | Promise<void>;
+}
+
+export interface GeneratedText {
+  text: string;
+  usage: TokenUsage;
+  exchange: ModelExchange;
+}
+
 export interface ModelExecutor {
   readonly actualProviderKind: ProviderKind;
   readonly providerId: string;
   readonly modelId: string;
+  readonly generationMode?: GenerationMode;
   generateObject<T>(request: GenerateObjectRequest<T>): Promise<GeneratedObject<T>>;
+  generateText?(request: GenerateTextRequest): Promise<GeneratedText>;
 }
 
 function count(value: number | undefined): number {
@@ -47,14 +65,21 @@ export class AiSdkModelExecutor implements ModelExecutor {
   readonly actualProviderKind: ProviderKind;
   readonly providerId: string;
   readonly modelId: string;
+  readonly generationMode: GenerationMode;
 
   constructor(
     private readonly model: LanguageModel,
-    descriptor: { providerId: string; modelId: string; actualProviderKind: ProviderKind },
+    descriptor: {
+      providerId: string;
+      modelId: string;
+      actualProviderKind: ProviderKind;
+      generationMode?: GenerationMode;
+    },
   ) {
     this.providerId = descriptor.providerId;
     this.modelId = descriptor.modelId;
     this.actualProviderKind = descriptor.actualProviderKind;
+    this.generationMode = descriptor.generationMode ?? "directed";
   }
 
   async generateObject<T>(request: GenerateObjectRequest<T>): Promise<GeneratedObject<T>> {
@@ -108,10 +133,55 @@ export class AiSdkModelExecutor implements ModelExecutor {
       throw streamFailure ?? error;
     }
   }
+
+  async generateText(request: GenerateTextRequest): Promise<GeneratedText> {
+    const startedAt = new Date();
+    let streamFailure: unknown;
+    let accumulatedText = "";
+    const result = streamText({
+      model: this.model,
+      system: request.prompt.system,
+      prompt: request.prompt.prompt,
+      maxOutputTokens: request.maxOutputTokens,
+      abortSignal: request.abortSignal,
+      maxRetries: 1,
+      onError: ({ error }) => {
+        streamFailure = error;
+      },
+    });
+
+    try {
+      for await (const chunk of result.textStream) {
+        accumulatedText += chunk;
+        if (request.onPartialText) {
+          await request.onPartialText(accumulatedText);
+        }
+      }
+      if (streamFailure) throw streamFailure;
+      const usage = normalizeUsage(await result.totalUsage);
+      const completedAt = new Date();
+      return {
+        text: accumulatedText,
+        usage,
+        exchange: createModelExchange({
+          request,
+          providerId: this.providerId,
+          modelId: this.modelId,
+          actualProviderKind: this.actualProviderKind,
+          startedAt,
+          completedAt,
+          response: accumulatedText,
+          usage,
+        }),
+      };
+    } catch (error) {
+      throw streamFailure ?? error;
+    }
+  }
 }
 
-interface ModelExchangeInput<T> {
-  request: GenerateObjectRequest<T>;
+interface ModelExchangeInput {
+  request: Pick<GenerateObjectRequest<unknown>, "purpose" | "prompt">;
   providerId: string;
   modelId: string;
   actualProviderKind: ProviderKind;
@@ -121,7 +191,7 @@ interface ModelExchangeInput<T> {
   usage: TokenUsage;
 }
 
-export function createModelExchange<T>(input: ModelExchangeInput<T>): ModelExchange {
+export function createModelExchange(input: ModelExchangeInput): ModelExchange {
   return {
     id: randomUUID(),
     purpose: input.request.purpose,

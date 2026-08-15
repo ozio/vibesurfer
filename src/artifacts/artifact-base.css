@@ -8,10 +8,11 @@
  */
 @layer vibesurfer-artifact-base {
   :where(*, *::before, *::after) { box-sizing: border-box; }
-  :where(html) { min-height: 100%; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+  :where(html) { width: 100%; min-width: 0; min-height: 100%; max-width: 100%; overflow: auto !important; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   :where(body) {
     min-height: 100%;
     margin: 0;
+    overflow: visible !important;
     color: #111;
     background: #fff;
     font-family: var(--vibe-font-global-sans);

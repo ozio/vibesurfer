@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import { runGenerationPipeline, UnsafeOutputError, type PipelineEmitter } from "../src/pipelines/index.js";
+import { normalizeGeneratedHtml } from "../src/pipelines/compact.js";
 import { createProgressivePagePreview } from "../src/pipelines/shared.js";
 import { DeterministicMockExecutor } from "../src/providers/mock.js";
-import type { GenerateObjectRequest, GeneratedObject, ModelExecutor } from "../src/providers/executor.js";
+import {
+  createModelExchange,
+  type GenerateObjectRequest,
+  type GeneratedObject,
+  type GeneratedText,
+  type GenerateTextRequest,
+  type ModelExecutor,
+} from "../src/providers/executor.js";
 import type { DirectorResult, SiteIdentity } from "../src/domain.js";
 import { generationCommand } from "./helpers.js";
 
@@ -69,6 +77,46 @@ class DivergentNewDirectorExecutor implements ModelExecutor {
     output.direction.era = "slightly different wording";
     output.direction.palette.accent = "#ff0000";
     return { ...result, output };
+  }
+}
+
+class CompactLocalExecutor implements ModelExecutor {
+  readonly actualProviderKind = "openai-compatible" as const;
+  readonly providerId = "local-evo";
+  readonly modelId = "small-local-model";
+  readonly generationMode = "compact" as const;
+  readonly calls: string[] = [];
+
+  async generateObject<T>(_request: GenerateObjectRequest<T>): Promise<GeneratedObject<T>> {
+    throw new Error("Compact mode must not request structured output.");
+  }
+
+  async generateText(request: GenerateTextRequest): Promise<GeneratedText> {
+    this.calls.push(request.purpose);
+    const startedAt = new Date();
+    const text = `\`\`\`html
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Карманная энциклопедия воды</title><meta name="description" content="Практическая памятка об обезвоживании"><style>body{font-family:Arial,sans-serif;max-width:50rem;margin:auto;padding:2rem}nav{display:flex;gap:1rem;flex-wrap:wrap}</style></head><body><nav><a href="/">Главная</a><a href="/symptoms">Симптомы</a><a href="/prevention">Профилактика</a><a href="/help">Помощь</a></nav><main><h1>Обезвоживание</h1><p>Обезвоживание возникает, когда организм теряет больше жидкости, чем получает.</p><h2>Что делать</h2><p>Пейте жидкость небольшими порциями и обращайтесь за помощью при выраженной слабости или спутанности сознания.</p></main></body></html>
+\`\`\``;
+    await request.onPartialText?.(text.slice(0, 240));
+    await request.onPartialText?.(text);
+    const inputTokens = Math.ceil((request.prompt.system.length + request.prompt.prompt.length) / 4);
+    const outputTokens = Math.ceil(text.length / 4);
+    const usage = { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens, requests: 1 };
+    const completedAt = new Date();
+    return {
+      text,
+      usage,
+      exchange: createModelExchange({
+        request,
+        providerId: this.providerId,
+        modelId: this.modelId,
+        actualProviderKind: this.actualProviderKind,
+        startedAt,
+        completedAt,
+        response: text,
+        usage,
+      }),
+    };
   }
 }
 
@@ -170,5 +218,35 @@ describe("directed generation pipeline", () => {
     expect(direction.palette).toEqual(identity.palette);
     expect(direction.favicon).toEqual(identity.favicon);
     expect(executor.calls).toEqual(["page-director", "page-builder"]);
+  });
+});
+
+describe("compact local-model pipeline", () => {
+  it("accepts Markdown-fenced HTML without any structured-output request", async () => {
+    const executor = new CompactLocalExecutor();
+    const previews: string[] = [];
+    const events = emitter();
+    events.value.preview = (html) => void previews.push(html);
+    const result = await runGenerationPipeline({
+      request: generationCommand({ url: "https://offline-pocket.example/dehydration" }),
+      executor,
+      signal: new AbortController().signal,
+      emit: events.value,
+    });
+
+    expect(executor.calls).toEqual(["page-builder"]);
+    expect(result.usage.requests).toBe(1);
+    expect(result.artifact.title).toBe("Карманная энциклопедия воды");
+    expect(result.artifact.modelExchanges).toHaveLength(1);
+    expect(result.artifact.payload).toMatchObject({ pipeline: "compact" });
+    expect(result.artifact.html).toContain("Обезвоживание");
+    expect(result.artifact.html).not.toContain("```html");
+    expect(previews.at(-1)).toContain("Обезвоживание");
+  });
+
+  it("wraps a useful plain-text fragment instead of discarding it", () => {
+    const html = normalizeGeneratedHtml("Короткая, но полезная памятка от локальной модели.");
+    expect(html).toContain("<pre");
+    expect(html).toContain("полезная памятка");
   });
 });

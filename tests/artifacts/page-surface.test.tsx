@@ -61,6 +61,47 @@ describe("generated PageSurface", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("The model returned malformed HTML");
   });
 
+  test("keeps the last complete artifact visible with a persistent error notice", () => {
+    installFakeMessageChannels();
+    const frameWindow = { postMessage: vi.fn() };
+    installFrameWindow(frameWindow);
+    const artifact = pageArtifact();
+    const job = generationJob({
+      status: "failed",
+      phase: "failed",
+      error: { code: "malformed-output", message: "The provider returned invalid structured output.", retryable: true },
+    });
+    useBrowserStore.setState({
+      artifacts: { [artifact.id]: artifact },
+      generationJobs: { [job.id]: job },
+    });
+
+    render(<PageSurface tab={generatedTab({ artifactId: artifact.id, generationJobId: job.id, loadState: "error" })} />);
+
+    expect(screen.getByTitle("Fixture page")).toHaveAttribute("scrolling", "auto");
+    expect(screen.getByRole("alert")).toHaveTextContent("Generation failed");
+    expect(screen.getByRole("alert")).toHaveTextContent("The last complete version is still shown");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  test("keeps a failed streamed preview visible with an error snack", () => {
+    installFakeMessageChannels();
+    installFrameWindow({ postMessage: vi.fn() });
+    const job = generationJob({
+      status: "failed",
+      phase: "failed",
+      previewHtml: "<main>Incomplete streamed preview</main>",
+      error: { code: "malformed-output", message: "The provider returned invalid structured output.", retryable: true },
+    });
+    useBrowserStore.setState({ generationJobs: { [job.id]: job } });
+
+    render(<PageSurface tab={generatedTab({ generationJobId: job.id, loadState: "error" })} />);
+
+    expect(document.querySelector("iframe")).toHaveAttribute("scrolling", "auto");
+    expect(screen.getByRole("alert")).toHaveTextContent("Generation failed");
+    expect(screen.getByRole("alert")).toHaveTextContent("The partial result is still shown");
+  });
+
   test("arms the private handshake before load and keeps load idempotent", () => {
     const channels = installFakeMessageChannels();
     const postMessage = vi.fn();

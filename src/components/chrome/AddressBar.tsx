@@ -5,6 +5,7 @@ import { looksLikeUrl } from "../../lib/navigation";
 import { browserShortcutLabels, detectPlatform } from "../../lib/platform";
 import { useBrowserStore } from "../../store/browser-store";
 import type { BrowserTab, ThemeId } from "../../types/browser";
+import { Favicon } from "../ui/Favicon";
 
 const addressLanguage: Record<ThemeId, {
   network: string;
@@ -182,7 +183,12 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
       <Popover.Root>
         <Popover.Trigger asChild>
           <button className="address-bar__site-info" type="button" aria-label="Site information">
-            {tab.kind === "generated" || tab.kind === "new-tab" ? <Sparkles aria-hidden="true" /> : <ShieldEllipsis aria-hidden="true" />}
+            <Favicon
+              source={tab.favicon}
+              title={tab.title}
+              generated={tab.kind === "generated" || tab.kind === "new-tab"}
+              seed={tab.virtualLocation?.origin ?? tab.location}
+            />
           </button>
         </Popover.Trigger>
         <Popover.Portal>

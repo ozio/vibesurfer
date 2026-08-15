@@ -24,15 +24,20 @@ const HttpUrlSchema = z.string().url().refine((value) => {
   const protocol = new URL(value).protocol;
   return protocol === "http:" || protocol === "https:";
 }, "Only http and https URLs are supported");
-const HttpsUrlSchema = HttpUrlSchema.refine((value) => new URL(value).protocol === "https:", "Provider base URLs must use HTTPS");
+const ProviderBaseUrlSchema = HttpUrlSchema.refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:"
+    || (url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname));
+}, "Provider base URLs must use HTTPS, except for HTTP loopback addresses");
 
 export const PublicProviderConnectionSchema = z
   .object({
     id: IdSchema,
     kind: ProviderKindSchema,
     displayName: z.string().min(1).max(120),
-    baseUrl: HttpsUrlSchema.optional(),
+    baseUrl: ProviderBaseUrlSchema.optional(),
     supportsStructuredOutputs: z.boolean().default(true),
+    generationMode: z.enum(["directed", "compact"]).optional(),
     mockLatencyMs: z.number().int().min(0).max(30_000).default(0),
   })
   .strict();
