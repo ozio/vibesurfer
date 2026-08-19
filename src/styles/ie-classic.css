@@ -1375,6 +1375,8 @@
 }
 
 :root[data-theme="ie-classic"] .theme-card,
+:root[data-theme="ie-classic"] .profile-preset-card,
+:root[data-theme="ie-classic"] .settings-details,
 :root[data-theme="ie-classic"] .layout-options > button,
 :root[data-theme="ie-classic"] .setting-row,
 :root[data-theme="ie-classic"] .settings-model-list > button,
@@ -1396,6 +1398,7 @@
 }
 
 :root[data-theme="ie-classic"] .theme-card.is-active,
+:root[data-theme="ie-classic"] .profile-preset-card.is-active,
 :root[data-theme="ie-classic"] .layout-options > button.is-active {
   border-color: #316ac5;
   box-shadow: inset 0 0 0 1px #316ac5;

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { modelCatalog, PROFILES } from "../data/catalog";
+import { modelCatalog } from "../data/catalog";
 import { detectPlatform, isTauri, syncNativeWindowTheme } from "../lib/platform";
 import { useGenerationRuntime } from "../generation/use-generation-runtime";
 import { useBrowserStore } from "../store/browser-store";
@@ -23,6 +23,7 @@ export function BrowserApp() {
   const preferences = useBrowserStore((state) => state.preferences);
   const activeModelId = useBrowserStore((state) => state.activeModelId);
   const activeProfileId = useBrowserStore((state) => state.activeProfileId);
+  const profiles = useBrowserStore((state) => state.profiles);
   const providerConnections = useBrowserStore((state) => state.providerConnections);
   const addTab = useBrowserStore((state) => state.addTab);
   const closeTab = useBrowserStore((state) => state.closeTab);
@@ -38,7 +39,7 @@ export function BrowserApp() {
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const models = useMemo(() => modelCatalog(providerConnections, activeProfileId), [activeProfileId, providerConnections]);
   const model = models.find((item) => item.id === activeModelId) ?? models[0];
-  const profile = PROFILES.find((item) => item.id === activeProfileId) ?? PROFILES[0];
+  const profile = profiles.find((item) => item.id === activeProfileId) ?? profiles[0]!;
   const isClassicInternetExplorer = preferences.theme === "ie-classic";
   const [hoveredLink, setHoveredLink] = useState<string>();
   const activeArtifactId = activeTab?.artifactId ?? activeTab?.fallbackArtifactId;
@@ -67,7 +68,7 @@ export function BrowserApp() {
   useEffect(() => {
     if (!activeTab) return;
     if (activeTab.kind === "settings") {
-      const section = activeTab.location.split("/").pop() || "appearance";
+      const section = activeTab.location.split("/").pop() || "general";
       const next = `/settings/${section}`;
       if (location.pathname !== next) navigate(next, { replace: true });
     } else if (location.pathname !== "/") {

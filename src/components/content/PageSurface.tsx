@@ -25,6 +25,7 @@ interface PageContextMenuState {
   href?: string;
   linkText?: string;
   ariaLabel?: string;
+  linkContext?: string;
   context?: string;
 }
 
@@ -240,6 +241,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
         href: event.href,
         linkText: event.linkText,
         ariaLabel: event.ariaLabel,
+        linkContext: event.linkContext,
         context: event.context,
       });
       return;
@@ -295,6 +297,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       sourceArtifactId,
       linkText: event.linkText,
       ariaLabel: event.ariaLabel,
+      linkContext: event.linkContext,
       surroundingText: event.context,
     };
     if (archivedSiteWorld) {
@@ -455,6 +458,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
                 sourceArtifactId,
                 linkText: contextMenu.linkText,
                 ariaLabel: contextMenu.ariaLabel,
+                linkContext: contextMenu.linkContext,
                 surroundingText: contextMenu.context,
             };
             if (archivedSiteWorld) {

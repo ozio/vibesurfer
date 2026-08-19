@@ -114,6 +114,31 @@ describe("HTML compiler", () => {
     expect(validateHtml(transformed.html, "https://example.com/start", settings)).toEqual({ valid: true, issues: [] });
   });
 
+  it("preserves explicit link context, synthesizes fallback context, and hard-disables motion", async () => {
+    const settings = {
+      ...generationCommand().settings,
+      tailwindEnabled: false,
+      motionEnabled: false,
+      minInternalLinks: 0,
+    };
+    const transformed = await transformHtml({
+      html: `<!doctype html><html><head><title>Inbox</title><style>.row{transition:all .2s;animation:pulse 1s infinite}</style></head><body>
+        <article><span>Grandma · 12 August</span><a href="/mail/1023" data-vibe-context="Message 1023 from grandma, subject Hello">Hello</a></article>
+        <section><h2>Quarterly statistics</h2><p>Revenue by region</p><a href="/reports/q3">Open report</a></section>
+      </body></html>`,
+      url: "https://mail.example/inbox",
+      title: "Inbox",
+      settings,
+      artifactSeed: "link-context-motion",
+      signal: new AbortController().signal,
+    });
+    expect(transformed.html).toContain('data-vibe-context="Message 1023 from grandma, subject Hello"');
+    expect(transformed.html).toMatch(/data-vibe-context="[^"]*Open report[^"]*Quarterly statistics/);
+    expect(transformed.html).toContain('data-vibesurfer-motion="disabled"');
+    expect(transformed.html).toContain("animation:none!important");
+    expect(transformed.html).not.toContain('data-vibesurfer-styles="tailwind-');
+  });
+
   it("does not make an external image request when permission is off", async () => {
     let fetched = false;
     const resolver = new TagPlaceholderResolver({
@@ -516,6 +541,7 @@ describe("HTML compiler", () => {
   it("keeps inline classic JavaScript only in opted-in final artifacts", async () => {
     const html = `<!doctype html><html><head><title>Interactive</title></head><body>
       <button id="toggle" onclick="steal()">Toggle</button>
+      <form data-vibe-local><input name="height"><button type="submit">Calculate BMI</button></form>
       <script src="https://attacker.test/external.js"></script>
       <script type="module">window.moduleRan = true</script>
       <script data-model-attribute="removed">document.querySelector("#toggle").addEventListener("click", () => document.body.classList.toggle("open"));</script>
@@ -550,6 +576,7 @@ describe("HTML compiler", () => {
     expect(preview).not.toContain("<script");
     expect(disabledFinal.html).not.toContain("<script");
     expect(enabledFinal.html).toContain('<script>document.querySelector("#toggle")');
+    expect(enabledFinal.html).toContain('<form data-vibe-local=""');
     expect(enabledFinal.html).not.toContain("attacker.test");
     expect(enabledFinal.html).not.toContain("type=\"module\"");
     expect(enabledFinal.html).not.toContain("onclick=");

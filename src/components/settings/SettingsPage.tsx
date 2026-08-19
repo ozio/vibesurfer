@@ -9,7 +9,6 @@ import {
   KeyRound,
   LockKeyhole,
   MonitorCog,
-  Palette,
   RefreshCw,
   Search,
   Settings2,
@@ -21,7 +20,7 @@ import {
 } from "lucide-react";
 import { Switch } from "radix-ui";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
-import { MODELS, THEME_LABELS } from "../../data/catalog";
+import { MODELS, PROFILE_PRESETS, THEME_LABELS } from "../../data/catalog";
 import {
   getRuntimeStatus,
   archivePersistedProfileSiteWorlds,
@@ -35,11 +34,10 @@ import {
 } from "../../generation/host-api";
 import { isTauri } from "../../lib/platform";
 import { useBrowserStore } from "../../store/browser-store";
-import type { Density, ProviderConnection, ProviderKind, TabLayout } from "../../types/browser";
+import type { Density, ProviderConnection, ProviderKind, TabLayout, ThemeId } from "../../types/browser";
 
 const sections = [
   { id: "general", label: "General", icon: Settings2 },
-  { id: "appearance", label: "Appearance", icon: Palette },
   { id: "tabs", label: "Tabs", icon: Columns3 },
   { id: "generation", label: "Generation", icon: WandSparkles },
   { id: "models", label: "Models & Codex", icon: Bot },
@@ -53,7 +51,7 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const setSettingsSection = useBrowserStore((state) => state.setSettingsSection);
-  const section = sections.some((item) => item.id === params.section) ? params.section! : "appearance";
+  const section = sections.some((item) => item.id === params.section) ? params.section! : "general";
   const visibleSections = searchQuery.trim()
     ? sections.filter((item) => `${item.label} ${item.id}`.toLowerCase().includes(searchQuery.trim().toLowerCase()))
     : sections;
@@ -118,7 +116,6 @@ export function SettingsPage() {
 }
 
 function SettingsSection({ section }: { section: string }) {
-  if (section === "appearance") return <AppearanceSettings />;
   if (section === "tabs") return <TabSettings />;
   if (section === "generation") return <GenerationSettings />;
   if (section === "models") return <ModelSettings />;
@@ -130,35 +127,6 @@ function SettingsSection({ section }: { section: string }) {
 
 function SettingsHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description?: string }) {
   return <header className="settings-heading"><span>{eyebrow}</span><h1>{title}</h1>{description && <p>{description}</p>}</header>;
-}
-
-function AppearanceSettings() {
-  const preferences = useBrowserStore((state) => state.preferences);
-  const setDensity = useBrowserStore((state) => state.setDensity);
-  return (
-    <>
-      <SettingsHeading eyebrow="Personalize" title="Appearance" description="Browser chrome belongs to the current profile and is selected when that profile is created." />
-      <section className="settings-group">
-        <h2>Profile chrome</h2>
-        <div className="theme-grid">
-          <div className={`theme-card theme-card--${preferences.theme} is-active`}>
-            <span className="theme-card__preview"><i /><b /><b /><b /><em /></span>
-            <span className="theme-card__copy"><strong>{THEME_LABELS[preferences.theme].name}</strong><small>{THEME_LABELS[preferences.theme].caption} · fixed for this profile</small></span>
-            <span className="theme-card__check"><Check aria-hidden="true" /></span>
-          </div>
-        </div>
-      </section>
-      <section className="settings-group">
-        <h2>Interface density</h2>
-        <div className="segmented-control">
-          {(["comfortable", "compact"] as Density[]).map((density) => (
-            <button key={density} className={preferences.density === density ? "is-active" : ""} type="button" onClick={() => setDensity(density)}>{density}</button>
-          ))}
-        </div>
-      </section>
-      <ToggleRow title="Interface animations" description="Animate menus, layout changes and drag feedback." preference="animations" />
-    </>
-  );
 }
 
 function TabSettings() {
@@ -201,13 +169,13 @@ function GenerationSettings() {
         <h2>Artifact styling</h2>
         <GenerationToggle
           title="Compile Tailwind utilities"
-          description="Give the model the full stock Tailwind utility set, then compile only the classes used by each page."
+          description="Require utility-first styling with the stock Tailwind set, then compile only classes used by the page. Exact inline CSS remains available for exceptional selectors and effects."
           checked={settings.style.tailwindEnabled}
           onCheckedChange={(tailwindEnabled) => patchStyleSettings({ tailwindEnabled })}
         />
         <GenerationToggle
           title="Allow generated JavaScript"
-          description="Let the model add inline JavaScript for menus, tabs, filters, dialogs, and other page interactions. Applies only to newly generated pages."
+          description="Let calculators, converters, menus, tabs, filters, and dialogs work locally without generating another page. Applies only to newly generated pages."
           checked={settings.style.allowGeneratedScripts}
           onCheckedChange={(allowGeneratedScripts) => patchStyleSettings({ allowGeneratedScripts })}
         />
@@ -530,18 +498,41 @@ function ProfileSettings() {
   const updateWorldPrompt = useBrowserStore((state) => state.updateWorldPrompt);
   const deleteProfile = useBrowserStore((state) => state.deleteProfile);
   const startProfileFromScratch = useBrowserStore((state) => state.startProfileFromScratch);
+  const preferences = useBrowserStore((state) => state.preferences);
+  const setDensity = useBrowserStore((state) => state.setDensity);
   const profile = profiles.find((item) => item.id === activeProfileId) ?? profiles[0]!;
+  const [vibeDraft, setVibeDraft] = useState(profile.worldPrompt.vibe);
   const [promptDraft, setPromptDraft] = useState(profile.worldPrompt.prompt);
-  const [customName, setCustomName] = useState("Custom world");
-  const [customSkin, setCustomSkin] = useState<"native" | "sedative" | "ie-classic" | "cyberpunk">("native");
-  const [customWorldPrompt, setCustomWorldPrompt] = useState("");
-  useEffect(() => setPromptDraft(profile.worldPrompt.prompt), [profile.id, profile.worldPrompt.prompt]);
+  const [newPreset, setNewPreset] = useState<keyof typeof PROFILE_PRESETS>("native");
+  const [newName, setNewName] = useState<string>(PROFILE_PRESETS.native.name);
+  const [newAvatar, setNewAvatar] = useState<string>(PROFILE_PRESETS.native.avatar);
+  const [newSkin, setNewSkin] = useState<ThemeId>(PROFILE_PRESETS.native.chromeSkin);
+  const [newVibe, setNewVibe] = useState<string>(PROFILE_PRESETS.native.vibe);
+  const [newWorldPrompt, setNewWorldPrompt] = useState<string>(PROFILE_PRESETS.native.prompt);
+  useEffect(() => {
+    setVibeDraft(profile.worldPrompt.vibe);
+    setPromptDraft(profile.worldPrompt.prompt);
+  }, [profile.id, profile.worldPrompt.prompt, profile.worldPrompt.vibe]);
+
+  const selectPreset = (id: keyof typeof PROFILE_PRESETS) => {
+    const preset = PROFILE_PRESETS[id];
+    setNewPreset(id);
+    setNewName(preset.name);
+    setNewAvatar(preset.avatar);
+    setNewSkin(preset.chromeSkin);
+    setNewVibe(preset.vibe);
+    setNewWorldPrompt(preset.prompt);
+  };
+  const promptChanged = vibeDraft !== profile.worldPrompt.vibe || promptDraft !== profile.worldPrompt.prompt;
   return (
     <>
-      <SettingsHeading eyebrow="Identity" title="Profiles" description="Each profile is a complete browser workspace with its own tabs, chrome, world prompt, model settings, history, sites, and connections." />
+      <SettingsHeading eyebrow="Identity" title="Profiles" description="Each profile is a complete browser workspace with its own appearance, vibe, tabs, model settings, history, sites, and connections." />
       <div className="profile-settings-list">
         {profiles.map((item) => (
-          <button key={item.id} type="button" className={item.id === activeProfileId ? "is-active" : ""} onClick={() => setProfile(item.id)}>
+          <button key={item.id} type="button" className={item.id === activeProfileId ? "is-active" : ""} onClick={() => {
+            setProfile(item.id);
+            useBrowserStore.getState().openSettings("profiles");
+          }}>
             <span className="avatar avatar--large">{item.avatar}</span><span><strong>{item.name}</strong><small>{THEME_LABELS[item.chromeSkin].name} · prompt r{item.worldPrompt.revision}</small></span>
             {item.id === activeProfileId && <Check aria-hidden="true" />}
           </button>
@@ -552,37 +543,59 @@ function ProfileSettings() {
         <div className="provider-form__grid">
           <label><span>Name</span><input value={profile.name} maxLength={80} onChange={(event) => updateProfile(profile.id, { name: event.target.value })} /></label>
           <label><span>Avatar</span><input value={profile.avatar} maxLength={4} onChange={(event) => updateProfile(profile.id, { avatar: event.target.value })} /></label>
-          <label className="provider-form__wide"><span>Chrome skin</span><input value={THEME_LABELS[profile.chromeSkin].name} readOnly /></label>
+          <label className="provider-form__wide"><span>Chrome skin</span><select value={profile.chromeSkin} onChange={(event) => updateProfile(profile.id, { chromeSkin: event.target.value as ThemeId })}>{Object.entries(THEME_LABELS).map(([id, label]) => <option key={id} value={id}>{label.name} — {label.caption}</option>)}</select></label>
         </div>
       </section>
       <section className="settings-group">
-        <h2>World prompt</h2>
+        <h2>Appearance</h2>
+        <div className="segmented-control" aria-label="Interface density">
+          {(["comfortable", "compact"] as Density[]).map((density) => (
+            <button key={density} className={preferences.density === density ? "is-active" : ""} type="button" onClick={() => setDensity(density)}>{density}</button>
+          ))}
+        </div>
+        <ToggleRow title="Interface animations" description="Animate browser chrome and allow suitable motion in newly generated pages." preference="animations" />
+      </section>
+      <section className="settings-group">
+        <h2>Vibe</h2>
         <label className="settings-textarea">
-          <textarea value={promptDraft} maxLength={20_000} rows={8} placeholder="Describe the universe-level rules for newly imagined sites." onChange={(event) => setPromptDraft(event.target.value)} />
-          <small>{promptDraft.length.toLocaleString()} / 20,000 · Saving creates revision {profile.worldPrompt.revision + 1}. Existing SiteWorlds keep their frozen snapshot.</small>
+          <textarea value={vibeDraft} maxLength={1_000} rows={3} placeholder="For example: a living 2000s internet, handmade and optimistic." onChange={(event) => setVibeDraft(event.target.value)} />
+          <small>{vibeDraft.length.toLocaleString()} / 1,000 · A short visual and cultural direction for new sites.</small>
         </label>
-        {promptDraft !== profile.worldPrompt.prompt && (
+        <details className="settings-details">
+          <summary>Advanced world rules</summary>
+          <label className="settings-textarea">
+            <textarea value={promptDraft} maxLength={20_000} rows={8} placeholder="Describe universe-level rules, constraints, history, or writing style." onChange={(event) => setPromptDraft(event.target.value)} />
+            <small>{promptDraft.length.toLocaleString()} / 20,000</small>
+          </label>
+        </details>
+        {promptChanged && (
           <div className="settings-callout settings-callout--compact" role="note">
             <TriangleAlert aria-hidden="true" />
             <span><strong>New identities only</strong><small>This revision will affect only SiteWorlds created afterward. Existing and restored incarnations keep their saved prompt snapshot.</small></span>
           </div>
         )}
-        <div className="provider-form__footer"><span /><button className="button button--primary" type="button" disabled={promptDraft === profile.worldPrompt.prompt} onClick={() => updateWorldPrompt(promptDraft)}>Save new revision</button></div>
+        <div className="provider-form__footer"><small>Saving creates revision {profile.worldPrompt.revision + 1}.</small><button className="button button--primary" type="button" disabled={!promptChanged} onClick={() => updateWorldPrompt({ vibe: vibeDraft, prompt: promptDraft })}>Save new revision</button></div>
       </section>
       <section className="settings-group">
         <h2>Create profile</h2>
-        <div className="segmented-control">
-          <button type="button" onClick={() => createProfile({ preset: "native" })}>Native</button>
-          <button type="button" onClick={() => createProfile({ preset: "quiet" })}>Quiet Web</button>
-          <button type="button" onClick={() => createProfile({ preset: "explorer" })}>Internet Explorer</button>
-          <button type="button" onClick={() => createProfile({ preset: "cyberpunk" })}>Cyberpunk</button>
+        <div className="profile-preset-grid" role="radiogroup" aria-label="Profile preset">
+          {(Object.entries(PROFILE_PRESETS) as Array<[keyof typeof PROFILE_PRESETS, (typeof PROFILE_PRESETS)[keyof typeof PROFILE_PRESETS]]>).map(([id, preset]) => (
+            <label key={id} className={`profile-preset-card${newPreset === id ? " is-active" : ""}`}>
+              <input type="radio" name="profile-preset" value={id} checked={newPreset === id} onChange={() => selectPreset(id)} />
+              <span className="avatar">{preset.avatar}</span>
+              <span><strong>{preset.name}</strong><small>{THEME_LABELS[preset.chromeSkin].name}</small></span>
+              {newPreset === id && <Check aria-hidden="true" />}
+            </label>
+          ))}
         </div>
         <div className="provider-form__grid">
-          <label><span>Custom name</span><input value={customName} onChange={(event) => setCustomName(event.target.value)} /></label>
-          <label><span>Chrome skin</span><select value={customSkin} onChange={(event) => setCustomSkin(event.target.value as typeof customSkin)}>{Object.entries(THEME_LABELS).map(([id, label]) => <option key={id} value={id}>{label.name}</option>)}</select></label>
-          <label className="provider-form__wide"><span>Custom world prompt</span><textarea value={customWorldPrompt} maxLength={20_000} rows={4} placeholder="Describe the world this profile should browse." onChange={(event) => setCustomWorldPrompt(event.target.value)} /></label>
+          <label><span>Name</span><input value={newName} maxLength={80} onChange={(event) => setNewName(event.target.value)} /></label>
+          <label><span>Avatar</span><input value={newAvatar} maxLength={4} onChange={(event) => setNewAvatar(event.target.value)} /></label>
+          <label className="provider-form__wide"><span>Chrome skin</span><select value={newSkin} onChange={(event) => setNewSkin(event.target.value as ThemeId)}>{Object.entries(THEME_LABELS).map(([id, label]) => <option key={id} value={id}>{label.name}</option>)}</select></label>
+          <label className="provider-form__wide"><span>Vibe</span><textarea value={newVibe} maxLength={1_000} rows={3} placeholder="A short visual and cultural direction." onChange={(event) => setNewVibe(event.target.value)} /></label>
         </div>
-        <button className="button" type="button" disabled={!customName.trim()} onClick={() => createProfile({ name: customName, chromeSkin: customSkin, worldPrompt: customWorldPrompt })}>Create custom profile</button>
+        <details className="settings-details"><summary>Advanced world rules</summary><label className="settings-textarea"><textarea value={newWorldPrompt} maxLength={20_000} rows={5} onChange={(event) => setNewWorldPrompt(event.target.value)} /></label></details>
+        <button className="button button--primary" type="button" disabled={!newName.trim()} onClick={() => createProfile({ name: newName, avatar: newAvatar, chromeSkin: newSkin, vibe: newVibe, worldPrompt: newWorldPrompt })}>Create profile</button>
       </section>
       <section className="settings-group">
         <h2>Danger zone</h2>

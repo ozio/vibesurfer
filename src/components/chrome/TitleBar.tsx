@@ -17,7 +17,7 @@ export function TitleBar({ platform, layout, title = "vibesurfer", children }: T
     >
       <div className="titlebar__legacy-caption" data-tauri-drag-region="deep">
         <span className="titlebar__legacy-icon" aria-hidden="true">e</span>
-        <span className="titlebar__legacy-title">{title} - Windows Internet Explorer</span>
+        <span className="titlebar__legacy-title">{title} - Vibe Surfer</span>
       </div>
       {platform === "macos" && <WindowControls platform={platform} />}
       {layout === "vertical" && (

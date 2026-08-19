@@ -185,6 +185,8 @@
     return compact(container && container.textContent, 1_024);
   };
 
+  const linkContextFor = (anchor) => compact(anchor.getAttribute("data-vibe-context"), 1_024);
+
   const dispositionFor = (event, anchor) => {
     if (event.shiftKey) return "foreground-tab";
     if (event.button === 1 || event.metaKey || event.ctrlKey || anchor.target === "_blank") {
@@ -224,6 +226,7 @@
       disposition,
       linkText: compact(anchor.textContent, 512),
       ariaLabel: compact(anchor.getAttribute("aria-label"), 512),
+      linkContext: linkContextFor(anchor),
       context: contextFor(anchor),
     });
   };
@@ -246,6 +249,11 @@
   document.addEventListener("focusout", (event) => reportLinkHover(event.relatedTarget), true);
 
   const submitForm = (event, form, submitter = null) => {
+    if (form.hasAttribute("data-vibe-local")) {
+      event.preventDefault();
+      return;
+    }
+    if (event.defaultPrevented) return;
     event.preventDefault();
     event.stopPropagation();
     if (form.method.toUpperCase() !== "GET") {
@@ -279,13 +287,6 @@
       navigateAnchor(event, anchor);
       return;
     }
-    const submitter = event.target.closest("button, input");
-    if (submitter instanceof HTMLButtonElement && submitter.type === "submit" && submitter.form) {
-      submitForm(event, submitter.form, submitter);
-    } else if (submitter instanceof HTMLInputElement
-        && (submitter.type === "submit" || submitter.type === "image") && submitter.form) {
-      submitForm(event, submitter.form, submitter);
-    }
   }, true);
 
   document.addEventListener("auxclick", (event) => {
@@ -307,6 +308,7 @@
             href: href.href,
             linkText: compact(anchor.textContent, 512),
             ariaLabel: compact(anchor.getAttribute("aria-label"), 512),
+            linkContext: linkContextFor(anchor),
             context: contextFor(anchor),
           });
         }
@@ -322,12 +324,6 @@
       send("browser-command", { command: "open-settings" });
       return;
     }
-    if (event.key !== "Enter" || event.isComposing || !(event.target instanceof HTMLElement)) return;
-    if (event.target instanceof HTMLTextAreaElement || event.target.isContentEditable) return;
-    if (!(event.target instanceof HTMLInputElement)
-        || ["button", "reset", "checkbox", "radio", "file", "range", "color"].includes(event.target.type)) return;
-    const form = event.target.closest("form");
-    if (form instanceof HTMLFormElement) submitForm(event, form);
   }, true);
 
   document.addEventListener("submit", (event) => {

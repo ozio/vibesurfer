@@ -158,6 +158,7 @@ const portals: Record<ThemeId, PortalCopy> = {
 export function NewTabPage() {
   const activeTabId = useBrowserStore((state) => state.activeTabId);
   const theme = useBrowserStore((state) => state.preferences.theme);
+  const animations = useBrowserStore((state) => state.preferences.animations);
   const navigate = useBrowserStore((state) => state.navigate);
   const discoverLucky = useBrowserStore((state) => state.discoverLucky);
   const luckyJob = useBrowserStore((state) => {
@@ -181,15 +182,15 @@ export function NewTabPage() {
   return (
     <motion.section
       className="new-tab-page"
-      initial={{ opacity: 0 }}
+      initial={animations ? { opacity: 0 } : false}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.28 }}
+      transition={{ duration: animations ? 0.28 : 0 }}
     >
       <div className="new-tab-page__aura" aria-hidden="true" />
       <div className="new-tab-page__field" aria-hidden="true"><i /><i /><i /></div>
       <div className="new-tab-page__content">
         <header className="new-tab-page__masthead">
-          <motion.div className="new-tab-page__mark" initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}>
+          <motion.div className="new-tab-page__mark" initial={animations ? { opacity: 0, y: -8 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: animations ? 0.28 : 0 }}>
             <img src="/brand/vibesurfer-logo.png" alt="vibesurfer" />
           </motion.div>
           <span className="new-tab-page__signal"><Radio aria-hidden="true" />{portal.signal}</span>

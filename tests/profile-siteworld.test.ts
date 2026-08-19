@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "vitest";
+import { PROFILE_PRESETS } from "../src/data/catalog";
 import { useBrowserStore, migrateBrowserState } from "../src/store/browser-store";
 import type { PageArtifact, SiteIdentity } from "../src/types/browser";
 
@@ -29,11 +30,12 @@ test("the same origin is independent across profiles and profile prompt edits af
   useBrowserStore.getState().commitArtifact(firstJobId, artifact(firstJobId, firstJob.siteWorldId!, "https://bububu.com/", "Monster Search"));
   const frozenSnapshot = useBrowserStore.getState().siteWorlds[firstJob.siteWorldId!].promptSnapshot;
 
-  useBrowserStore.getState().updateWorldPrompt("A new universe revision.");
+  useBrowserStore.getState().updateWorldPrompt({ vibe: "Web 2000", prompt: "A new universe revision." });
   const regenerateJobId = useBrowserStore.getState().regenerate("welcome")!;
   assert.deepEqual(useBrowserStore.getState().generationJobs[regenerateJobId].worldPromptSnapshot, frozenSnapshot);
   const newOriginJobId = useBrowserStore.getState().navigate("welcome", "https://new-world.example/")!;
   assert.equal(useBrowserStore.getState().generationJobs[newOriginJobId].worldPromptSnapshot.prompt, "A new universe revision.");
+  assert.equal(useBrowserStore.getState().generationJobs[newOriginJobId].worldPromptSnapshot.vibe, "Web 2000");
 
   const otherProfileId = useBrowserStore.getState().createProfile({ preset: "cyberpunk" });
   const otherJobId = useBrowserStore.getState().navigate(useBrowserStore.getState().activeTabId, "https://bububu.com/")!;
@@ -43,7 +45,7 @@ test("the same origin is independent across profiles and profile prompt edits af
   assert.equal(otherJob.identityStrategy, "create");
 });
 
-test("chrome skin is immutable browser preference owned by the profile", () => {
+test("profile appearance owns chrome skin and motion snapshots", () => {
   useBrowserStore.getState().patchPreferences({ theme: "cyberpunk", density: "compact" });
   assert.equal(useBrowserStore.getState().preferences.theme, "native");
   assert.equal(useBrowserStore.getState().preferences.density, "compact");
@@ -51,6 +53,24 @@ test("chrome skin is immutable browser preference owned by the profile", () => {
   assert.equal(useBrowserStore.getState().preferences.theme, "ie-classic");
   useBrowserStore.getState().patchPreferences({ theme: "sedative" });
   assert.equal(useBrowserStore.getState().preferences.theme, "ie-classic");
+  const profileId = useBrowserStore.getState().activeProfileId;
+  useBrowserStore.getState().updateProfile(profileId, { chromeSkin: "sedative" });
+  assert.equal(useBrowserStore.getState().preferences.theme, "sedative");
+  useBrowserStore.getState().patchPreferences({ animations: false });
+  const jobId = useBrowserStore.getState().navigate(useBrowserStore.getState().activeTabId, "https://motion.example/")!;
+  assert.equal(useBrowserStore.getState().generationJobs[jobId].motionEnabled, false);
+});
+
+test("creating a profile activates it with Profiles settings still open", () => {
+  const before = useBrowserStore.getState().profiles.length;
+  const id = useBrowserStore.getState().createProfile({ preset: "quiet" });
+  const state = useBrowserStore.getState();
+  assert.equal(state.profiles.length, before + 1);
+  assert.equal(state.activeProfileId, id);
+  assert.equal(state.tabs.length, 1);
+  assert.equal(state.tabs[0]?.kind, "settings");
+  assert.equal(state.tabs[0]?.location, "vibe://settings/profiles");
+  assert.equal(state.profiles.find((profile) => profile.id === id)?.worldPrompt.vibe, PROFILE_PRESETS.quiet.vibe);
 });
 
 test("Reimagine is transactional, archives the old incarnation, closes sibling tabs, and restore swaps context", () => {
@@ -112,7 +132,7 @@ test("state migration wraps the existing session in Personal and moves custom in
   assert.equal(migrated.activeTabId, "legacy");
   assert.equal(migrated.profiles?.length, 1);
   assert.equal(migrated.profiles?.[0]?.chromeSkin, "ie-classic");
-  assert.deepEqual(migrated.profiles?.[0]?.worldPrompt, { revision: 1, prompt: "An old global universe instruction." });
+  assert.deepEqual(migrated.profiles?.[0]?.worldPrompt, { revision: 1, vibe: "", prompt: "An old global universe instruction." });
 });
 
 function artifact(jobId: string, siteWorldId: string, url: string, name: string): PageArtifact {

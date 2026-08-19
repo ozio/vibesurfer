@@ -136,13 +136,13 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
       });
     });
 
-    if (!query || "settings appearance themes".includes(query.toLowerCase())) {
+    if (!query || "settings profiles appearance themes vibe".includes(query.toLowerCase())) {
       result.push({
-        id: "appearance",
-        label: "Appearance settings",
-        detail: "Themes, density and tab layout",
+        id: "profiles-appearance",
+        label: "Profiles & appearance",
+        detail: "Chrome skin, density, animations and vibe",
         icon: "settings",
-        action: { type: "settings", section: "appearance" },
+        action: { type: "settings", section: "profiles" },
       });
     }
 

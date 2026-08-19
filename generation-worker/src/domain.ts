@@ -3,7 +3,7 @@ import { z } from "zod";
 import { IconSetSchema } from "./iconify/catalog.js";
 
 export const PROTOCOL_VERSION = 1 as const;
-export const GENERATION_PROMPT_VERSION = 12 as const;
+export const GENERATION_PROMPT_VERSION = 13 as const;
 
 export const ProviderKindSchema = z.enum([
   "mock",
@@ -64,6 +64,7 @@ export type SiteWorldPatch = z.infer<typeof SiteWorldPatchSchema>;
 export const ProfilePromptSnapshotSchema = z
   .object({
     revision: z.number().int().nonnegative(),
+    vibe: z.string().max(1_000).default(""),
     prompt: z.string().max(20_000),
   })
   .strict();
@@ -133,6 +134,7 @@ export const NavigationIntentSchema = z
     disposition: z.enum(["current", "background-tab", "foreground-tab"]),
     anchorText: z.string().max(300).default(""),
     ariaLabel: z.string().max(300).default(""),
+    linkContext: z.string().max(1_500).default(""),
     surroundingText: z.string().max(1_500).default(""),
     sourceUrl: z.string().url().optional(),
     formFields: z.record(z.string(), z.string().max(2_000)).optional(),
@@ -154,6 +156,7 @@ export const GenerationSettingsSchema = z
     tailwindEnabled: z.boolean().default(true),
     tailwindVersion: z.string().min(1).max(40).default("4.3.3"),
     allowGeneratedScripts: z.boolean().default(false),
+    motionEnabled: z.boolean().default(true),
     images: ImageSettingsSchema.default({
       mode: "tag-placeholder",
       fetchExternal: true,

@@ -351,8 +351,12 @@ export function fromSiteWorldRecord(record: SiteWorldRecord): SiteWorld | undefi
     origin,
     state: record.state ?? (payload.state === "archived" ? "archived" : "active"),
     promptSnapshot: isRecord(payload.promptSnapshot)
-      ? payload.promptSnapshot as unknown as SiteWorld["promptSnapshot"]
-      : { revision: 0, prompt: "" },
+      ? {
+          revision: Math.max(0, Math.round(numberValue(payload.promptSnapshot.revision) ?? 0)),
+          vibe: stringValue(payload.promptSnapshot.vibe) ?? "",
+          prompt: stringValue(payload.promptSnapshot.prompt) ?? "",
+        }
+      : { revision: 0, vibe: "", prompt: "" },
     identity: resolvedIdentity,
     pageSummaries: summaries,
     archivedAt: record.archivedAt ?? stringValue(payload.archivedAt),

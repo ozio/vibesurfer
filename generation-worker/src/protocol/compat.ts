@@ -262,6 +262,7 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
   const rawPromptSnapshot = record(request.worldPromptSnapshot);
   const worldPromptSnapshot = {
     revision: Math.max(0, Math.round(number(rawPromptSnapshot.revision) ?? 0)),
+    vibe: (string(rawPromptSnapshot.vibe) ?? "").slice(0, 1_000),
     prompt: string(rawPromptSnapshot.prompt ?? request.editableInstruction ?? settings.customInstruction) ?? "",
   };
   const siteWorld = normalizeSiteWorld(context.siteWorld ?? request.siteWorld, profileId, worldPromptSnapshot);
@@ -313,6 +314,7 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
       tailwindEnabled: boolean(settings.tailwindEnabled ?? style.tailwindEnabled) ?? true,
       tailwindVersion: string(settings.tailwindVersion ?? style.tailwindVersion) ?? "4.3.3",
       allowGeneratedScripts: boolean(settings.allowGeneratedScripts ?? style.allowGeneratedScripts) ?? false,
+      motionEnabled: boolean(settings.motionEnabled ?? style.motionEnabled) ?? true,
       images: {
         mode: imageMode,
         fetchExternal: imageMode === "tag-placeholder"
@@ -340,6 +342,7 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
             ?? (navigationKind === "address" ? rawNavigation.requestedUrl : undefined),
         )?.slice(0, 300) ?? "",
         ariaLabel: string(rawNavigation.ariaLabel) ?? "",
+        linkContext: string(rawNavigation.linkContext) ?? "",
         surroundingText: string(rawNavigation.surroundingText) ?? "",
         ...(string(rawNavigation.sourceUrl) ? { sourceUrl: normalizeHttpUrl(rawNavigation.sourceUrl) } : {}),
         ...(record(rawNavigation.formFields) && Object.keys(record(rawNavigation.formFields)).length > 0

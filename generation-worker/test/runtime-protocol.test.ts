@@ -59,7 +59,7 @@ describe("Rust host JSONL compatibility", () => {
     const normalized = normalizeHostGeneration(input).command;
     expect(normalized.profileId).toBe("personal");
     expect(normalized.siteWorldId).toBe("site-concept-job");
-    expect(normalized.worldPromptSnapshot).toEqual({ revision: 2, prompt: "A coherent test world." });
+    expect(normalized.worldPromptSnapshot).toEqual({ revision: 2, vibe: "", prompt: "A coherent test world." });
     expect(normalized.context.navigationIntent.anchorText).toBe("A calm research space");
   });
 

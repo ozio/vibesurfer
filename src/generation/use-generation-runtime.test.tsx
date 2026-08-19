@@ -122,7 +122,7 @@ function siteWorld(): SiteWorld {
     profileId: "personal",
     origin: "https://hydrated.example",
     state: "active",
-    promptSnapshot: { revision: 1, prompt: "Hydrated world" },
+    promptSnapshot: { revision: 1, vibe: "", prompt: "Hydrated world" },
     identity,
     pageSummaries: [],
     name: "Hydrated",

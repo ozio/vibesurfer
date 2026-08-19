@@ -64,6 +64,7 @@ export interface ArtifactNavigateEvent extends ArtifactFrameEventBase {
   disposition: ArtifactNavigationDisposition;
   linkText?: string;
   ariaLabel?: string;
+  linkContext?: string;
   context?: string;
 }
 
@@ -85,6 +86,7 @@ export interface ArtifactContextMenuEvent extends ArtifactFrameEventBase {
   href?: string;
   linkText?: string;
   ariaLabel?: string;
+  linkContext?: string;
   context?: string;
 }
 
@@ -281,10 +283,12 @@ export function parseArtifactFrameEvent(
 function optionalTextFields(value: Record<string, unknown>) {
   const linkText = optionalBoundedString(value.linkText, MAX_TEXT_LENGTH);
   const ariaLabel = optionalBoundedString(value.ariaLabel, MAX_TEXT_LENGTH);
+  const linkContext = optionalBoundedString(value.linkContext, MAX_CONTEXT_LENGTH);
   const context = optionalBoundedString(value.context, MAX_CONTEXT_LENGTH);
   return {
     ...(linkText ? { linkText } : {}),
     ...(ariaLabel ? { ariaLabel } : {}),
+    ...(linkContext ? { linkContext } : {}),
     ...(context ? { context } : {}),
   };
 }

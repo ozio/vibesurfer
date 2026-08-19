@@ -165,7 +165,7 @@ function siteWorld(): SiteWorld {
     profileId: "personal",
     origin: "https://example.com",
     state: "active",
-    promptSnapshot: { revision: 2, prompt: "A quiet reference world." },
+    promptSnapshot: { revision: 2, vibe: "", prompt: "A quiet reference world." },
     identity: {
       classification: "original",
       locale: "en-US",

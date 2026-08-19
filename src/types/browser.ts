@@ -36,6 +36,7 @@ export interface NavigationIntent {
   sourceArtifactId?: string;
   linkText?: string;
   ariaLabel?: string;
+  linkContext?: string;
   surroundingText?: string;
   formFields?: Record<string, string>;
 }
@@ -196,6 +197,7 @@ export interface PageSummary {
 
 export interface ProfilePromptSnapshot {
   revision: number;
+  vibe: string;
   prompt: string;
 }
 
@@ -311,6 +313,7 @@ export interface GenerationJob {
   serviceTier?: string;
   identityStrategy?: "reuse" | "create" | "reimagine";
   browserTheme: ThemeId;
+  motionEnabled: boolean;
   worldPromptSnapshot: ProfilePromptSnapshot;
   generationSettingsSnapshot: GenerationSettings;
   status: GenerationJobStatus;

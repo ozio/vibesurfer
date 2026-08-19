@@ -591,6 +591,9 @@
 .settings-textarea textarea { width: 100%; min-height: 132px; padding: 13px 14px; resize: vertical; color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-md); outline: none; background: var(--surface); font: 11px/1.55 var(--font-mono); }
 .settings-textarea textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .settings-textarea > small { color: var(--subtle); font-size: 9px; text-align: right; }
+.settings-details { padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-2); }
+.settings-details > summary { cursor: pointer; color: var(--text); font-size: 10px; font-weight: 680; }
+.settings-details[open] > summary { margin-bottom: 11px; }
 .settings-field { display: flex; min-height: 64px; align-items: center; gap: 20px; margin-bottom: 10px; padding: 12px 15px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .settings-field > span { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 4px; }
 .settings-field strong { font-size: 11px; }
@@ -657,11 +660,22 @@
 .provider-form { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .provider-form__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .provider-form__grid label { display: flex; min-width: 0; flex-direction: column; gap: 6px; color: var(--muted); font-size: 9px; font-weight: 650; }
-.provider-form__grid input, .provider-form__grid select { width: 100%; height: 34px; padding: 0 10px; color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-2); font-size: 10px; }
+.provider-form__grid input, .provider-form__grid select, .provider-form__grid textarea { width: 100%; padding: 0 10px; color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface-2); font-size: 10px; }
+.provider-form__grid input, .provider-form__grid select { height: 34px; }
+.provider-form__grid textarea { min-height: 76px; padding-block: 9px; resize: vertical; font: 10px/1.45 var(--font-mono); }
 .provider-form__wide { grid-column: 1 / -1; }
 .provider-form__footer { display: flex; align-items: center; gap: 15px; margin-top: 14px; }
 .provider-form__footer > small { min-width: 0; flex: 1; color: var(--muted); font-size: 9px; line-height: 1.4; }
 .profile-settings-list__add { border-style: dashed !important; color: var(--muted) !important; }
+.profile-preset-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.profile-preset-card { display: flex; min-height: 58px; cursor: pointer; align-items: center; gap: 10px; padding: 10px 12px; color: var(--text); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
+.profile-preset-card:hover { border-color: var(--border-strong); }
+.profile-preset-card.is-active { border-color: var(--accent); box-shadow: inset 3px 0 var(--accent); }
+.profile-preset-card > input { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.profile-preset-card > span:nth-of-type(2) { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 3px; }
+.profile-preset-card strong { font-size: 10.5px; }
+.profile-preset-card small { color: var(--muted); font-size: 9px; }
+.profile-preset-card > svg { width: 15px; color: var(--accent); }
 .architecture-card { display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 18px; padding: 28px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .architecture-card > div { display: flex; min-width: 190px; min-height: 70px; align-items: center; justify-content: center; flex-direction: column; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
 .architecture-card span { color: var(--accent); font-size: 8px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }

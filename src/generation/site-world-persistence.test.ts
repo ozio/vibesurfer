@@ -64,7 +64,7 @@ function generationJob(overrides: Partial<GenerationJob> = {}): GenerationJob {
     modelId: "mock:preview",
     identityStrategy: "create",
     browserTheme: "native",
-    worldPromptSnapshot: { revision: 4, prompt: "A profile universe." },
+    worldPromptSnapshot: { revision: 4, vibe: "", prompt: "A profile universe." },
     generationSettingsSnapshot: structuredClone(DEFAULT_GENERATION_SETTINGS),
     status: "running",
     phase: "generating",
@@ -72,6 +72,7 @@ function generationJob(overrides: Partial<GenerationJob> = {}): GenerationJob {
     createdAt: "2026-08-12T00:00:00.000Z",
     updatedAt: "2026-08-12T00:00:01.000Z",
     ...overrides,
+    motionEnabled: overrides.motionEnabled ?? true,
   };
 }
 
@@ -90,11 +91,11 @@ function pageArtifact(): PageArtifact {
   const siteIdentity = identity();
   const additions = { facts: ["The eastern desk opened"], routes: [{ path: "/east", label: "Eastern desk" }] };
   return {
-    id: "artifact-world", profileId: "personal", url: "https://example.com/news", title: "Example News", html: "<!doctype html><title>Example News</title>", summary: "The latest reports", siteWorldId: "site-example", generationJobId: "job-world", modelId: "mock:preview", promptVersion: 10, settingsFingerprint: "test", createdAt: "2026-08-12T00:00:02.000Z", warnings: [], siteIdentity, siteAdditions: additions, worldPromptSnapshot: { revision: 4, prompt: "A profile universe." }, sitePatch: { ...siteIdentity, establishedFacts: [...siteIdentity.establishedFacts, ...additions.facts], routeHints: [...siteIdentity.routeHints, ...additions.routes] },
+    id: "artifact-world", profileId: "personal", url: "https://example.com/news", title: "Example News", html: "<!doctype html><title>Example News</title>", summary: "The latest reports", siteWorldId: "site-example", generationJobId: "job-world", modelId: "mock:preview", promptVersion: 10, settingsFingerprint: "test", createdAt: "2026-08-12T00:00:02.000Z", warnings: [], siteIdentity, siteAdditions: additions, worldPromptSnapshot: { revision: 4, vibe: "", prompt: "A profile universe." }, sitePatch: { ...siteIdentity, establishedFacts: [...siteIdentity.establishedFacts, ...additions.facts], routeHints: [...siteIdentity.routeHints, ...additions.routes] },
   };
 }
 
 function siteWorld(overrides: Partial<SiteWorld> = {}): SiteWorld {
   const siteIdentity = identity();
-  return { id: "site-example", profileId: "personal", origin: "https://example.com", state: "active", promptSnapshot: { revision: 1, prompt: "Old snapshot" }, identity: siteIdentity, pageSummaries: [], name: siteIdentity.name, purpose: siteIdentity.purpose, audience: siteIdentity.audience, visualLanguage: { palette: siteIdentity.visualLanguage.palette, typography: siteIdentity.visualLanguage.typography, layout: siteIdentity.layoutSystem, tone: siteIdentity.visualLanguage.mood ?? "" }, informationArchitecture: siteIdentity.routeHints, establishedFacts: siteIdentity.establishedFacts, visitedPageSummaries: [], revision: 1, createdAt: "2026-08-12T00:00:00.000Z", updatedAt: "2026-08-12T00:00:01.000Z", ...overrides };
+  return { id: "site-example", profileId: "personal", origin: "https://example.com", state: "active", promptSnapshot: { revision: 1, vibe: "", prompt: "Old snapshot" }, identity: siteIdentity, pageSummaries: [], name: siteIdentity.name, purpose: siteIdentity.purpose, audience: siteIdentity.audience, visualLanguage: { palette: siteIdentity.visualLanguage.palette, typography: siteIdentity.visualLanguage.typography, layout: siteIdentity.layoutSystem, tone: siteIdentity.visualLanguage.mood ?? "" }, informationArchitecture: siteIdentity.routeHints, establishedFacts: siteIdentity.establishedFacts, visitedPageSummaries: [], revision: 1, createdAt: "2026-08-12T00:00:00.000Z", updatedAt: "2026-08-12T00:00:01.000Z", ...overrides };
 }

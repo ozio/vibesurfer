@@ -154,7 +154,7 @@ export function buildGenerationRequest(state: BrowserState, job: GenerationJob):
       },
       modelId: stripProviderPrefix(job.modelId),
       worldPromptSnapshot: job.worldPromptSnapshot,
-      settings,
+      settings: { ...settings, motionEnabled: job.motionEnabled },
       context: {
         siteWorld,
         sourcePage: sourceArtifact

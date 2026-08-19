@@ -137,6 +137,29 @@ function textNode(value: string, parentNode: ElementNode) {
   return { nodeName: "#text" as const, value, parentNode };
 }
 
+function compactText(value: string, limit: number): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function elementText(element: ElementNode): string {
+  let result = "";
+  walk(element, (node) => {
+    if (node.nodeName === "#text" && "value" in node) result += ` ${node.value}`;
+  });
+  return compactText(result, 1_500);
+}
+
+function linkContainerText(element: ElementNode): string {
+  let current = element.parentNode;
+  while (current && "tagName" in current) {
+    if (["article", "li", "nav", "header", "footer", "section", "p", "tr"].includes(current.tagName)) {
+      return elementText(current);
+    }
+    current = current.parentNode;
+  }
+  return elementText(element);
+}
+
 function appendMarkup(parent: ElementNode, markup: string): void {
   const fragment = parseFragment(parent, markup, {});
   for (const node of fragment.childNodes) {
@@ -234,6 +257,13 @@ function sanitizeDocument(
 
     if (element.tagName === "a") {
       setAttribute(element, "href", normalizeNavigationUrl(getAttribute(element, "href") ?? "#", pageUrl));
+      const explicitContext = compactText(getAttribute(element, "data-vibe-context") ?? "", 1_500);
+      const fallbackContext = compactText([
+        getAttribute(element, "aria-label") ?? "",
+        elementText(element),
+        linkContainerText(element),
+      ].filter(Boolean).join(" — "), 1_500);
+      setAttribute(element, "data-vibe-context", explicitContext || fallbackContext || "Open linked page");
       const rel = new Set((getAttribute(element, "rel") ?? "").toLowerCase().split(/\s+/).filter(Boolean));
       rel.add("noopener");
       rel.add("noreferrer");
@@ -275,6 +305,13 @@ async function injectStyles(document: DocumentNode, settings: GenerationSettings
   const compiled = await compileTailwind(classCandidates(document));
   appendMarkup(head, `<style data-vibesurfer-styles="tailwind-${settings.tailwindVersion}">${compiled.css}</style>`);
   return compiled.warning ? [compiled.warning] : [];
+}
+
+function injectMotionPolicy(document: DocumentNode, settings: GenerationSettings): void {
+  if (settings.motionEnabled !== false) return;
+  const head = firstElement(document, "head");
+  if (!head) return;
+  appendMarkup(head, `<style data-vibesurfer-motion="disabled">html{scroll-behavior:auto!important}*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}</style>`);
 }
 
 async function resolveImages(
@@ -398,6 +435,7 @@ export async function transformPreviewHtml(input: TransformPreviewHtmlInput): Pr
   sanitizeDocument(document, pageUrl, false);
   ensureHeadMetadata(document, input.title);
   await injectStyles(document, input.settings);
+  injectMotionPolicy(document, input.settings);
   const head = firstElement(document, "head");
   if (head) {
     appendMarkup(head, "<style data-vibesurfer-preview>img[data-vibe-image]:not([src]){visibility:hidden}</style>");
@@ -416,6 +454,7 @@ export async function transformHtml(input: TransformHtmlInput): Promise<Transfor
 
   await input.onPhase?.("compiling-styles");
   const styleWarnings = await injectStyles(document, input.settings);
+  injectMotionPolicy(document, input.settings);
   await input.onPhase?.("resolving-images");
   const imageWarnings = await resolveImages(
     document,

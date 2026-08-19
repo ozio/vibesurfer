@@ -70,6 +70,7 @@ test("accepts a bounded navigation event", () => {
     href: "https://example.com/news",
     disposition: "background-tab",
     linkText: "News",
+    linkContext: "News desk, 12 August edition",
     context: "Latest stories",
   }, identity);
 
@@ -79,6 +80,14 @@ test("accepts a bounded navigation event", () => {
   if (result.event.type !== "navigate") return;
   expect(result.event.disposition).toBe("background-tab");
   expect(result.event.linkText).toBe("News");
+  expect(result.event.linkContext).toBe("News desk, 12 August edition");
+  expect(parseArtifactFrameEvent({
+    ...envelope,
+    type: "navigate",
+    href: "https://example.com/news",
+    disposition: "current",
+    linkContext: "x".repeat(1_025),
+  }, identity)).toEqual({ ok: true, event: { ...envelope, type: "navigate", href: "https://example.com/news", disposition: "current" } });
 });
 
 test("accepts safe link hover changes and rejects unsafe targets", () => {

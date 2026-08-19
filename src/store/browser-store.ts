@@ -30,6 +30,7 @@ import type {
   NavigationIntent,
   PageArtifact,
   PageSummary,
+  ProfilePromptSnapshot,
   ProviderConnection,
   ProfileWorkspace,
   SiteIdentity,
@@ -126,10 +127,11 @@ export interface BrowserState {
     name?: string;
     avatar?: string;
     chromeSkin?: ThemeId;
+    vibe?: string;
     worldPrompt?: string;
   }) => string;
-  updateProfile: (id: string, patch: Pick<Partial<BrowserProfile>, "name" | "avatar">) => void;
-  updateWorldPrompt: (prompt: string) => void;
+  updateProfile: (id: string, patch: Pick<Partial<BrowserProfile>, "name" | "avatar" | "chromeSkin">) => void;
+  updateWorldPrompt: (input: Pick<ProfilePromptSnapshot, "vibe" | "prompt"> | string) => void;
   deleteProfile: (id: string) => boolean;
   startProfileFromScratch: () => void;
   reimagine: (id: string) => string | undefined;
@@ -155,7 +157,7 @@ export const DEFAULT_BROWSER_PREFERENCES: BrowserPreferences = {
 };
 
 export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
-  promptVersion: 12,
+  promptVersion: 13,
   maxOutputTokens: 16_000,
   reuseCachedPages: true,
   style: {
@@ -1068,10 +1070,14 @@ export const useBrowserStore = create<BrowserState>()(
           avatar: input.avatar?.trim().slice(0, 4) || preset?.avatar || name.slice(0, 1).toUpperCase(),
           caption: "Local browser workspace",
           chromeSkin,
-          worldPrompt: { revision: 0, prompt: input.worldPrompt ?? preset?.prompt ?? "" },
+          worldPrompt: {
+            revision: 0,
+            vibe: (input.vibe ?? preset?.vibe ?? "").slice(0, 1_000),
+            prompt: (input.worldPrompt ?? preset?.prompt ?? "").slice(0, 20_000),
+          },
           createdAt: new Date().toISOString(),
         };
-        const targetWorkspace = freshWorkspace(chromeSkin);
+        const targetWorkspace = settingsWorkspace(chromeSkin, "profiles");
         set({
           profiles: [...state.profiles, profile],
           profileWorkspaces: {
@@ -1083,18 +1089,43 @@ export const useBrowserStore = create<BrowserState>()(
         });
         return id;
       },
-      updateProfile: (id, patch) => set((state) => ({
-        profiles: state.profiles.map((profile) => profile.id === id
+      updateProfile: (id, patch) => set((state) => {
+        const chromeSkin = patch.chromeSkin && themeValue(patch.chromeSkin);
+        const profiles = state.profiles.map((profile) => profile.id === id
           ? {
               ...profile,
               ...(patch.name?.trim() ? { name: patch.name.trim() } : {}),
               ...(patch.avatar?.trim() ? { avatar: patch.avatar.trim().slice(0, 4) } : {}),
+              ...(chromeSkin ? { chromeSkin } : {}),
             }
-          : profile),
-      })),
-      updateWorldPrompt: (prompt) => set((state) => ({
+          : profile);
+        if (!chromeSkin) return { profiles };
+        if (id === state.activeProfileId) {
+          return { profiles, preferences: { ...state.preferences, theme: chromeSkin } };
+        }
+        const workspace = state.profileWorkspaces[id];
+        return {
+          profiles,
+          ...(workspace
+            ? {
+                profileWorkspaces: {
+                  ...state.profileWorkspaces,
+                  [id]: { ...workspace, preferences: { ...workspace.preferences, theme: chromeSkin } },
+                },
+              }
+            : {}),
+        };
+      }),
+      updateWorldPrompt: (input) => set((state) => ({
         profiles: state.profiles.map((profile) => profile.id === state.activeProfileId
-          ? { ...profile, worldPrompt: { revision: profile.worldPrompt.revision + 1, prompt: prompt.slice(0, 20_000) } }
+          ? {
+              ...profile,
+              worldPrompt: {
+                revision: profile.worldPrompt.revision + 1,
+                vibe: (typeof input === "string" ? profile.worldPrompt.vibe : input.vibe).slice(0, 1_000),
+                prompt: (typeof input === "string" ? input : input.prompt).slice(0, 20_000),
+              },
+            }
           : profile),
       })),
       deleteProfile: (id) => {
@@ -1248,7 +1279,7 @@ export const useBrowserStore = create<BrowserState>()(
     }),
     {
       name: "vibesurfer-browser-state",
-      version: 9,
+      version: 10,
       migrate: (persistedState, version) => migrateBrowserState(persistedState, version) as BrowserState,
       partialize: (state) => ({
         tabs: state.preferences.reopenSession ? state.tabs : initialTabs,
@@ -1301,6 +1332,18 @@ function freshWorkspace(chromeSkin: ThemeId): ProfileWorkspace {
     codexSelection: {},
     generationSettings: structuredClone(DEFAULT_GENERATION_SETTINGS),
   };
+}
+
+function settingsWorkspace(chromeSkin: ThemeId, section: string): ProfileWorkspace {
+  const workspace = freshWorkspace(chromeSkin);
+  const tab = makeTab({
+    id: createId("tab"),
+    title: "Settings",
+    location: `vibe://settings/${section}`,
+    kind: "settings",
+    favicon: "⚙",
+  });
+  return { ...workspace, tabs: [tab], activeTabId: tab.id };
 }
 
 function tabsForWorkspace(state: BrowserState, profileId: string): BrowserTab[] {
@@ -1407,6 +1450,7 @@ function prepareNavigation(
     browserTheme: profile.chromeSkin,
     worldPromptSnapshot: { ...(identityStrategy === "reuse" && activeWorld ? activeWorld.promptSnapshot : profile.worldPrompt) },
     generationSettingsSnapshot: structuredClone(state.generationSettings),
+    motionEnabled: state.preferences.animations,
     status: "queued",
     phase: "queued",
     navigationIntent: intent,
@@ -1815,6 +1859,7 @@ export function migrateBrowserState(persistedState: unknown, version = 0): Parti
           chromeSkin: themeValue(profile.chromeSkin) ?? preferences.theme,
           worldPrompt: {
             revision: Math.max(0, Math.round(numberValue(snapshot.revision) ?? 0)),
+            vibe: stringValue(snapshot.vibe).slice(0, 1_000),
             prompt: stringValue(snapshot.prompt).slice(0, 20_000),
           },
           createdAt: nonEmptyString(profile.createdAt) ?? new Date().toISOString(),
@@ -1825,7 +1870,7 @@ export function migrateBrowserState(persistedState: unknown, version = 0): Parti
     profiles.push({
       ...PROFILES[0],
       chromeSkin: preferences.theme,
-      worldPrompt: { revision: legacyWorldPrompt ? 1 : 0, prompt: legacyWorldPrompt },
+      worldPrompt: { revision: legacyWorldPrompt ? 1 : 0, vibe: "", prompt: legacyWorldPrompt },
     });
   }
   const requestedProfileId = stringValue(source.activeProfileId);
@@ -1846,7 +1891,8 @@ export function migrateBrowserState(persistedState: unknown, version = 0): Parti
           : undefined,
         identityStrategy: job.identityStrategy ?? (job.siteWorldId ? "reuse" : "create"),
         browserTheme: job.browserTheme ?? activeProfile.chromeSkin,
-        worldPromptSnapshot: job.worldPromptSnapshot ?? activeProfile.worldPrompt,
+        motionEnabled: booleanValue(job.motionEnabled) ?? preferences.animations,
+        worldPromptSnapshot: normalizePromptSnapshot(job.worldPromptSnapshot, activeProfile.worldPrompt),
         generationSettingsSnapshot: job.generationSettingsSnapshot ?? generationSettings,
       },
     ]),
@@ -1925,7 +1971,18 @@ function migrateProfileWorkspace(value: unknown, profile: BrowserProfile): Profi
       theme: profile.chromeSkin,
     } as BrowserPreferences,
     codexSelection: migrateCodexSelection(value.codexSelection),
-    generationSettings: migrateGenerationSettings(value.generationSettings, 9),
+    generationSettings: migrateGenerationSettings(value.generationSettings, 10),
+  };
+}
+
+function normalizePromptSnapshot(value: unknown, fallback: ProfilePromptSnapshot): ProfilePromptSnapshot {
+  const snapshot = isRecord(value) ? value : {};
+  const hasVibe = Object.prototype.hasOwnProperty.call(snapshot, "vibe");
+  const hasPrompt = Object.prototype.hasOwnProperty.call(snapshot, "prompt");
+  return {
+    revision: Math.max(0, Math.round(numberValue(snapshot.revision) ?? fallback.revision)),
+    vibe: (hasVibe ? stringValue(snapshot.vibe) : fallback.vibe).slice(0, 1_000),
+    prompt: (hasPrompt ? stringValue(snapshot.prompt) : fallback.prompt).slice(0, 20_000),
   };
 }
 
@@ -2008,10 +2065,7 @@ function migrateSiteWorld(
     profileId: nonEmptyString(value.profileId) ?? fallbackProfileId,
     origin,
     state: value.state === "archived" ? "archived" : "active",
-    promptSnapshot: {
-      revision: Math.max(0, Math.round(numberValue(prompt.revision) ?? fallbackPrompt.revision)),
-      prompt: stringValue(prompt.prompt) || fallbackPrompt.prompt,
-    },
+    promptSnapshot: normalizePromptSnapshot(prompt, fallbackPrompt),
     identity,
     pageSummaries,
     archivedAt: optionalString(value.archivedAt),

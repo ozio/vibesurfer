@@ -103,6 +103,7 @@ export const GenerateCommandSchema = z
       tailwindEnabled: true,
       tailwindVersion: "4.3.3",
       allowGeneratedScripts: false,
+      motionEnabled: true,
       images: { mode: "tag-placeholder", fetchExternal: true, safeContent: true },
       maxOutputTokens: 20_000,
       minInternalLinks: 4,

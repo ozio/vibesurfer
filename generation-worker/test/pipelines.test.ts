@@ -86,6 +86,7 @@ class CompactLocalExecutor implements ModelExecutor {
   readonly modelId = "small-local-model";
   readonly generationMode = "compact" as const;
   readonly calls: string[] = [];
+  readonly textRequests: GenerateTextRequest[] = [];
 
   async generateObject<T>(_request: GenerateObjectRequest<T>): Promise<GeneratedObject<T>> {
     throw new Error("Compact mode must not request structured output.");
@@ -93,6 +94,7 @@ class CompactLocalExecutor implements ModelExecutor {
 
   async generateText(request: GenerateTextRequest): Promise<GeneratedText> {
     this.calls.push(request.purpose);
+    this.textRequests.push(request);
     const startedAt = new Date();
     const text = `\`\`\`html
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><title>Карманная энциклопедия воды</title><meta name="description" content="Практическая памятка об обезвоживании"><style>body{font-family:Arial,sans-serif;max-width:50rem;margin:auto;padding:2rem}nav{display:flex;gap:1rem;flex-wrap:wrap}</style></head><body><nav><a href="/">Главная</a><a href="/symptoms">Симптомы</a><a href="/prevention">Профилактика</a><a href="/help">Помощь</a></nav><main><h1>Обезвоживание</h1><p>Обезвоживание возникает, когда организм теряет больше жидкости, чем получает.</p><h2>Что делать</h2><p>Пейте жидкость небольшими порциями и обращайтесь за помощью при выраженной слабости или спутанности сознания.</p></main></body></html>
@@ -242,6 +244,41 @@ describe("compact local-model pipeline", () => {
     expect(result.artifact.html).toContain("Обезвоживание");
     expect(result.artifact.html).not.toContain("```html");
     expect(previews.at(-1)).toContain("Обезвоживание");
+  });
+
+  it("puts motion, utility-first Tailwind, local JavaScript, and link context into the compact prompt", async () => {
+    const executor = new CompactLocalExecutor();
+    const request = generationCommand({
+      settings: {
+        ...generationCommand().settings,
+        tailwindEnabled: true,
+        allowGeneratedScripts: true,
+        motionEnabled: false,
+      },
+      context: {
+        ...generationCommand().context,
+        navigationIntent: {
+          ...generationCommand().context.navigationIntent,
+          kind: "link",
+          anchorText: "Letter from grandma",
+          linkContext: "Message 1023 from grandma, subject Hello",
+        },
+      },
+    });
+    await runGenerationPipeline({
+      request,
+      executor,
+      signal: new AbortController().signal,
+      emit: emitter().value,
+    });
+
+    const prompt = executor.textRequests[0]?.prompt;
+    expect(prompt?.system).toContain("literal stock Tailwind utility classes");
+    expect(prompt?.system).toContain("Mark every non-navigation form with data-vibe-local");
+    expect(prompt?.system).toContain("Motion is disabled");
+    expect(prompt?.system).toContain("data-vibe-context");
+    expect(prompt?.prompt).toContain("Message 1023 from grandma");
+    expect(prompt?.prompt).toContain("canonical roots familiar");
   });
 
   it("wraps a useful plain-text fragment instead of discarding it", () => {

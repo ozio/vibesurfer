@@ -30,11 +30,12 @@ const job: GenerationJob = {
   modelId: "openai:gpt-test",
   identityStrategy: "reuse",
   browserTheme: "native",
-  worldPromptSnapshot: { revision: 3, prompt: "A bounded profile world." },
+  motionEnabled: true,
+  worldPromptSnapshot: { revision: 3, vibe: "", prompt: "A bounded profile world." },
   generationSettingsSnapshot: structuredClone(DEFAULT_GENERATION_SETTINGS),
   status: "running",
   phase: "generating",
-  navigationIntent: { trigger: "link", disposition: "current", requestedUrl: "/news", sourceTabId: "welcome", linkText: "News" },
+  navigationIntent: { trigger: "link", disposition: "current", requestedUrl: "/news", sourceTabId: "welcome", linkText: "News", linkContext: "News desk, 12 August edition" },
   createdAt: "2026-08-12T00:00:00.000Z",
   updatedAt: "2026-08-12T00:00:01.000Z",
 };
@@ -57,9 +58,37 @@ describe("generation runtime protocol", () => {
       browserTheme: "native",
       worldPromptSnapshot: job.worldPromptSnapshot,
       provider: { connectionId: "openai-main", kind: "openai", modelId: "gpt-test" },
-      context: { siteWorld: world, identityStrategy: "reuse" },
+      settings: { motionEnabled: true, maxOutputTokens: 16_000 },
+      context: { siteWorld: world, identityStrategy: "reuse", navigationIntent: { linkContext: "News desk, 12 August edition" } },
     });
     expect(JSON.stringify(input.request)).not.toContain("personal:openai-main");
+  });
+
+  it("honors same-site history and max-token snapshots independently of later settings", () => {
+    const summary = { artifactId: "artifact-old", url: "https://example.com/old", title: "Old page", purpose: "Prior context", factsIntroduced: [], outboundRoutes: [] };
+    const world = testWorld({ visitedPageSummaries: [summary], pageSummaries: [summary] });
+    const state = useBrowserStore.getState();
+    const configuredJob: GenerationJob = {
+      ...job,
+      generationSettingsSnapshot: {
+        ...structuredClone(DEFAULT_GENERATION_SETTINGS),
+        maxOutputTokens: 7_680,
+        privacy: { ...DEFAULT_GENERATION_SETTINGS.privacy, includeNavigationHistory: true },
+      },
+    };
+    const included = buildGenerationRequest({ ...state, siteWorlds: { [world.id]: world } }, configuredJob);
+    expect(included.request).toMatchObject({
+      settings: { maxOutputTokens: 7_680 },
+      context: { relevantHistory: [summary] },
+    });
+    const excluded = buildGenerationRequest({ ...state, siteWorlds: { [world.id]: world } }, {
+      ...configuredJob,
+      generationSettingsSnapshot: {
+        ...configuredJob.generationSettingsSnapshot,
+        privacy: { ...configuredJob.generationSettingsSnapshot.privacy, includeNavigationHistory: false },
+      },
+    });
+    expect((excluded.request.context as { relevantHistory: unknown[] }).relevantHistory).toEqual([]);
   });
 
   it("keeps job chrome and world snapshots stable when the active profile changes later", () => {
@@ -131,7 +160,7 @@ export function testWorld(overrides: Partial<SiteWorld> = {}): SiteWorld {
     profileId: "personal",
     origin: "https://example.com",
     state: "active",
-    promptSnapshot: { revision: 1, prompt: "Original world prompt." },
+    promptSnapshot: { revision: 1, vibe: "", prompt: "Original world prompt." },
     identity,
     pageSummaries: [],
     name: identity.name,

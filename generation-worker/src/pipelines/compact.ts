@@ -112,7 +112,13 @@ function routesFromHtml(html: string, url: URL): RouteHint[] {
   return routes.slice(0, 20);
 }
 
-function ensureDocumentBasics(html: string, requestUrl: string, title: string, minimumLinks: number): string {
+function ensureDocumentBasics(
+  html: string,
+  requestUrl: string,
+  title: string,
+  minimumLinks: number,
+  tailwindEnabled: boolean,
+): string {
   let document = html;
   const headInsertions: string[] = [];
   if (!/<meta\b[^>]*name=["']viewport["']/i.test(document)) {
@@ -147,13 +153,18 @@ function ensureDocumentBasics(html: string, requestUrl: string, title: string, m
     .filter(([path]) => !existing.has(path))
     .slice(0, Math.max(0, minimumLinks - existing.size));
   if (missing.length > 0) {
-    const links = missing.map(([path, label]) => `<a href="${path}">${escapeHtml(label)}</a>`).join(" ");
-    const navigation = `<nav data-vibesurfer-compact-links aria-label="More pages" style="display:flex;gap:.75rem;flex-wrap:wrap;padding:1rem">${links}</nav>`;
+    const links = missing.map(([path, label, description]) => `<a href="${path}" data-vibe-context="${escapeHtml(description)}">${escapeHtml(label)}</a>`).join(" ");
+    const navigation = contextFreeCompactNavigation(links, tailwindEnabled);
     document = /<\/body>/i.test(document)
       ? document.replace(/<\/body>/i, `${navigation}</body>`)
       : document.replace(/<\/html>/i, `${navigation}</html>`);
   }
   return document;
+}
+
+function contextFreeCompactNavigation(links: string, tailwindEnabled: boolean): string {
+  const utilityClasses = tailwindEnabled ? ' class="flex flex-wrap gap-3 p-4"' : "";
+  return `<nav data-vibesurfer-compact-links aria-label="More pages"${utilityClasses} style="display:flex;gap:.75rem;flex-wrap:wrap;padding:1rem">${links}</nav>`;
 }
 
 function compactIdentity(context: PipelineContext, html: string): SiteIdentity {
@@ -166,7 +177,7 @@ function compactIdentity(context: PipelineContext, html: string): SiteIdentity {
   const seed = hashInt(url.origin);
   const accent = hslToHex(seed % 360, 68, 40);
   const secondary = hslToHex((seed + 74) % 360, 55, 46);
-  const localeSource = `${context.request.worldPromptSnapshot.prompt} ${context.request.context.navigationIntent.anchorText}`;
+  const localeSource = `${context.request.worldPromptSnapshot.vibe ?? ""} ${context.request.worldPromptSnapshot.prompt} ${context.request.context.navigationIntent.anchorText}`;
   const locale = /[\u0400-\u04ff]/.test(localeSource) ? "ru-RU" : "en-US";
   const name = titleCaseHostname(url.hostname);
   const recognizableHosts = ["wikipedia.org", "wikihow.com", "google.com", "youtube.com", "reddit.com"];
@@ -241,8 +252,14 @@ function compactPrompt(context: PipelineContext): PromptBundle {
   const existingIdentity = request.context.siteWorld?.identity;
   const navigation = request.context.navigationIntent;
   const scripts = request.settings.allowGeneratedScripts
-    ? "You may use small inline JavaScript. Calculators, filters, menus, tabs, and forms must work immediately in the page; prefer client-side interaction over a fake form submission."
-    : "Do not use JavaScript or script tags.";
+    ? "You may use small inline JavaScript. Calculators, converters, filters, menus, and tabs must work immediately without another page-generation request. Mark every non-navigation form with data-vibe-local and preventDefault in its handler. Use ordinary links or unmarked GET forms only when the action genuinely opens another page."
+    : "Do not use JavaScript or script tags. Do not render calculators, filters, tabs, or other controls that falsely imply unavailable local behavior; use a genuine navigational link or GET form when another page is required.";
+  const styling = request.settings.tailwindEnabled
+    ? "Use literal stock Tailwind utility classes for primary layout, spacing, typography, color, and responsive styling. Inline CSS is only for exact selectors or effects Tailwind cannot express cleanly."
+    : "Tailwind is unavailable. Keep the complete page CSS inline in one <style> element.";
+  const motion = request.settings.motionEnabled !== false
+    ? "Page-appropriate motion is allowed when it supports comprehension and fits the site's era."
+    : "Motion is disabled. Do not use CSS animations, transitions, animated scrolling, Web Animations, or timer-driven visual motion.";
   const images = request.settings.images.mode === "tag-placeholder"
     ? "For a useful image, use <img data-vibe-image=\"short semantic query\" alt=\"meaningful description\"> instead of a remote URL."
     : "Do not depend on remote images.";
@@ -255,13 +272,16 @@ function compactPrompt(context: PipelineContext): PromptBundle {
     "You are the compact offline page generator inside VibeSurfer.",
     "Return one complete, self-contained HTML document and nothing else. Do not explain your work and do not use Markdown fences.",
     "Use your internal knowledge to make the page genuinely useful. Do not claim to have fetched live data; label uncertain or time-sensitive facts honestly.",
-    "Keep CSS inline in a <style> element. Use semantic HTML, accessible labels, a responsive layout, and same-origin or relative links.",
+    "Use semantic HTML, accessible labels, a responsive layout, and same-origin or relative links. Every meaningful link must include data-vibe-context describing its destination entity, relationship, and key visible values.",
+    styling,
+    motion,
     scripts,
     images,
   ].join(" ");
   const prompt = [
     `URL: ${request.url}`,
     `Browser theme: ${request.browserTheme}`,
+    `Profile vibe: ${(request.worldPromptSnapshot.vibe ?? "").slice(0, 1_000) || "No additional profile vibe."}`,
     `Profile world instruction: ${request.worldPromptSnapshot.prompt.slice(0, 4_000) || "No additional world instruction."}`,
     existingIdentity ? `Existing site identity to preserve: ${JSON.stringify({
       name: existingIdentity.name,
@@ -274,15 +294,17 @@ function compactPrompt(context: PipelineContext): PromptBundle {
     `Navigation request: ${JSON.stringify({
       kind: navigation.kind,
       anchorText: navigation.anchorText,
+      linkContext: (navigation.linkContext ?? "").slice(0, 700),
       surroundingText: navigation.surroundingText.slice(0, 700),
       formFields: navigation.formFields,
     })}`,
     history.length > 0 ? `Recent same-site pages: ${JSON.stringify(history)}` : "There is no prior same-site page context.",
+    "For original sites and inner pages, derive the composition from the page's dominant task instead of repeating a top-left logo, horizontal nav, content column, and right sidebar. Keep recognizable canonical roots familiar.",
     `Include at least ${request.settings.minInternalLinks} useful same-origin links. Put a meaningful <title> and meta description in <head>.`,
     "Begin with <!doctype html>.",
   ].join("\n\n");
   const fingerprint = createHash("sha256").update(system).update("\0").update(prompt).digest("hex");
-  return { system, prompt, fingerprint, version: 1 };
+  return { system, prompt, fingerprint, version: 13 };
 }
 
 function decodeBasicEntities(value: string): string {
@@ -323,13 +345,13 @@ export function normalizeGeneratedHtml(raw: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Generated page</title></head><body><main><pre style="white-space:pre-wrap">${escapeHtml(source)}</pre></main></body></html>`;
 }
 
-function pageResult(raw: string, requestUrl: string, minimumLinks: number): PageResult {
+function pageResult(raw: string, requestUrl: string, minimumLinks: number, tailwindEnabled: boolean): PageResult {
   const normalized = normalizeGeneratedHtml(raw);
   const fallbackTitle = titleCaseHostname(new URL(requestUrl).hostname);
   const title = textContent(normalized.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1]
     ?? normalized.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]
     ?? fallbackTitle).slice(0, 240) || fallbackTitle;
-  const html = ensureDocumentBasics(normalized, requestUrl, title, minimumLinks);
+  const html = ensureDocumentBasics(normalized, requestUrl, title, minimumLinks, tailwindEnabled);
   const description = decodeBasicEntities(html.match(/<meta\b[^>]*name=["']description["'][^>]*content=["']([^"']*)["']/i)?.[1]
     ?? html.match(/<meta\b[^>]*content=["']([^"']*)["'][^>]*name=["']description["']/i)?.[1]
     ?? `Offline generated page for ${requestUrl}`).slice(0, 500);
@@ -364,7 +386,7 @@ export async function runCompactPipeline(context: PipelineContext): Promise<Pipe
   });
   await preview.flush();
 
-  const page = pageResult(generated.text, request.url, request.settings.minInternalLinks);
+  const page = pageResult(generated.text, request.url, request.settings.minInternalLinks, request.settings.tailwindEnabled);
   const approvedBrief = compactBrief(context, page.html);
   await emit.metadata({
     title: page.meta.title,
