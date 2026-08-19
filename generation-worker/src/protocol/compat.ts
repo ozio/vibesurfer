@@ -315,6 +315,11 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
       tailwindVersion: string(settings.tailwindVersion ?? style.tailwindVersion) ?? "4.3.3",
       allowGeneratedScripts: boolean(settings.allowGeneratedScripts ?? style.allowGeneratedScripts) ?? false,
       motionEnabled: boolean(settings.motionEnabled ?? style.motionEnabled) ?? true,
+      capabilities: {
+        audioSpeechEnabled: boolean(record(settings.capabilities).audioSpeechEnabled) ?? true,
+        externalMediaEnabled: boolean(record(settings.capabilities).externalMediaEnabled) ?? false,
+        experimentalEnabled: boolean(record(settings.capabilities).experimentalEnabled) ?? false,
+      },
       images: {
         mode: imageMode,
         fetchExternal: imageMode === "tag-placeholder"

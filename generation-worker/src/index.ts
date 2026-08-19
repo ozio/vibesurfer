@@ -2,6 +2,7 @@
 import { once } from "node:events";
 import { createInterface } from "node:readline";
 
+import { MERMAID_RENDERER_ARGUMENT, runCapabilityRendererProcess } from "./capabilities/renderer-process.js";
 import { WorkerRuntime, type OutputSink } from "./runtime.js";
 
 class JsonlWriter {
@@ -32,7 +33,10 @@ export async function runStdioWorker(): Promise<void> {
 }
 
 if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
-  runStdioWorker().catch(() => {
+  const run = process.argv.includes(MERMAID_RENDERER_ARGUMENT)
+    ? runCapabilityRendererProcess
+    : runStdioWorker;
+  run().catch(() => {
     // stdout is reserved for JSONL protocol messages; never print raw failures or input.
     process.exitCode = 1;
   });

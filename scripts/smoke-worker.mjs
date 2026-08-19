@@ -35,6 +35,31 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function smokeCapabilityRenderer(command) {
+  const child = spawn(command.program, [...command.args, "--capability-renderer=mermaid"], {
+    cwd: root,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk) => { stdout += chunk; });
+  child.stderr.on("data", (chunk) => { stderr += chunk; });
+  child.stdin.end(JSON.stringify({ source: "graph LR\nA[Survey] --> B[Report]" }));
+  const code = await new Promise((resolveExit, rejectTimeout) => {
+    const timeout = setTimeout(() => {
+      child.kill("SIGKILL");
+      rejectTimeout(new Error("Capability renderer smoke timed out"));
+    }, 3_000);
+    child.once("close", (exitCode) => {
+      clearTimeout(timeout);
+      resolveExit(exitCode);
+    });
+  });
+  assert(code === 0, `Capability renderer failed: ${stderr}`);
+  const result = JSON.parse(stdout);
+  assert(typeof result.svg === "string" && result.svg.includes("<svg"), "Capability renderer returned no SVG.");
+}
+
 const originRequests = [];
 const origin = createServer((request, response) => {
   originRequests.push(request.url ?? "/");
@@ -52,6 +77,7 @@ assert(address && typeof address === "object", "Could not resolve the fake origi
 const imaginedUrl = `http://127.0.0.1:${address.port}/never-fetch-this`;
 const command = workerCommand();
 assert(existsSync(command.program), `Worker does not exist: ${command.description}`);
+await smokeCapabilityRenderer(command);
 
 const child = spawn(command.program, command.args, {
   cwd: root,

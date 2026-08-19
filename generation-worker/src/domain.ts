@@ -1,9 +1,11 @@
 import { z } from "zod";
 
+import { ArtifactCapabilityUseSchema, CapabilityIdSchema } from "./capabilities/types.js";
+
 import { IconSetSchema } from "./iconify/catalog.js";
 
 export const PROTOCOL_VERSION = 1 as const;
-export const GENERATION_PROMPT_VERSION = 13 as const;
+export const GENERATION_PROMPT_VERSION = 14 as const;
 
 export const ProviderKindSchema = z.enum([
   "mock",
@@ -157,6 +159,15 @@ export const GenerationSettingsSchema = z
     tailwindVersion: z.string().min(1).max(40).default("4.3.3"),
     allowGeneratedScripts: z.boolean().default(false),
     motionEnabled: z.boolean().default(true),
+    capabilities: z.object({
+      audioSpeechEnabled: z.boolean().default(true),
+      externalMediaEnabled: z.boolean().default(false),
+      experimentalEnabled: z.boolean().default(false),
+    }).strict().default({
+      audioSpeechEnabled: true,
+      externalMediaEnabled: false,
+      experimentalEnabled: false,
+    }),
     images: ImageSettingsSchema.default({
       mode: "tag-placeholder",
       fetchExternal: true,
@@ -227,7 +238,7 @@ export const PageDirectionSchema = z
       .max(20),
     iconSet: IconSetSchema.nullable(),
     imagery: z.array(z.string().min(1).max(200)).max(16),
-    selectedCapabilities: z.array(z.string().min(1).max(80)).max(16),
+    selectedCapabilities: z.array(CapabilityIdSchema).max(16),
     creativeRationale: z.string().min(1).max(1_500),
     implementationNotes: z.string().min(1).max(2_000),
   })
@@ -259,7 +270,7 @@ export const ApprovedPageBriefSchema = z
     identity: SiteIdentitySchema,
     direction: PageDirectionSchema,
     additions: SiteAdditionsSchema,
-    selectedCapabilityContracts: z.record(z.string(), z.string()),
+    selectedCapabilityContracts: z.partialRecord(CapabilityIdSchema, z.string()),
   })
   .strict();
 export type ApprovedPageBrief = z.infer<typeof ApprovedPageBriefSchema>;
@@ -338,6 +349,7 @@ export const PageArtifactSchema = z
     warnings: z.array(ArtifactWarningSchema),
     sitePatch: SiteWorldPatchSchema,
     payload: z.record(z.string(), z.unknown()),
+    capabilityManifest: z.array(ArtifactCapabilityUseSchema).max(64).default([]),
   })
   .strict();
 export type PageArtifact = z.infer<typeof PageArtifactSchema>;

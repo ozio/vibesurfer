@@ -9,6 +9,12 @@ import {
   type ProfilePromptSnapshot,
 } from "./domain.js";
 import {
+  availableCapabilities,
+  capabilityContractRecord,
+  resolveCapabilities,
+} from "./capabilities/registry.js";
+import type { CapabilityId } from "./capabilities/types.js";
+import {
   buildIconGenerationSection,
   iconSetSelectionCatalog,
   type IconSet,
@@ -113,34 +119,18 @@ const THEME_FONT_CATALOG: Readonly<Record<BrowserTheme, readonly string[]>> = {
   cyberpunk: [...BASE_FONT_CATALOG, "Monaco"],
 };
 
-export const CAPABILITY_CONTRACTS: Readonly<Record<string, string>> = {
-  "semantic-navigation": "Use real relative or same-origin href/action targets; never use href=# as placeholder navigation.",
-  "favicon-glyph": "The favicon is supplied by the approved identity and must not be changed or redrawn in HTML.",
-  "tailwind-utilities": "Tailwind is utility-first and required for the page's primary layout, spacing, typography, color, and responsive styling. Use literal utilities from the locally compiled stock runtime. No CDN, @import, external stylesheet, or generated class names.",
-  "inline-page-css": "Use one inline page-level style element only for exact selectors, period-specific details, generated content, or effects that Tailwind utilities cannot express cleanly.",
-  "image-intents": "Images use data-vibe-image with one or two concrete English nouns and a matching alt; never emit a remote image URL.",
-  "local-dom-scripts": "Inline classic scripts may use addEventListener and DOM-only behavior; no network, storage, workers, eval, navigation, parent/top/opener, or native APIs. Mark calculators, converters, filters, tabs, and other non-navigation forms with data-vibe-local and prevent their default submission.",
-};
-
 export interface CapabilityCatalog {
   version: number;
   fonts: readonly string[];
-  capabilities: Readonly<Record<string, string>>;
+  capabilities: Readonly<Partial<Record<CapabilityId, string>>>;
   iconSets: Readonly<Record<IconSet, string>>;
   rendererConstraints: readonly string[];
 }
 
 export function capabilityCatalog(settings: GenerationSettings, browserTheme: BrowserTheme): CapabilityCatalog {
-  const capabilities: Record<string, string> = {
-    "semantic-navigation": CAPABILITY_CONTRACTS["semantic-navigation"]!,
-    "favicon-glyph": CAPABILITY_CONTRACTS["favicon-glyph"]!,
-    "inline-page-css": settings.tailwindEnabled
-      ? CAPABILITY_CONTRACTS["inline-page-css"]!
-      : "Use one inline page-level style element for the complete page design; Tailwind utilities are unavailable.",
-  };
-  if (settings.tailwindEnabled) capabilities["tailwind-utilities"] = CAPABILITY_CONTRACTS["tailwind-utilities"]!;
-  if (settings.images.mode !== "off") capabilities["image-intents"] = CAPABILITY_CONTRACTS["image-intents"]!;
-  if (settings.allowGeneratedScripts) capabilities["local-dom-scripts"] = CAPABILITY_CONTRACTS["local-dom-scripts"]!;
+  const capabilities = Object.fromEntries(
+    availableCapabilities(settings, browserTheme).map((descriptor) => [descriptor.id, descriptor.directorHint]),
+  ) as Partial<Record<CapabilityId, string>>;
   return {
     version: GENERATION_PROMPT_VERSION,
     fonts: THEME_FONT_CATALOG[browserTheme],
@@ -164,20 +154,13 @@ export function approveCapabilitySelection(
   settings: GenerationSettings,
   browserTheme: BrowserTheme,
   fonts: { body: string; heading: string; mono?: string | undefined },
-  selected: string[],
-): Record<string, string> {
+  selected: CapabilityId[],
+): Partial<Record<CapabilityId, string>> {
   const catalog = capabilityCatalog(settings, browserTheme);
   for (const font of [fonts.body, fonts.heading, fonts.mono].filter((value): value is string => Boolean(value))) {
     if (!catalog.fonts.includes(font)) throw new Error(`Director selected unavailable font: ${font}`);
   }
-  const unique = [...new Set([
-    ...selected,
-    ...(settings.tailwindEnabled ? ["tailwind-utilities"] : []),
-  ])];
-  for (const id of unique) {
-    if (!(id in catalog.capabilities)) throw new Error(`Director selected unavailable capability: ${id}`);
-  }
-  return Object.fromEntries(unique.map((id) => [id, catalog.capabilities[id]!]));
+  return capabilityContractRecord(resolveCapabilities(settings, browserTheme, selected));
 }
 
 function stageInstruction(input: PromptInput): string {
@@ -247,7 +230,7 @@ export function buildPrompt(input: PromptInput): PromptBundle {
     promptSections.push(`<capability_catalog>\n${JSON.stringify(capabilityCatalog(input.settings, browserTheme), null, 2)}\n</capability_catalog>`);
   } else if (input.approvedBrief) {
     promptSections.push(`<approved_page_brief>\n${JSON.stringify(input.approvedBrief, null, 2)}\n</approved_page_brief>`);
-    promptSections.push(`<selected_rendering_contracts>\nUse only the capabilities listed below; every unlisted optional capability is unavailable. Use only the fonts named in the approved brief.\n${Object.values(input.approvedBrief.selectedCapabilityContracts).join("\n")}\n</selected_rendering_contracts>`);
+    promptSections.push(`<selected_rendering_contracts>\nUse only the capabilities listed below; every unlisted optional capability is unavailable. Use only the fonts named in the approved brief.\n${Object.entries(input.approvedBrief.selectedCapabilityContracts).map(([id, contract]) => `${id}: ${contract}`).join("\n")}\n</selected_rendering_contracts>`);
     promptSections.push(buildIconGenerationSection(input.approvedBrief.direction.iconSet));
   }
 

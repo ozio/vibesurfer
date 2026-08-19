@@ -17,6 +17,11 @@ export function generationCommand(overrides: Partial<GenerateCommand> = {}): Gen
       tailwindVersion: "4.3.3",
       allowGeneratedScripts: false,
       motionEnabled: true,
+      capabilities: {
+        audioSpeechEnabled: true,
+        externalMediaEnabled: false,
+        experimentalEnabled: false,
+      },
       images: { mode: "local", fetchExternal: false, safeContent: true },
       maxOutputTokens: 20_000,
       minInternalLinks: 12,

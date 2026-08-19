@@ -1,0 +1,331 @@
+import type { BrowserTheme, GenerationSettings } from "../domain.js";
+import {
+  type CapabilityExecutionTarget,
+  type CapabilityId,
+  type ResolvedCapability,
+} from "./types.js";
+
+export interface CapabilityDescriptor {
+  id: CapabilityId;
+  directorHint: string;
+  builderContract: string;
+  execution: CapabilityExecutionTarget;
+  maxInstances: number;
+  version: string;
+  noticeIds: readonly string[];
+  compact: boolean;
+  available(settings: GenerationSettings, browserTheme: BrowserTheme): boolean;
+}
+
+const always = () => true;
+
+const descriptors: readonly CapabilityDescriptor[] = [
+  {
+    id: "semantic-navigation",
+    directorHint: "real same-site links and GET forms",
+    builderContract: "Use real relative or same-origin href/action targets; never use href=# as placeholder navigation.",
+    execution: "compiler",
+    maxInstances: 128,
+    version: "1",
+    noticeIds: [],
+    compact: true,
+    available: always,
+  },
+  {
+    id: "favicon-glyph",
+    directorHint: "approved site favicon",
+    builderContract: "The favicon is supplied by the approved identity and must not be changed or redrawn in HTML.",
+    execution: "compiler",
+    maxInstances: 1,
+    version: "1",
+    noticeIds: [],
+    compact: false,
+    available: always,
+  },
+  {
+    id: "tailwind-utilities",
+    directorHint: "stock Tailwind utility styling",
+    builderContract: "Use literal utilities from the locally compiled Tailwind set for primary layout and styling. No CDN, @import, external stylesheet, arbitrary generated class, or dynamic class name.",
+    execution: "compiler",
+    maxInstances: 1,
+    version: "4.3.3",
+    noticeIds: ["npm:tailwindcss@4.3.3"],
+    compact: true,
+    available: (settings) => settings.tailwindEnabled,
+  },
+  {
+    id: "inline-page-css",
+    directorHint: "page-owned CSS for exact visual details",
+    builderContract: "Use one inline page-level style element for exact selectors, era-specific details, CSS variables, and capability wrappers. Capability output inherits the page design and must not dictate the era.",
+    execution: "compiler",
+    maxInstances: 1,
+    version: "1",
+    noticeIds: [],
+    compact: true,
+    available: always,
+  },
+  {
+    id: "image-intents",
+    directorHint: "contextual editorial images",
+    builderContract: "Use <img data-vibe-image=\"one or two concrete English nouns\" alt=\"meaningful description\">; never emit a remote image URL.",
+    execution: "compiler",
+    maxInstances: 24,
+    version: "1",
+    noticeIds: [],
+    compact: true,
+    available: (settings) => settings.images.mode !== "off",
+  },
+  {
+    id: "local-dom-scripts",
+    directorHint: "small page-authored DOM behavior",
+    builderContract: "Inline classic scripts may use DOM-only behavior; no network, storage, workers, eval, navigation, parent/top/opener, or native APIs. Mark non-navigation forms data-vibe-local.",
+    execution: "trusted-runtime",
+    maxInstances: 16,
+    version: "1",
+    noticeIds: [],
+    compact: false,
+    available: (settings) => settings.allowGeneratedScripts,
+  },
+  {
+    id: "pattern-background",
+    directorHint: "procedural background patterns and textures",
+    builderContract: "Add data-vibe-pattern=\"dots|grid|diagonal|cross|waves|paper\" to any styled element. Set --vibe-pattern-color, --vibe-pattern-size, and the element background color in page CSS.",
+    execution: "compiler",
+    maxInstances: 16,
+    version: "1",
+    noticeIds: [],
+    compact: true,
+    available: always,
+  },
+  {
+    id: "motion-presets",
+    directorHint: "purposeful reveal, count, pulse, or ticker motion",
+    builderContract: "Add data-vibe-motion=\"reveal|stagger|pulse|ticker\" to existing elements. Motion is progressive enhancement and must remain understandable when disabled.",
+    execution: "trusted-runtime",
+    maxInstances: 32,
+    version: "1",
+    noticeIds: [],
+    compact: true,
+    available: (settings) => settings.motionEnabled !== false,
+  },
+  {
+    id: "data-chart",
+    directorHint: "bar, line, area, point, or pie charts from page data",
+    builderContract: "Use <vibe-chart aria-label=\"...\"><template>{valid Vega-Lite JSON with inline values only}</template><figcaption>...</figcaption></vibe-chart>. Keep data truthful to the page and under 200 rows; do not add URLs.",
+    execution: "compiler",
+    maxInstances: 8,
+    version: "vega-lite-6.4.3",
+    noticeIds: ["npm:vega-lite@6.4.3", "npm:vega@6.4.0"],
+    compact: true,
+    available: always,
+  },
+  {
+    id: "diagram",
+    directorHint: "flowchart, timeline, mindmap, sequence, state, ER, or architecture diagram",
+    builderContract: "Use <vibe-diagram aria-label=\"...\"><pre>valid Mermaid source</pre><figcaption>...</figcaption></vibe-diagram>. Keep it compact and never use links or click directives.",
+    execution: "compiler",
+    maxInstances: 8,
+    version: "beautiful-mermaid-1.1.3",
+    noticeIds: ["npm:beautiful-mermaid@1.1.3"],
+    compact: false,
+    available: always,
+  },
+  {
+    id: "math",
+    directorHint: "accessible inline or display mathematics",
+    builderContract: "Use <span data-vibe-math>TeX</span> inline or <div data-vibe-math data-display=\"block\">TeX</div>. Do not include dollar delimiters.",
+    execution: "compiler",
+    maxInstances: 64,
+    version: "katex-0.18.4",
+    noticeIds: ["npm:katex@0.18.4"],
+    compact: false,
+    available: always,
+  },
+  {
+    id: "code-highlight",
+    directorHint: "syntax-highlighted source code or configuration",
+    builderContract: "Use <pre data-vibe-code=\"language-id\"><code>escaped source</code></pre>. Supported languages: text, html, css, javascript, typescript, json, bash, rust, python, markdown, sql.",
+    execution: "compiler",
+    maxInstances: 16,
+    version: "shiki-4.4.3",
+    noticeIds: ["npm:shiki@4.4.3"],
+    compact: false,
+    available: always,
+  },
+  {
+    id: "qr-code",
+    directorHint: "QR code for a visible URL or short text",
+    builderContract: "Use <vibe-qr data-value=\"exact visible value\" aria-label=\"...\"></vibe-qr>. The encoded value must also appear as readable text nearby.",
+    execution: "compiler",
+    maxInstances: 8,
+    version: "qrcode-1.5.4",
+    noticeIds: ["npm:qrcode@1.5.4"],
+    compact: false,
+    available: always,
+  },
+  {
+    id: "avatar",
+    directorHint: "stable fictional avatars without real-person photos",
+    builderContract: "Use <vibe-avatar data-seed=\"stable fictional name\" data-style=\"initials|shapes|personas|bottts\" aria-label=\"...\"></vibe-avatar>. Style the wrapper size and shape in page CSS.",
+    execution: "compiler",
+    maxInstances: 64,
+    version: "dicebear-9.4.2",
+    noticeIds: ["npm:@dicebear/core@9.4.3", "npm:@dicebear/collection@9.4.2"],
+    compact: false,
+    available: always,
+  },
+  {
+    id: "synthetic-map",
+    directorHint: "fictional schematic map or route",
+    builderContract: "Use <vibe-map aria-label=\"...\"><template>{\"places\":[{\"name\":\"...\",\"x\":0-100,\"y\":0-100}],\"routes\":[[0,1]]}</template><figcaption>...</figcaption></vibe-map>. Use fictional or explicitly schematic geography only.",
+    execution: "compiler",
+    maxInstances: 4,
+    version: "1",
+    noticeIds: [],
+    compact: false,
+    available: always,
+  },
+  {
+    id: "micro-widgets",
+    directorHint: "progress, countdown, rating, poll, terminal, patch, sticker, price, marquee, or waveform primitives",
+    builderContract: "Use semantic HTML plus data-vibe-widget=\"progress|countdown|rating|poll|terminal|patch|sticker|price|marquee|waveform\". Supply honest visible labels and values through ordinary text, data-value, data-max, data-target, or child buttons; fully style it in page CSS.",
+    execution: "trusted-runtime",
+    maxInstances: 32,
+    version: "1",
+    noticeIds: [],
+    compact: true,
+    available: always,
+  },
+  {
+    id: "carousel",
+    directorHint: "user-controlled horizontal collection",
+    builderContract: "Use <section data-vibe-carousel aria-label=\"...\"> with direct article/figure children and optional buttons data-vibe-prev/data-vibe-next. It must remain readable as a normal list without JavaScript.",
+    execution: "trusted-runtime",
+    maxInstances: 4,
+    version: "1",
+    noticeIds: [],
+    compact: true,
+    available: always,
+  },
+  {
+    id: "slideshow",
+    directorHint: "timed slideshow or fake video player",
+    builderContract: "Use <section data-vibe-slideshow data-interval=\"4000\" aria-label=\"...\"> with direct article/figure slides. Include visible play/pause, previous and next buttons using data-vibe-play/data-vibe-prev/data-vibe-next.",
+    execution: "trusted-runtime",
+    maxInstances: 2,
+    version: "1",
+    noticeIds: [],
+    compact: true,
+    available: always,
+  },
+  {
+    id: "speech",
+    directorHint: "user-triggered read-aloud controls",
+    builderContract: "Use a real <button data-vibe-speak=\"#target-id\">Read aloud</button>. The target must contain bounded visible page text. Never autoplay speech.",
+    execution: "trusted-runtime",
+    maxInstances: 8,
+    version: "web-speech-1",
+    noticeIds: [],
+    compact: true,
+    available: (settings) => settings.capabilities.audioSpeechEnabled,
+  },
+  {
+    id: "sound",
+    directorHint: "user-triggered procedural tones",
+    builderContract: "Use <button data-vibe-sound=\"confirm|alert|chime|tick\"> with a visible purpose. Sound requires a user gesture and must never autoplay.",
+    execution: "trusted-runtime",
+    maxInstances: 8,
+    version: "web-audio-1",
+    noticeIds: [],
+    compact: false,
+    available: (settings) => settings.capabilities.audioSpeechEnabled,
+  },
+  {
+    id: "external-media",
+    directorHint: "licensed stock photo or video from a configured provider",
+    builderContract: "External media is resolved by the trusted host. Use only the supplied data-vibe-media marker and preserve its attribution container.",
+    execution: "host",
+    maxInstances: 8,
+    version: "1",
+    noticeIds: [],
+    compact: false,
+    available: () => false,
+  },
+  {
+    id: "gifcities",
+    directorHint: "copyright-sensitive archived web GIF",
+    builderContract: "Use only host-resolved archived GIF markers and keep the source/copyright notice visible.",
+    execution: "host",
+    maxInstances: 4,
+    version: "1",
+    noticeIds: [],
+    compact: false,
+    available: () => false,
+  },
+  {
+    id: "real-map",
+    directorHint: "real map from a user-configured tile provider",
+    builderContract: "Use only host-resolved map markers with real coordinates and provider attribution.",
+    execution: "host",
+    maxInstances: 2,
+    version: "1",
+    noticeIds: [],
+    compact: false,
+    available: () => false,
+  },
+];
+
+export const CAPABILITY_REGISTRY: ReadonlyMap<CapabilityId, CapabilityDescriptor> = new Map(
+  descriptors.map((descriptor) => [descriptor.id, descriptor]),
+);
+
+export function availableCapabilities(
+  settings: GenerationSettings,
+  browserTheme: BrowserTheme,
+): readonly CapabilityDescriptor[] {
+  return descriptors.filter((descriptor) => descriptor.available(settings, browserTheme));
+}
+
+export function compactCapabilityContracts(
+  settings: GenerationSettings,
+  browserTheme: BrowserTheme,
+): Readonly<Partial<Record<CapabilityId, string>>> {
+  return Object.fromEntries(
+    availableCapabilities(settings, browserTheme)
+      .filter((descriptor) => descriptor.compact)
+      .map((descriptor) => [descriptor.id, descriptor.builderContract]),
+  ) as Partial<Record<CapabilityId, string>>;
+}
+
+export function resolveCapabilities(
+  settings: GenerationSettings,
+  browserTheme: BrowserTheme,
+  selected: readonly CapabilityId[],
+): readonly ResolvedCapability[] {
+  const required: CapabilityId[] = [
+    "semantic-navigation",
+    "inline-page-css",
+    ...(settings.tailwindEnabled ? ["tailwind-utilities" as const] : []),
+  ];
+  const unique = [...new Set([...required, ...selected])];
+  return unique.map((id) => {
+    const descriptor = CAPABILITY_REGISTRY.get(id);
+    if (!descriptor || !descriptor.available(settings, browserTheme)) {
+      throw new Error(`Director selected unavailable capability: ${id}`);
+    }
+    return {
+      id: descriptor.id,
+      builderContract: descriptor.builderContract,
+      execution: descriptor.execution,
+      maxInstances: descriptor.maxInstances,
+      version: descriptor.version,
+      noticeIds: descriptor.noticeIds,
+    };
+  });
+}
+
+export function capabilityContractRecord(
+  capabilities: readonly ResolvedCapability[],
+): Partial<Record<CapabilityId, string>> {
+  return Object.fromEntries(capabilities.map((capability) => [capability.id, capability.builderContract])) as Partial<Record<CapabilityId, string>>;
+}

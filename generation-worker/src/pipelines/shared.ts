@@ -53,6 +53,8 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
     title: input.page.meta.title,
     settings: input.request.settings,
     selectedIconSet: input.approvedBrief.direction.iconSet,
+    selectedCapabilities: input.approvedBrief.direction.selectedCapabilities,
+    browserTheme: input.request.browserTheme,
     artifactSeed: artifactId,
     signal: input.signal,
     onPhase: async (phase) => {
@@ -131,10 +133,12 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
       usage: input.usage,
       modelExchanges: input.modelExchanges,
       warnings,
+      capabilityManifest: transformed.capabilityManifest,
       ...(input.request.context.parentArtifactId
         ? { parentArtifactId: input.request.context.parentArtifactId }
         : {}),
     },
+    capabilityManifest: transformed.capabilityManifest,
   };
 
   return { artifact, issues: validation.issues };
@@ -192,6 +196,8 @@ export function createProgressivePagePreview(
         title: title ?? new URL(input.request.url).hostname,
         settings: input.request.settings,
         selectedIconSet: input.approvedBrief?.direction.iconSet ?? null,
+        selectedCapabilities: input.approvedBrief?.direction.selectedCapabilities ?? [],
+        browserTheme: input.request.browserTheme,
       });
       await input.emit.preview(preview);
       lastRenderedHtml = html;

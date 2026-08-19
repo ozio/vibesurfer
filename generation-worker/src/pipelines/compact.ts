@@ -1,5 +1,7 @@
 import { createHash } from "node:crypto";
 
+import { compactCapabilityContracts } from "../capabilities/registry.js";
+import type { CapabilityId } from "../capabilities/types.js";
 import type {
   ApprovedPageBrief,
   FaviconDescriptor,
@@ -221,6 +223,9 @@ function compactBrief(context: PipelineContext, html: string): ApprovedPageBrief
     facts: [] as string[],
     routes: routesFromHtml(html, new URL(context.request.url)),
   };
+  const selectedCapabilityContracts = compactCapabilityContracts(context.request.settings, context.request.browserTheme);
+  const selectedCapabilities = Object.keys(selectedCapabilityContracts) as CapabilityId[];
+  if (context.request.settings.allowGeneratedScripts) selectedCapabilities.push("local-dom-scripts");
   const direction: PageDirection = {
     siteClassification: identity.classification,
     locale: identity.locale,
@@ -236,15 +241,11 @@ function compactBrief(context: PipelineContext, html: string): ApprovedPageBrief
     ],
     iconSet: null,
     imagery: context.request.settings.images.mode === "tag-placeholder" ? ["Optional semantic image placeholders"] : [],
-    selectedCapabilities: [
-      "semantic-navigation",
-      "inline-page-css",
-      ...(context.request.settings.allowGeneratedScripts ? ["generated-javascript"] : []),
-    ],
+    selectedCapabilities,
     creativeRationale: "Compact mode lets a small local model focus its limited capacity on one useful HTML document.",
     implementationNotes: "Site identity, metadata, favicon, continuity, and safety transforms are completed deterministically by the host.",
   };
-  return { identity, direction, additions, selectedCapabilityContracts: {} };
+  return { identity, direction, additions, selectedCapabilityContracts };
 }
 
 function compactPrompt(context: PipelineContext): PromptBundle {
@@ -263,6 +264,11 @@ function compactPrompt(context: PipelineContext): PromptBundle {
   const images = request.settings.images.mode === "tag-placeholder"
     ? "For a useful image, use <img data-vibe-image=\"short semantic query\" alt=\"meaningful description\"> instead of a remote URL."
     : "Do not depend on remote images.";
+  const capabilityContracts = compactCapabilityContracts(request.settings, request.browserTheme);
+  const capabilities = Object.entries(capabilityContracts)
+    .filter(([id]) => !["semantic-navigation", "inline-page-css", "tailwind-utilities", "image-intents"].includes(id))
+    .map(([id, contract]) => `${id}: ${contract}`)
+    .join("\n");
   const history = request.context.relevantHistory.slice(0, 3).map((page) => ({
     url: page.url,
     title: page.title,
@@ -277,6 +283,7 @@ function compactPrompt(context: PipelineContext): PromptBundle {
     motion,
     scripts,
     images,
+    capabilities ? `Optional built-in capabilities are available without generated JavaScript. Use them only when useful:\n${capabilities}` : "",
   ].join(" ");
   const prompt = [
     `URL: ${request.url}`,
@@ -304,7 +311,7 @@ function compactPrompt(context: PipelineContext): PromptBundle {
     "Begin with <!doctype html>.",
   ].join("\n\n");
   const fingerprint = createHash("sha256").update(system).update("\0").update(prompt).digest("hex");
-  return { system, prompt, fingerprint, version: 13 };
+  return { system, prompt, fingerprint, version: 14 };
 }
 
 function decodeBasicEntities(value: string): string {

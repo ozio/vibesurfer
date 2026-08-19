@@ -256,7 +256,7 @@ function makeDirectorResult(url: URL, seed: number, prompt: string): unknown {
     ],
     iconSet,
     imagery: ["coastal-city", "community-studio"],
-    selectedCapabilities: availableCapabilities,
+    selectedCapabilities: availableCapabilities.slice(0, 16),
     creativeRationale: `A concrete service for ${url.hostname}, with an identity tied to the hostname rather than a generic landing page.`,
     implementationNotes: "Keep the route hierarchy visible and render the approved visual system exactly.",
   };

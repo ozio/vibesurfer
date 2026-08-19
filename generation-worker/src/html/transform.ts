@@ -2,7 +2,9 @@ import { Buffer } from "node:buffer";
 
 import { parse, parseFragment, serialize } from "parse5";
 
-import type { ArtifactWarning, GenerationSettings } from "../domain.js";
+import { compileCapabilities } from "../capabilities/transform.js";
+import type { ArtifactCapabilityUse, CapabilityId } from "../capabilities/types.js";
+import type { ArtifactWarning, BrowserTheme, GenerationSettings } from "../domain.js";
 import type { IconSet } from "../iconify/catalog.js";
 import { compileIconify } from "../iconify/transform.js";
 import { createImageResolver, type ImageIntentResolver } from "../images/resolver.js";
@@ -27,6 +29,7 @@ const REMOVED_ELEMENTS = new Set([
   "iframe",
   "object",
   "portal",
+  "template",
 ]);
 
 export const MAX_IMAGE_INTENTS = 24;
@@ -402,6 +405,8 @@ export interface TransformHtmlInput {
   title: string;
   settings: GenerationSettings;
   selectedIconSet?: IconSet | null;
+  selectedCapabilities?: readonly CapabilityId[];
+  browserTheme?: BrowserTheme;
   artifactSeed: string;
   signal: AbortSignal;
   imageResolver?: ImageIntentResolver;
@@ -411,6 +416,7 @@ export interface TransformHtmlInput {
 export interface TransformHtmlResult {
   html: string;
   warnings: ArtifactWarning[];
+  capabilityManifest: ArtifactCapabilityUse[];
 }
 
 export interface TransformPreviewHtmlInput {
@@ -419,6 +425,8 @@ export interface TransformPreviewHtmlInput {
   title: string;
   settings: GenerationSettings;
   selectedIconSet?: IconSet | null;
+  selectedCapabilities?: readonly CapabilityId[];
+  browserTheme?: BrowserTheme;
 }
 
 /**
@@ -432,6 +440,14 @@ export async function transformPreviewHtml(input: TransformPreviewHtmlInput): Pr
   const document = parse(source.html);
   normalizeEscapedFormatting(document);
   compileIconify(document, input.selectedIconSet ?? null);
+  await compileCapabilities({
+    document,
+    settings: input.settings,
+    browserTheme: input.browserTheme ?? "native",
+    selectedCapabilities: input.selectedCapabilities
+      ?? (input.settings.allowGeneratedScripts ? ["local-dom-scripts"] : []),
+    preview: true,
+  });
   sanitizeDocument(document, pageUrl, false);
   ensureHeadMetadata(document, input.title);
   await injectStyles(document, input.settings);
@@ -449,6 +465,15 @@ export async function transformHtml(input: TransformHtmlInput): Promise<Transfor
   const document = parse(source.html);
   normalizeEscapedFormatting(document);
   const iconify = compileIconify(document, input.selectedIconSet ?? null);
+  const capabilities = await compileCapabilities({
+    document,
+    settings: input.settings,
+    browserTheme: input.browserTheme ?? "native",
+    selectedCapabilities: input.selectedCapabilities
+      ?? (input.settings.allowGeneratedScripts ? ["local-dom-scripts"] : []),
+    preview: false,
+    signal: input.signal,
+  });
   sanitizeDocument(document, pageUrl, input.settings.allowGeneratedScripts);
   ensureHeadMetadata(document, input.title);
 
@@ -467,6 +492,7 @@ export async function transformHtml(input: TransformHtmlInput): Promise<Transfor
 
   return {
     html: `<!doctype html>\n${serialize(document).replace(/^<!DOCTYPE html>/i, "").trimStart()}`,
-    warnings: [...source.warnings, ...iconify.warnings, ...styleWarnings, ...imageWarnings],
+    warnings: [...source.warnings, ...iconify.warnings, ...capabilities.warnings, ...styleWarnings, ...imageWarnings],
+    capabilityManifest: capabilities.manifest,
   };
 }
