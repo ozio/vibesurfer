@@ -153,6 +153,8 @@
   let rendered = false;
   let bootstrapTimer;
   let bootstrapAttempts = 0;
+  let capabilityCleanups = [];
+  let audioContext = null;
   const compact = (value, limit) => String(value == null ? "" : value).replace(/\s+/g, " ").trim().slice(0, limit);
   const send = (type, payload = {}) => {
     if (!port) return;
@@ -203,6 +205,189 @@
     if (!hash || resolved.origin !== current.origin
         || resolved.pathname !== current.pathname || resolved.search !== current.search) return null;
     return { href: resolved.href, hash };
+  };
+
+  const reducedMotion = () => {
+    try {
+      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    } catch {
+      return false;
+    }
+  };
+
+  const clearCapabilityRuntime = () => {
+    for (const cleanup of capabilityCleanups.splice(0)) {
+      try { cleanup(); } catch { /* A stale capability must not block the next document. */ }
+    }
+    try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch { /* unavailable */ }
+    if (audioContext) {
+      try { void audioContext.close(); } catch { /* unavailable */ }
+      audioContext = null;
+    }
+  };
+
+  const directSlides = (container) => Array.from(container.children).filter((child) =>
+    child.hasAttribute("data-vibe-slide") || child.matches("article, figure")
+  );
+
+  const showSlide = (container, requestedIndex) => {
+    const slides = directSlides(container);
+    if (!slides.length) return 0;
+    const index = (requestedIndex + slides.length) % slides.length;
+    slides.forEach((slide, slideIndex) => {
+      slide.toggleAttribute("hidden", slideIndex !== index);
+      slide.setAttribute("data-vibe-slide", "");
+      slide.setAttribute("aria-hidden", slideIndex === index ? "false" : "true");
+    });
+    container.dataset.vibeSlideIndex = String(index);
+    const status = container.querySelector("[data-vibe-slide-status]");
+    if (status) status.textContent = `${index + 1} / ${slides.length}`;
+    return index;
+  };
+
+  const setSlideshowPlaying = (container, playing) => {
+    const previousTimer = Number(container.dataset.vibeTimer || 0);
+    if (previousTimer) window.clearInterval(previousTimer);
+    delete container.dataset.vibeTimer;
+    container.dataset.vibePlaying = playing ? "true" : "false";
+    const playButton = container.querySelector("[data-vibe-play]");
+    if (playButton) {
+      playButton.setAttribute("aria-pressed", playing ? "true" : "false");
+      const playLabel = playButton.getAttribute("data-play-label") || "Play";
+      const pauseLabel = playButton.getAttribute("data-pause-label") || "Pause";
+      playButton.setAttribute("aria-label", playing ? pauseLabel : playLabel);
+    }
+    if (!playing || reducedMotion()) return;
+    const interval = Math.max(1_500, Math.min(30_000, Number(container.getAttribute("data-interval")) || 4_000));
+    const timer = window.setInterval(() => {
+      const current = Number(container.dataset.vibeSlideIndex || 0);
+      showSlide(container, current + 1);
+    }, interval);
+    container.dataset.vibeTimer = String(timer);
+    capabilityCleanups.push(() => window.clearInterval(timer));
+  };
+
+  const playTone = (kind) => {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    if (!audioContext || audioContext.state === "closed") audioContext = new AudioContext();
+    const context = audioContext;
+    const now = context.currentTime;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const frequencies = { confirm: 660, alert: 220, chime: 880, tick: 440 };
+    oscillator.frequency.setValueAtTime(frequencies[kind] || frequencies.chime, now);
+    oscillator.type = kind === "alert" ? "sawtooth" : "sine";
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.12, now + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start(now);
+    oscillator.stop(now + 0.26);
+  };
+
+  const updateCountdown = (element) => {
+    const target = Date.parse(element.getAttribute("data-target") || "");
+    if (!Number.isFinite(target)) return false;
+    const seconds = Math.max(0, Math.floor((target - Date.now()) / 1_000));
+    const days = Math.floor(seconds / 86_400);
+    const hours = Math.floor((seconds % 86_400) / 3_600);
+    const minutes = Math.floor((seconds % 3_600) / 60);
+    const remainder = seconds % 60;
+    element.textContent = `${days ? `${days}d ` : ""}${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(remainder).padStart(2, "0")}`;
+    element.setAttribute("aria-label", `${days} days, ${hours} hours, ${minutes} minutes, ${remainder} seconds remaining`);
+    return seconds > 0;
+  };
+
+  const enhanceCapabilities = () => {
+    const motionElements = Array.from(document.querySelectorAll("[data-vibe-motion]"));
+    if (!reducedMotion()) motionElements.forEach((element, index) => {
+      if (typeof element.animate !== "function") return;
+      const preset = element.getAttribute("data-vibe-motion");
+      if (preset === "pulse") {
+        element.animate([{ opacity: 0.72 }, { opacity: 1 }, { opacity: 0.72 }], { duration: 1_800, iterations: 2, easing: "ease-in-out" });
+      } else if (preset === "ticker") {
+        element.animate([{ transform: "translateX(0)" }, { transform: "translateX(-12%)" }, { transform: "translateX(0)" }], { duration: 8_000, iterations: Infinity, easing: "linear" });
+      } else {
+        element.animate([{ opacity: 0, transform: "translateY(10px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 420, delay: preset === "stagger" ? Math.min(index * 70, 700) : 0, easing: "cubic-bezier(.2,.8,.2,1)", fill: "both" });
+      }
+    });
+
+    for (const slideshow of document.querySelectorAll("[data-vibe-slideshow]")) {
+      showSlide(slideshow, Number(slideshow.dataset.vibeSlideIndex || 0));
+      if (slideshow.hasAttribute("data-autoplay") && !reducedMotion()) setSlideshowPlaying(slideshow, true);
+    }
+
+    for (const progress of document.querySelectorAll('[data-vibe-widget="progress"]')) {
+      const value = Math.max(0, Number(progress.getAttribute("data-value")) || 0);
+      const maximum = Math.max(1, Number(progress.getAttribute("data-max")) || 100);
+      progress.setAttribute("role", "progressbar");
+      progress.setAttribute("aria-valuemin", "0");
+      progress.setAttribute("aria-valuemax", String(maximum));
+      progress.setAttribute("aria-valuenow", String(Math.min(maximum, value)));
+      progress.style.setProperty("--vibe-progress", `${Math.min(100, value / maximum * 100)}%`);
+    }
+
+    for (const countdown of document.querySelectorAll('[data-vibe-widget="countdown"]')) {
+      if (!updateCountdown(countdown)) continue;
+      const timer = window.setInterval(() => {
+        if (!updateCountdown(countdown)) window.clearInterval(timer);
+      }, 1_000);
+      capabilityCleanups.push(() => window.clearInterval(timer));
+    }
+  };
+
+  const handleCapabilityClick = (event) => {
+    const target = event.target instanceof Element ? event.target.closest("button, [role=button]") : null;
+    if (!target) return false;
+    const slideshow = target.closest("[data-vibe-slideshow]");
+    if (slideshow && (target.hasAttribute("data-vibe-prev") || target.hasAttribute("data-vibe-next") || target.hasAttribute("data-vibe-play"))) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (target.hasAttribute("data-vibe-play")) {
+        setSlideshowPlaying(slideshow, slideshow.dataset.vibePlaying !== "true");
+      } else {
+        const current = Number(slideshow.dataset.vibeSlideIndex || 0);
+        showSlide(slideshow, current + (target.hasAttribute("data-vibe-next") ? 1 : -1));
+      }
+      return true;
+    }
+    const carousel = target.closest("[data-vibe-carousel]");
+    if (carousel && (target.hasAttribute("data-vibe-prev") || target.hasAttribute("data-vibe-next"))) {
+      event.preventDefault();
+      event.stopPropagation();
+      carousel.scrollBy({ left: carousel.clientWidth * (target.hasAttribute("data-vibe-next") ? 0.85 : -0.85), behavior: reducedMotion() ? "auto" : "smooth" });
+      return true;
+    }
+    if (target.hasAttribute("data-vibe-speak")) {
+      event.preventDefault();
+      event.stopPropagation();
+      const selector = target.getAttribute("data-vibe-speak") || "";
+      if (!/^#[A-Za-z][\w:.-]{0,127}$/.test(selector) || !window.speechSynthesis || !window.SpeechSynthesisUtterance) return true;
+      const source = document.querySelector(selector);
+      const text = compact(source && source.textContent, 4_000);
+      if (!text) return true;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = document.documentElement.lang || "en";
+      window.speechSynthesis.speak(utterance);
+      return true;
+    }
+    if (target.hasAttribute("data-vibe-sound")) {
+      event.preventDefault();
+      event.stopPropagation();
+      playTone(target.getAttribute("data-vibe-sound") || "chime");
+      return true;
+    }
+    const poll = target.closest('[data-vibe-widget="poll"], [data-vibe-widget="rating"]');
+    if (poll && (target.hasAttribute("data-vibe-vote") || target.hasAttribute("data-vibe-rating"))) {
+      event.preventDefault();
+      event.stopPropagation();
+      for (const option of poll.querySelectorAll("[data-vibe-vote], [data-vibe-rating]")) option.setAttribute("aria-pressed", option === target ? "true" : "false");
+      poll.dataset.vibeSelection = target.getAttribute("data-vibe-vote") || target.getAttribute("data-vibe-rating") || compact(target.textContent, 80);
+      return true;
+    }
+    return false;
   };
 
   const navigateAnchor = (event, anchor) => {
@@ -282,6 +467,7 @@
 
   document.addEventListener("click", (event) => {
     if (event.button !== 0 || !(event.target instanceof Element)) return;
+    if (handleCapabilityClick(event)) return;
     const anchor = event.target.closest("a[href], area[href]");
     if (anchor instanceof HTMLAnchorElement || anchor instanceof HTMLAreaElement) {
       navigateAnchor(event, anchor);
@@ -360,7 +546,7 @@
     }
   };
 
-  const renderArtifact = (message) => {
+  const renderArtifact = async (message) => {
     if (!message || typeof message !== "object"
         || message.protocol !== PROTOCOL || message.version !== VERSION || message.type !== "render"
         || message.artifactId !== artifactId || message.nonce !== nonce
@@ -403,13 +589,29 @@
     applyDocumentAttributes(document.documentElement, incoming.documentElement, ["class", "style", "dir", "lang", "data-vibesurfer-browser-theme"]);
     document.documentElement.setAttribute("data-vibesurfer-artifact", "");
     applyDocumentAttributes(document.body, incoming.body, ["class", "style", "dir"]);
+    clearCapabilityRuntime();
     const fragment = document.createDocumentFragment();
     for (const child of Array.from(incoming.body.childNodes)) fragment.append(document.importNode(child, true));
-    document.body.replaceChildren(fragment);
+    let committed = false;
+    const commit = () => {
+      document.body.replaceChildren(fragment);
+      committed = true;
+    };
+    if (rendered && !reducedMotion() && typeof document.startViewTransition === "function") {
+      try {
+        const transition = document.startViewTransition(commit);
+        await transition.updateCallbackDone;
+      } catch {
+        if (!committed) commit();
+      }
+    } else {
+      commit();
+    }
     hoveredHref = "";
     pageUrl = nextPageUrl.href;
     document.title = compact(message.title, 512) || "Untitled page";
     if (message.executeScripts === true) executeGeneratedScripts(generatedScripts);
+    enhanceCapabilities();
     scrollingElement.scrollLeft = previousScrollLeft;
     scrollingElement.scrollTop = previousScrollTop;
     const wasRendered = rendered;
@@ -427,7 +629,7 @@
     window.removeEventListener("message", acceptPort);
     if (bootstrapTimer !== undefined) window.clearInterval(bootstrapTimer);
     port = event.ports[0];
-    port.onmessage = (messageEvent) => renderArtifact(messageEvent.data);
+    port.onmessage = (messageEvent) => { void renderArtifact(messageEvent.data); };
     port.start();
     send("ready-for-render");
   };

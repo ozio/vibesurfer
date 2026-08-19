@@ -33,6 +33,7 @@ describe("native menu runtime", () => {
     expect(handleNativeMenuCommand("next-tab", target)).toBe(true);
     expect(handleNativeMenuCommand("regenerate", target)).toBe(true);
     expect(handleNativeMenuCommand("open-generation-settings", target)).toBe(true);
+    expect(handleNativeMenuCommand("open-licenses", target)).toBe(true);
     expect(handleNativeMenuCommand("vertical-tabs", target)).toBe(true);
 
     expect(target.newTab).toHaveBeenCalledOnce();
@@ -40,6 +41,7 @@ describe("native menu runtime", () => {
     expect(target.switchTab).toHaveBeenCalledWith(1);
     expect(target.reload).toHaveBeenCalledOnce();
     expect(target.openSettings).toHaveBeenCalledWith("generation");
+    expect(target.openSettings).toHaveBeenCalledWith("about");
     expect(target.setTabLayout).toHaveBeenCalledWith("vertical");
   });
 

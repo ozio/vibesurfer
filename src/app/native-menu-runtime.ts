@@ -25,6 +25,7 @@ export const nativeMenuCommands = [
   "horizontal-tabs",
   "vertical-tabs",
   "open-settings",
+  "open-licenses",
   "open-generation-settings",
   "open-models",
   "open-profiles",
@@ -86,6 +87,7 @@ export function handleNativeMenuCommand(command: unknown, actions: NativeMenuAct
     case "horizontal-tabs": actions.setTabLayout("horizontal"); break;
     case "vertical-tabs": actions.setTabLayout("vertical"); break;
     case "open-settings": actions.openSettings("general"); break;
+    case "open-licenses": actions.openSettings("about"); break;
     case "open-generation-settings": actions.openSettings("generation"); break;
     case "open-models": actions.openSettings("models"); break;
     case "open-profiles": actions.openSettings("profiles"); break;

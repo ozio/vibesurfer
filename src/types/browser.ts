@@ -123,6 +123,26 @@ export interface ArtifactWarning {
   message: string;
 }
 
+export const CAPABILITY_IDS = [
+  "semantic-navigation", "favicon-glyph", "tailwind-utilities", "inline-page-css",
+  "image-intents", "local-dom-scripts", "pattern-background", "motion-presets",
+  "data-chart", "diagram", "math", "code-highlight", "qr-code", "avatar",
+  "synthetic-map", "micro-widgets", "carousel", "slideshow", "speech", "sound",
+  "external-media", "gifcities", "real-map",
+] as const;
+export type CapabilityId = typeof CAPABILITY_IDS[number];
+
+export const CAPABILITY_EXECUTION_TARGETS = ["compiler", "trusted-runtime", "host"] as const;
+export type CapabilityExecutionTarget = typeof CAPABILITY_EXECUTION_TARGETS[number];
+
+export interface ArtifactCapabilityUse {
+  id: CapabilityId;
+  version: string;
+  execution: CapabilityExecutionTarget;
+  instances: number;
+  noticeIds: string[];
+}
+
 export interface ArtifactSitePatch {
   name: string;
   purpose: string;
@@ -165,6 +185,7 @@ export interface PageArtifact {
   usage?: TokenUsage;
   modelExchanges?: ModelExchange[];
   warnings: ArtifactWarning[];
+  capabilityManifest?: ArtifactCapabilityUse[];
   allowGeneratedScripts?: boolean;
   sitePatch?: ArtifactSitePatch;
   siteIdentity?: SiteIdentity;
@@ -234,7 +255,7 @@ export interface PageDirection {
   sections: Array<{ id: string; heading: string; goal: string; layout: string }>;
   iconSet: "lucide" | "carbon" | "ph" | "pepicons-pop" | "streamline-cyber" | "pixelarticons" | "fa" | "streamline-freehand" | "flat-color-icons" | "game-icons" | null;
   imagery: string[];
-  selectedCapabilities: string[];
+  selectedCapabilities: CapabilityId[];
   creativeRationale: string;
   implementationNotes: string;
 }
@@ -439,12 +460,19 @@ export interface GenerationPrivacySettings {
   diagnosticsEnabled: boolean;
 }
 
+export interface GenerationCapabilitySettings {
+  audioSpeechEnabled: boolean;
+  externalMediaEnabled: boolean;
+  experimentalEnabled: boolean;
+}
+
 export interface GenerationSettings {
   promptVersion: number;
   maxOutputTokens: number;
   reuseCachedPages: boolean;
   style: ArtifactStyleSettings;
   images: ImageGenerationSettings;
+  capabilities: GenerationCapabilitySettings;
   privacy: GenerationPrivacySettings;
 }
 

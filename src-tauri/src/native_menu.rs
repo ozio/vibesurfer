@@ -26,6 +26,7 @@ const OPEN_LIVE_SITE: &str = "open-live-site";
 const HORIZONTAL_TABS: &str = "horizontal-tabs";
 const VERTICAL_TABS: &str = "vertical-tabs";
 const OPEN_SETTINGS: &str = "open-settings";
+const OPEN_LICENSES: &str = "open-licenses";
 const OPEN_GENERATION_SETTINGS: &str = "open-generation-settings";
 const OPEN_MODELS: &str = "open-models";
 const OPEN_PROFILES: &str = "open-profiles";
@@ -79,12 +80,14 @@ pub fn build_native_menu<R: Runtime>(
     };
 
     let settings = command_item(app, OPEN_SETTINGS, "Settings…", Some("CmdOrCtrl+,"))?;
+    let licenses = command_item(app, OPEN_LICENSES, "Open Source Licenses…", None)?;
     let app_menu = Submenu::with_items(
         app,
         "VibeSurfer",
         true,
         &[
             &PredefinedMenuItem::about(app, Some("About VibeSurfer"), Some(about))?,
+            &licenses,
             &PredefinedMenuItem::separator(app)?,
             &settings,
             &PredefinedMenuItem::separator(app)?,
@@ -328,6 +331,7 @@ pub(crate) fn native_menu_command(id: &str) -> Option<&'static str> {
         HORIZONTAL_TABS => Some(HORIZONTAL_TABS),
         VERTICAL_TABS => Some(VERTICAL_TABS),
         OPEN_SETTINGS => Some(OPEN_SETTINGS),
+        OPEN_LICENSES => Some(OPEN_LICENSES),
         OPEN_GENERATION_SETTINGS => Some(OPEN_GENERATION_SETTINGS),
         OPEN_MODELS => Some(OPEN_MODELS),
         OPEN_PROFILES => Some(OPEN_PROFILES),

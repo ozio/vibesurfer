@@ -204,6 +204,63 @@ describe("artifact frame runtime", () => {
       harness.close();
     }
   });
+
+  test("runs trusted slideshow, widget, speech, and sound capabilities without generated scripts", () => {
+    const harness = createRuntimeHarness();
+
+    try {
+      const bootstrap = harness.parentMessages[0] as BootstrapMessage;
+      const port = new FakeMessagePort();
+      const spoken: string[] = [];
+      Object.defineProperty(harness.window, "SpeechSynthesisUtterance", {
+        configurable: true,
+        value: class {
+          text: string;
+          lang = "";
+          constructor(text: string) { this.text = text; }
+        },
+      });
+      Object.defineProperty(harness.window, "speechSynthesis", {
+        configurable: true,
+        value: { cancel: vi.fn(), speak: vi.fn((utterance: { text: string }) => spoken.push(utterance.text)) },
+      });
+      harness.window.dispatchEvent(new harness.window.MessageEvent("message", {
+        data: {
+          protocol: ARTIFACT_BRIDGE_PROTOCOL,
+          version: ARTIFACT_BRIDGE_VERSION,
+          type: "init",
+          instanceId: bootstrap.instanceId,
+          ...identity,
+        },
+        source: harness.window,
+        ports: [port as unknown as MessagePort],
+      }));
+
+      const capabilityHtml = `<main>
+        <section data-vibe-slideshow><article>First scene</article><article>Second scene</article><button id="next" data-vibe-next>Next</button></section>
+        <div id="progress" data-vibe-widget="progress" data-value="62" data-max="100">62%</div>
+        <article id="story">A bounded spoken story.</article><button id="speak" data-vibe-speak="#story">Read aloud</button>
+      </main>`;
+      port.dispatch(renderCommand({ title: "Capabilities", html: capabilityHtml, executeScripts: false }));
+
+      expect(harness.document.querySelector("[data-vibe-slideshow] article:nth-of-type(1)")).not.toHaveAttribute("hidden");
+      expect(harness.document.querySelector("[data-vibe-slideshow] article:nth-of-type(2)")).toHaveAttribute("hidden");
+      expect(harness.document.querySelector("#progress")).toHaveAttribute("role", "progressbar");
+      expect(harness.document.querySelector("#progress")).toHaveAttribute("aria-valuenow", "62");
+
+      harness.document.querySelector<HTMLButtonElement>("#next")?.click();
+      expect(harness.document.querySelector("[data-vibe-slideshow]")).toHaveAttribute("data-vibe-slide-index", "1");
+      harness.document.querySelector<HTMLButtonElement>("#speak")?.click();
+      expect(spoken).toEqual(["A bounded spoken story."]);
+
+      port.dispatch(renderCommand({ title: "Capabilities again", html: capabilityHtml, executeScripts: false }));
+      harness.document.querySelector<HTMLButtonElement>("#next")?.click();
+      expect(harness.document.querySelector("[data-vibe-slideshow]")).toHaveAttribute("data-vibe-slide-index", "1");
+      expect(harness.document.querySelectorAll("script:not([data-vibesurfer-frame-runtime])")).toHaveLength(0);
+    } finally {
+      harness.close();
+    }
+  });
 });
 
 const hostileArtifactHtml = `<!doctype html>

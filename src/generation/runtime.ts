@@ -2,6 +2,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { faviconSourceValue } from "../lib/favicon";
 import { isTauri } from "../lib/platform";
 import { useBrowserStore, type BrowserState } from "../store/browser-store";
+import { normalizeCapabilityManifest } from "./capability-manifest";
 import { getCachedArtifact, savePersistedSiteWorld } from "./host-api";
 import type {
   FaviconDescriptor,
@@ -394,6 +395,7 @@ function normalizeArtifact(raw: Record<string, unknown>, job: GenerationJob): Pa
             : [],
         )
       : [],
+    capabilityManifest: normalizeCapabilityManifest(raw.capabilityManifest ?? payload.capabilityManifest),
     sitePatch: normalizeSitePatch(raw.sitePatch ?? payload.sitePatch),
     siteIdentity: normalizeSiteIdentity(raw.siteIdentity ?? payload.siteIdentity),
     siteAdditions: isRecord(raw.siteAdditions ?? payload.siteAdditions)

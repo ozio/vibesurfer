@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
+  BadgeInfo,
   Bot,
   Check,
   ChevronRight,
@@ -21,6 +22,7 @@ import {
 import { Switch } from "radix-ui";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { MODELS, PROFILE_PRESETS, THEME_LABELS } from "../../data/catalog";
+import thirdPartyNotices from "../../generated/third-party-notices.json";
 import {
   getRuntimeStatus,
   archivePersistedProfileSiteWorlds,
@@ -32,7 +34,7 @@ import {
   verifyProviderConnection,
   type RuntimeStatus,
 } from "../../generation/host-api";
-import { isTauri } from "../../lib/platform";
+import { isTauri, openExternal } from "../../lib/platform";
 import { useBrowserStore } from "../../store/browser-store";
 import type { Density, ProviderConnection, ProviderKind, TabLayout, ThemeId } from "../../types/browser";
 
@@ -44,6 +46,7 @@ const sections = [
   { id: "profiles", label: "Profiles", icon: CircleUserRound },
   { id: "browser", label: "Web content", icon: Globe2 },
   { id: "privacy", label: "Privacy", icon: ShieldCheck },
+  { id: "about", label: "About & Licenses", icon: BadgeInfo },
 ] as const;
 
 export function SettingsPage() {
@@ -122,6 +125,7 @@ function SettingsSection({ section }: { section: string }) {
   if (section === "profiles") return <ProfileSettings />;
   if (section === "browser") return <WebContentSettings />;
   if (section === "privacy") return <PrivacySettings />;
+  if (section === "about") return <AboutSettings />;
   return <GeneralSettings />;
 }
 
@@ -157,6 +161,7 @@ function GenerationSettings() {
   const patchGenerationSettings = useBrowserStore((state) => state.patchGenerationSettings);
   const patchStyleSettings = useBrowserStore((state) => state.patchStyleSettings);
   const patchImageSettings = useBrowserStore((state) => state.patchImageSettings);
+  const patchCapabilitySettings = useBrowserStore((state) => state.patchCapabilitySettings);
   const patchPrivacySettings = useBrowserStore((state) => state.patchPrivacySettings);
 
   return (
@@ -186,6 +191,27 @@ function GenerationSettings() {
             <small>Generated JavaScript is untrusted code. It runs only inside the isolated page sandbox with network APIs, storage, popups, direct parent access, and native APIs blocked, but it can still alter the page, capture interactions inside it, consume CPU, or freeze the tab.</small>
           </span>
         </div>
+      </section>
+      <section className="settings-group">
+        <h2>Built-in capabilities</h2>
+        <GenerationToggle
+          title="Allow audio and read-aloud controls"
+          description="Let newly generated pages offer user-triggered system speech and small procedural Web Audio cues. Nothing autoplays."
+          checked={settings.capabilities.audioSpeechEnabled}
+          onCheckedChange={(audioSpeechEnabled) => patchCapabilitySettings({ audioSpeechEnabled })}
+        />
+        <GenerationToggle
+          title="Allow configured external media providers"
+          description="Permit licensed stock media only after a provider and credential are configured. Built-in capabilities remain fully offline."
+          checked={settings.capabilities.externalMediaEnabled}
+          onCheckedChange={(externalMediaEnabled) => patchCapabilitySettings({ externalMediaEnabled })}
+        />
+        <GenerationToggle
+          title="Allow experimental capabilities"
+          description="Permit explicitly configured experiments such as copyright-sensitive archives or real maps. No provider is enabled automatically."
+          checked={settings.capabilities.experimentalEnabled}
+          onCheckedChange={(experimentalEnabled) => patchCapabilitySettings({ experimentalEnabled })}
+        />
       </section>
       <section className="settings-group">
         <h2>Images</h2>
@@ -629,6 +655,36 @@ function PrivacySettings() {
         <article><ShieldCheck aria-hidden="true" /><h2>Sandboxed artifacts</h2><p>Generated pages run without Tauri IPC and cannot reach provider tokens.</p></article>
         <article><LockKeyhole aria-hidden="true" /><h2>Profile-scoped identity</h2><p>Codex and provider connections belong to a browser profile, not an individual tab.</p></article>
       </div>
+    </>
+  );
+}
+
+function AboutSettings() {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLowerCase();
+  const notices = normalizedQuery
+    ? thirdPartyNotices.notices.filter((notice) => `${notice.name} ${notice.version} ${notice.license} ${notice.surfaces.join(" ")}`.toLowerCase().includes(normalizedQuery))
+    : thirdPartyNotices.notices;
+  return (
+    <>
+      <SettingsHeading eyebrow={`VibeSurfer ${thirdPartyNotices.appVersion}`} title="About & Licenses" description="The browser, generation sidecar, packaged fonts, icon collections, and built-in capability renderers are distributed with the notices below." />
+      <section className="settings-group">
+        <h2>Open-source software</h2>
+        <label className="license-search">
+          <Search aria-hidden="true" />
+          <input value={query} placeholder={`Search ${thirdPartyNotices.notices.length.toLocaleString()} notices`} aria-label="Search open-source notices" onChange={(event) => setQuery(event.target.value)} />
+        </label>
+        <p className="license-summary">Showing {notices.length.toLocaleString()} of {thirdPartyNotices.notices.length.toLocaleString()} packaged notices. Font files are distributed under the SIL Open Font License 1.1.</p>
+        <div className="license-list">
+          {notices.map((notice) => (
+            <article key={notice.id} className="license-row">
+              <span><strong>{notice.name}</strong><small>{notice.version} · {notice.surfaces.join(" · ")}</small></span>
+              <span className="license-row__meta"><code>{notice.license}</code><button type="button" onClick={() => void openExternal(notice.source)}>Source</button></span>
+            </article>
+          ))}
+          {notices.length === 0 && <p className="settings-search__empty">No matching library or license</p>}
+        </div>
+      </section>
     </>
   );
 }

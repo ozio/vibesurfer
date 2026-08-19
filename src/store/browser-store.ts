@@ -114,6 +114,7 @@ export interface BrowserState {
   patchGenerationSettings: (patch: Partial<GenerationSettings>) => void;
   patchStyleSettings: (patch: Partial<GenerationSettings["style"]>) => void;
   patchImageSettings: (patch: Partial<ImageGenerationSettings>) => void;
+  patchCapabilitySettings: (patch: Partial<GenerationSettings["capabilities"]>) => void;
   patchPrivacySettings: (patch: Partial<GenerationSettings["privacy"]>) => void;
   openSettings: (section?: string) => string;
   openHistory: () => string;
@@ -157,7 +158,7 @@ export const DEFAULT_BROWSER_PREFERENCES: BrowserPreferences = {
 };
 
 export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
-  promptVersion: 13,
+  promptVersion: 14,
   maxOutputTokens: 16_000,
   reuseCachedPages: true,
   style: {
@@ -173,6 +174,11 @@ export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
     provider: "tag-placeholder",
     safeContent: true,
     allowExternalRequests: true,
+  },
+  capabilities: {
+    audioSpeechEnabled: true,
+    externalMediaEnabled: false,
+    experimentalEnabled: false,
   },
   privacy: {
     includeNavigationHistory: true,
@@ -990,6 +996,13 @@ export const useBrowserStore = create<BrowserState>()(
           generationSettings: {
             ...state.generationSettings,
             images: { ...state.generationSettings.images, ...patch },
+          },
+        })),
+      patchCapabilitySettings: (patch) =>
+        set((state) => ({
+          generationSettings: {
+            ...state.generationSettings,
+            capabilities: { ...state.generationSettings.capabilities, ...patch },
           },
         })),
       patchPrivacySettings: (patch) =>
@@ -2198,6 +2211,7 @@ function migrateGenerationSettings(value: unknown, version: number): GenerationS
   const source = isRecord(value) ? value : {};
   const style = isRecord(source.style) ? source.style : {};
   const images = isRecord(source.images) ? source.images : {};
+  const capabilities = isRecord(source.capabilities) ? source.capabilities : {};
   const privacy = isRecord(source.privacy) ? source.privacy : {};
   const imageProvider = images.provider === "off" ? "off" : "tag-placeholder";
   const imagesEnabled = (booleanValue(images.enabled) ?? DEFAULT_GENERATION_SETTINGS.images.enabled)
@@ -2228,6 +2242,14 @@ function migrateGenerationSettings(value: unknown, version: number): GenerationS
         && (version < 6
           ? true
           : booleanValue(images.allowExternalRequests) ?? DEFAULT_GENERATION_SETTINGS.images.allowExternalRequests),
+    },
+    capabilities: {
+      audioSpeechEnabled: booleanValue(capabilities.audioSpeechEnabled)
+        ?? DEFAULT_GENERATION_SETTINGS.capabilities.audioSpeechEnabled,
+      externalMediaEnabled: booleanValue(capabilities.externalMediaEnabled)
+        ?? DEFAULT_GENERATION_SETTINGS.capabilities.externalMediaEnabled,
+      experimentalEnabled: booleanValue(capabilities.experimentalEnabled)
+        ?? DEFAULT_GENERATION_SETTINGS.capabilities.experimentalEnabled,
     },
     privacy: {
       includeNavigationHistory: booleanValue(privacy.includeNavigationHistory)

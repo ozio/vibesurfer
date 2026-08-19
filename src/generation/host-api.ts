@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { deterministicGlyphFavicon } from "../lib/favicon";
 import { isTauri } from "../lib/platform";
+import { normalizeCapabilityManifest } from "./capability-manifest";
 import type {
   ArtifactSitePatch,
   FaviconDescriptor,
@@ -285,6 +286,7 @@ function fromArtifactRecord(record: ArtifactRecord): PageArtifact | undefined {
         ? [{ code: stringValue(warning.code)!, message: stringValue(warning.message)! }]
         : [])
       : [],
+    capabilityManifest: normalizeCapabilityManifest(payload.capabilityManifest),
     sitePatch: isRecord(payload.sitePatch) ? payload.sitePatch as unknown as ArtifactSitePatch : undefined,
     siteIdentity: isRecord(payload.siteIdentity) ? payload.siteIdentity as unknown as PageArtifact["siteIdentity"] : undefined,
     siteAdditions: isRecord(payload.siteAdditions) ? payload.siteAdditions as unknown as PageArtifact["siteAdditions"] : undefined,

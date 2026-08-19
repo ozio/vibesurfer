@@ -121,12 +121,20 @@ describe("generation runtime protocol", () => {
         settingsFingerprint: "new-contract",
         createdAt: "2026-08-12T00:00:02.000Z",
         warnings: [],
+        capabilityManifest: [
+          { id: "data-chart", version: "vega-lite-6.4.3", execution: "compiler", instances: 2, noticeIds: ["npm:vega-lite@6.4.3"] },
+          { id: "native-shell", version: "1", execution: "native", instances: 1, noticeIds: [] },
+        ],
         modelExchanges: [exchange("page-director"), exchange("page-builder"), exchange("page-repair")],
       },
     }, job);
     expect(event).toMatchObject({
       type: "generation.completed",
-      artifact: { siteWorldId: "site-example", modelExchanges: [{ purpose: "page-director" }, { purpose: "page-builder" }] },
+      artifact: {
+        siteWorldId: "site-example",
+        capabilityManifest: [{ id: "data-chart", version: "vega-lite-6.4.3", execution: "compiler", instances: 2, noticeIds: ["npm:vega-lite@6.4.3"] }],
+        modelExchanges: [{ purpose: "page-director" }, { purpose: "page-builder" }],
+      },
     });
   });
 });
