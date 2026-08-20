@@ -11,6 +11,7 @@ import {
 } from "../../lib/generated-document";
 import { openExternal } from "../../lib/platform";
 import { activatePersistedSiteWorld } from "../../generation/host-api";
+import { attachDynamicFrame, handleDynamicAction } from "../../dynamic/runtime";
 import { useBrowserStore } from "../../store/browser-store";
 import type {
   BrowserTab,
@@ -85,6 +86,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
     key: string;
     connection: ArtifactFrameConnection;
   } | null>(null);
+  const detachDynamicFrameRef = useRef<(() => void) | null>(null);
   const readyKeyRef = useRef<string | undefined>(undefined);
   const [readyKey, setReadyKey] = useState<string>();
   const [armedKey, setArmedKey] = useState<string>();
@@ -92,6 +94,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
   const [contextMenu, setContextMenu] = useState<PageContextMenuState>();
   const [sourceOpen, setSourceOpen] = useState(false);
   const [pendingArchivedNavigation, setPendingArchivedNavigation] = useState<PendingArchivedNavigation>();
+  const [pendingArchivedDynamic, setPendingArchivedDynamic] = useState<Extract<ArtifactFrameEvent, { type: "dynamic-action" }>>();
 
   const isGenerating = job?.status === "queued" || job?.status === "running";
   const generationFailed = job?.status === "failed" || job?.status === "cancelled";
@@ -147,6 +150,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
             title: artifact.title,
             html: artifact.html,
             allowGeneratedScripts: artifact.allowGeneratedScripts === true,
+            dynamicManifest: artifact.dynamicManifest,
             browserTheme: theme,
           }),
           sourceArtifactId: artifact.id,
@@ -205,6 +209,8 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
         current.connection.disconnect();
         connectionRef.current = null;
       }
+      detachDynamicFrameRef.current?.();
+      detachDynamicFrameRef.current = null;
     };
   }, [documentKey, onLinkHover]);
 
@@ -216,6 +222,12 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       if (!isGeneratingRef.current) setLoadState(tab.id, "idle");
       markFrameReady(tab.id);
       if (event.title) setTabMetadata(tab.id, { title: event.title }, tab.generationJobId);
+      detachDynamicFrameRef.current?.();
+      detachDynamicFrameRef.current = null;
+      const connection = connectionRef.current?.connection;
+      if (artifact?.dynamicManifest && connection) {
+        detachDynamicFrameRef.current = attachDynamicFrame({ tabId: tab.id, artifact, connection });
+      }
       return;
     }
 
@@ -253,6 +265,14 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
 
     if (event.type === "browser-command") {
       openSettings("general");
+      return;
+    }
+
+    if (event.type === "dynamic-action") {
+      if (!artifact?.dynamicManifest) return;
+      void handleDynamicAction(tab.id, artifact, event).then((result) => {
+        if (result === "restore-required") setPendingArchivedDynamic(event);
+      });
       return;
     }
 
@@ -316,7 +336,27 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
         intent,
       });
     }
-  }, [addTab, archivedSiteWorld, markFrameReady, navigate, onLinkHover, openSettings, setLoadState, setTabMetadata, tab.generationJobId, tab.id]);
+  }, [addTab, archivedSiteWorld, artifact, markFrameReady, navigate, onLinkHover, openSettings, setLoadState, setTabMetadata, tab.generationJobId, tab.id]);
+
+  const continueArchivedDynamic = useCallback(() => {
+    const pending = pendingArchivedDynamic;
+    if (!pending || !artifact || !archivedSiteWorld) return;
+    if (!restoreSiteWorld(archivedSiteWorld.id, tab.id)) return;
+    void activatePersistedSiteWorld(activeProfileId, archivedSiteWorld.id).catch((error) => console.warn("Could not persist SiteWorld restore", error));
+    setPendingArchivedDynamic(undefined);
+    void handleDynamicAction(tab.id, artifact, pending);
+  }, [activeProfileId, archivedSiteWorld, artifact, pendingArchivedDynamic, restoreSiteWorld, tab.id]);
+
+  const cancelArchivedDynamic = useCallback(() => {
+    const pending = pendingArchivedDynamic;
+    if (pending) connectionRef.current?.connection.setDynamicError({
+      requestId: pending.requestId,
+      regionIds: pending.targets,
+      message: "Restore the archived SiteWorld before using live actions.",
+      retryable: false,
+    });
+    setPendingArchivedDynamic(undefined);
+  }, [pendingArchivedDynamic]);
 
   const continueArchivedNavigation = useCallback((restore: boolean) => {
     const pending = pendingArchivedNavigation;
@@ -490,6 +530,19 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
               <button className="button button--primary" type="button" onClick={() => continueArchivedNavigation(false)}>Use current identity</button>
               <button className="button" type="button" onClick={() => continueArchivedNavigation(true)}>Restore this identity</button>
               <button className="button" type="button" onClick={() => setPendingArchivedNavigation(undefined)}>Cancel</button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+      <Dialog.Root open={Boolean(pendingArchivedDynamic)} onOpenChange={(open) => { if (!open) cancelArchivedDynamic(); }}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="dialog-overlay" />
+          <Dialog.Content className="dialog" aria-describedby="archived-dynamic-description">
+            <Dialog.Title>Restore this archived site?</Dialog.Title>
+            <Dialog.Description id="archived-dynamic-description">Live state and model actions require this SiteWorld identity to be active again. Nothing will update until you restore it.</Dialog.Description>
+            <div className="dialog__actions">
+              <button className="button button--primary" type="button" onClick={continueArchivedDynamic}>Restore and continue</button>
+              <button className="button" type="button" onClick={cancelArchivedDynamic}>Cancel</button>
             </div>
           </Dialog.Content>
         </Dialog.Portal>

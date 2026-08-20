@@ -120,6 +120,7 @@ impl WorkerManager {
 
         let manager = self.clone();
         let task_job_id = job_id.clone();
+        let is_dynamic = input.request.get("kind").and_then(Value::as_str) == Some("dynamic-region");
         tauri::async_runtime::spawn(async move {
             let outcome = run_generation(
                 &app,
@@ -136,7 +137,7 @@ impl WorkerManager {
 
             if let Err(error) = outcome {
                 let payload = json!({
-                    "type": "generation.failed",
+                    "type": if is_dynamic { "dynamic.failed" } else { "generation.failed" },
                     "jobId": task_job_id,
                     "error": {
                         "code": "worker-crashed",
@@ -301,6 +302,7 @@ async fn run_generation(
     mut control_rx: mpsc::Receiver<WorkerControl>,
 ) -> Result<(), WorkerError> {
     let is_discovery = request.pointer("/discovery/kind").and_then(Value::as_str) == Some("lucky-urls");
+    let is_dynamic = request.get("kind").and_then(Value::as_str) == Some("dynamic-region");
     storage
         .mark_job_started(job_id, profile_id, request)
         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
@@ -382,12 +384,17 @@ async fn run_generation(
                         .update_job(job_id, "completed", (!is_discovery).then_some(artifact.id.as_str()), None)
                         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
                     terminal_event_seen = true;
-                } else if event_type == "generation.failed" {
+                } else if event_type == "dynamic.completed" && is_dynamic {
+                    storage
+                        .update_job(job_id, "completed", None, None)
+                        .map_err(|error| WorkerError::Protocol(error.to_string()))?;
+                    terminal_event_seen = true;
+                } else if event_type == "generation.failed" || (event_type == "dynamic.failed" && is_dynamic) {
                     storage
                         .update_job(job_id, "failed", None, event.get("error"))
                         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
                     terminal_event_seen = true;
-                } else if event_type == "generation.cancelled" {
+                } else if event_type == "generation.cancelled" || (event_type == "dynamic.cancelled" && is_dynamic) {
                     storage
                         .update_job(job_id, "cancelled", None, None)
                         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
@@ -404,7 +411,7 @@ async fn run_generation(
             _ = wait_for_deadline(cancel_deadline), if cancel_deadline.is_some() => {
                 let _ = child.kill().await;
                 let event = json!({
-                    "type": "generation.cancelled",
+                    "type": if is_dynamic { "dynamic.cancelled" } else { "generation.cancelled" },
                     "jobId": job_id,
                     "sequence": last_sequence + 1,
                     "at": Utc::now().to_rfc3339()
@@ -417,13 +424,13 @@ async fn run_generation(
             _ = sleep_until(generation_deadline) => {
                 let _ = child.kill().await;
                 let event = json!({
-                    "type": "generation.failed",
+                    "type": if is_dynamic { "dynamic.failed" } else { "generation.failed" },
                     "jobId": job_id,
                     "sequence": last_sequence + 1,
                     "at": Utc::now().to_rfc3339(),
                     "error": {
                         "code": "timeout",
-                        "message": "The generation worker exceeded the five-minute deadline.",
+                        "message": if is_dynamic { "The live region update exceeded the five-minute deadline." } else { "The generation worker exceeded the five-minute deadline." },
                         "retryable": true
                     }
                 });
@@ -575,7 +582,7 @@ fn validate_event_sequence(
     event: &Value,
     last_sequence: &mut u64,
 ) -> Result<(), WorkerError> {
-    if !event_type.starts_with("generation.") {
+    if !event_type.starts_with("generation.") && !event_type.starts_with("dynamic.") {
         return Ok(());
     }
     let sequence = event

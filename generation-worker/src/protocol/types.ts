@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import {
   BrowserThemeSchema,
+  DynamicRegionResultSchema,
   FaviconDescriptorSchema,
   GenerationContextSchema,
   GenerationSettingsSchema,
@@ -9,6 +10,8 @@ import {
   ProfilePromptSnapshotSchema,
   ProviderKindSchema,
   ProviderReferenceSchema,
+  SiteIdentitySchema,
+  JsonValueSchema,
   PROTOCOL_VERSION,
   TokenUsageSchema,
   type FaviconDescriptor,
@@ -104,6 +107,7 @@ export const GenerateCommandSchema = z
       tailwindVersion: "4.3.3",
       allowGeneratedScripts: false,
       motionEnabled: true,
+      dynamicMode: "active",
       capabilities: {
         audioSpeechEnabled: true,
         externalMediaEnabled: false,
@@ -118,6 +122,39 @@ export const GenerateCommandSchema = z
   })
   .strict();
 export type GenerateCommand = z.infer<typeof GenerateCommandSchema>;
+
+export const DynamicGenerateCommandSchema = z.object({
+  v: z.literal(PROTOCOL_VERSION),
+  type: z.literal("dynamic.generate"),
+  requestId: IdSchema,
+  jobId: IdSchema,
+  profileId: IdSchema,
+  siteWorldId: IdSchema,
+  url: HttpUrlSchema,
+  provider: ProviderReferenceSchema,
+  worldPromptSnapshot: ProfilePromptSnapshotSchema,
+  siteIdentity: SiteIdentitySchema,
+  page: z.object({
+    title: z.string().min(1).max(240),
+    summary: z.string().max(1_000),
+  }).strict(),
+  action: z.object({
+    action: z.string().regex(/^(?:model:[a-z][a-z0-9.-]{0,63}|timer:refresh|manual:refresh)$/),
+    trigger: z.enum(["action", "timer", "manual"]),
+    targets: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/)).min(1).max(16),
+    fields: z.record(z.string().max(512), z.array(z.string().max(2_000)).max(32)).default({}),
+  }).strict(),
+  regions: z.array(z.object({
+    id: z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/),
+    html: z.string().max(64 * 1024),
+    revision: z.number().int().nonnegative(),
+  }).strict()).min(1).max(16),
+  trustedState: JsonValueSchema,
+  modelState: JsonValueSchema.optional(),
+  settings: GenerationSettingsSchema,
+  browserTheme: BrowserThemeSchema.default("native"),
+}).strict();
+export type DynamicGenerateCommand = z.infer<typeof DynamicGenerateCommandSchema>;
 
 export const CancelCommandSchema = z
   .object({
@@ -142,6 +179,7 @@ export const WorkerCommandSchema = z.discriminatedUnion("type", [
   ProviderRemoveCommandSchema,
   ProviderListCommandSchema,
   GenerateCommandSchema,
+  DynamicGenerateCommandSchema,
   CancelCommandSchema,
   ShutdownCommandSchema,
 ]);
@@ -246,13 +284,19 @@ export type GenerationEvent =
       retryable: boolean;
     };
 
+export type DynamicGenerationEvent =
+  | { type: "dynamic.started"; providerId: string; modelId: string; actualProviderKind: ProviderKind }
+  | { type: "dynamic.completed"; result: z.infer<typeof DynamicRegionResultSchema>; usage: TokenUsage }
+  | { type: "dynamic.cancelled" }
+  | { type: "dynamic.failed"; code: GenerationErrorCode; message: string; retryable: boolean };
+
 export type WorkerOutput =
   | {
       v: typeof PROTOCOL_VERSION;
       type: "ready";
       workerVersion: string;
       capabilities: {
-        generationStages: ["page-director", "page-builder"];
+        generationStages: ["page-director", "page-builder", "region-builder"];
         providers: ProviderKind[];
         protocolVersion: typeof PROTOCOL_VERSION;
       };
@@ -281,7 +325,7 @@ export type WorkerOutput =
       jobId: string;
       sequence: number;
       timestamp: string;
-      event: GenerationEvent;
+      event: GenerationEvent | DynamicGenerationEvent;
     }
   | {
       v: typeof PROTOCOL_VERSION;
@@ -299,7 +343,7 @@ export type HostWorkerOutput =
       protocolVersion: typeof PROTOCOL_VERSION;
       workerVersion: string;
       capabilities: {
-        generationStages: ["page-director", "page-builder"];
+        generationStages: ["page-director", "page-builder", "region-builder"];
         providers: ProviderKind[];
       };
     }
@@ -388,6 +432,40 @@ export type HostWorkerOutput =
     }
   | {
       type: "generation.cancelled";
+      requestId: string;
+      jobId: string;
+      sequence: number;
+      at: string;
+    }
+  | {
+      type: "dynamic.started";
+      requestId: string;
+      jobId: string;
+      sequence: number;
+      at: string;
+      providerId: string;
+      modelId: string;
+      actualProviderKind: ProviderKind;
+    }
+  | {
+      type: "dynamic.completed";
+      requestId: string;
+      jobId: string;
+      sequence: number;
+      at: string;
+      result: z.infer<typeof DynamicRegionResultSchema>;
+      usage: TokenUsage;
+    }
+  | {
+      type: "dynamic.failed";
+      requestId: string;
+      jobId: string;
+      sequence: number;
+      at: string;
+      error: { code: GenerationErrorCode; message: string; retryable: boolean };
+    }
+  | {
+      type: "dynamic.cancelled";
       requestId: string;
       jobId: string;
       sequence: number;

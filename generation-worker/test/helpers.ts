@@ -17,6 +17,7 @@ export function generationCommand(overrides: Partial<GenerateCommand> = {}): Gen
       tailwindVersion: "4.3.3",
       allowGeneratedScripts: false,
       motionEnabled: true,
+      dynamicMode: "active",
       capabilities: {
         audioSpeechEnabled: true,
         externalMediaEnabled: false,

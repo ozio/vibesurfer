@@ -16,7 +16,7 @@ use codex_adapter::CodexCatalog;
 use native_menu::{build_native_menu, emit_native_menu_command, update_native_menu_state};
 use protocol::{
     ArtifactRecord, GenerationStartRequest, GenerationStartResult, ProviderConnectionRecord,
-    ProviderVerifyRequest, RuntimeStatus, SiteWorldRecord, WORKER_PROTOCOL_VERSION,
+    ProviderVerifyRequest, RuntimeStatus, SiteSessionRecord, SiteWorldRecord, WORKER_PROTOCOL_VERSION,
 };
 use secrets::SecretVault;
 use serde::Serialize;
@@ -496,6 +496,23 @@ fn get_site_world(
 }
 
 #[tauri::command]
+fn upsert_site_session(
+    session: SiteSessionRecord,
+    runtime: State<'_, AppRuntime>,
+) -> Result<bool, String> {
+    runtime.storage.upsert_site_session(&session).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_site_session(
+    profile_id: String,
+    site_world_id: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<Option<SiteSessionRecord>, String> {
+    runtime.storage.site_session(&profile_id, &site_world_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn list_site_worlds(
     profile_id: String,
     limit: Option<usize>,
@@ -863,6 +880,8 @@ pub fn run() {
             delete_profile_artifacts,
             upsert_site_world,
             get_site_world,
+            upsert_site_session,
+            get_site_session,
             list_site_worlds,
             delete_site_world,
             delete_profile_site_worlds,

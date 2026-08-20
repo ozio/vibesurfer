@@ -127,6 +127,74 @@ describe("Rust host JSONL compatibility", () => {
     await runtime.close();
   });
 
+  it("runs one deterministic region-builder job without creating a page artifact", async () => {
+    const outputs: Output[] = [];
+    const terminal = terminalPromise(outputs, "dynamic.completed");
+    const runtime = new WorkerRuntime(terminal.sink);
+    await runtime.handleLine(JSON.stringify({
+      type: "generate",
+      requestId: "request-dynamic-job",
+      jobId: "dynamic-job",
+      request: {
+        kind: "dynamic-region",
+        url: "https://example.com/chat",
+        profileId: "personal",
+        siteWorldId: "site-dynamic",
+        browserTheme: "native",
+        provider: { id: "mock", kind: "mock", modelId: "mock-v1" },
+        modelId: "mock-v1",
+        worldPromptSnapshot: { revision: 1, vibe: "", prompt: "A coherent world." },
+        siteIdentity: {
+          classification: "original",
+          locale: "en-US",
+          era: "contemporary",
+          name: "Example Chat",
+          purpose: "A live support room",
+          audience: "Members",
+          visualLanguage: { palette: ["#111111", "#eeeeee"], typography: "Arimo Variable", density: "comfortable", radius: "rounded", mood: "helpful" },
+          establishedFacts: [],
+          routeHints: ["/", "/chat", "/help", "/about"].map((path) => ({ path, label: path, purpose: `Open ${path}` })),
+          palette: { background: "#eeeeee", surface: "#ffffff", text: "#111111", mutedText: "#666666", accent: "#2255cc", accentText: "#ffffff", border: "#cccccc" },
+          fonts: { body: "Arimo Variable", heading: "Arimo Variable" },
+          layoutSystem: "Support thread",
+          favicon: { kind: "glyph", glyph: "E", foreground: "#ffffff", background: "#2255cc", shape: "rounded-square" },
+        },
+        page: { title: "Support", summary: "A support conversation" },
+        action: { action: "model:chat.send", trigger: "action", targets: ["thread"], fields: { message: ["Hello"] } },
+        regions: [{ regionId: "thread", html: "<p>Initial</p>", revision: 0 }],
+        trustedState: { cart: { items: {} }, wishlist: [], values: {} },
+        settings: { dynamicMode: "active", maxOutputTokens: 8_000, style: { tailwindEnabled: false }, images: { enabled: false } },
+      },
+    }));
+    await terminal.promise;
+    expect(outputs.some((output) => output.type === "dynamic.started")).toBe(true);
+    expect(outputs.find((output) => output.type === "dynamic.completed")).toMatchObject({
+      result: { patches: [{ regionId: "thread", html: expect.stringContaining("Fresh deterministic content") }] },
+    });
+    expect(outputs.some((output) => output.type === "generation.completed")).toBe(false);
+    await runtime.close();
+  });
+
+  it("terminates malformed host dynamic jobs instead of leaving the host waiting", async () => {
+    const outputs: Output[] = [];
+    const runtime = new WorkerRuntime((output) => void outputs.push(output as Output));
+    await runtime.handleLine(JSON.stringify({
+      type: "generate",
+      requestId: "request-malformed-dynamic",
+      jobId: "malformed-dynamic",
+      request: { kind: "dynamic-region" },
+    }));
+
+    expect(outputs).toContainEqual(expect.objectContaining({
+      type: "dynamic.failed",
+      requestId: "request-malformed-dynamic",
+      jobId: "malformed-dynamic",
+      sequence: 1,
+    }));
+    expect(runtime.activeJobCount).toBe(0);
+    await runtime.close();
+  });
+
   it("uses the system Codex route without ever echoing inline credentials", async () => {
     const secret = "credential-that-must-never-appear";
     const outputs: Output[] = [];

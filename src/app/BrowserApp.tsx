@@ -3,6 +3,7 @@ import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { modelCatalog } from "../data/catalog";
 import { detectPlatform, isTauri, syncNativeWindowTheme } from "../lib/platform";
 import { useGenerationRuntime } from "../generation/use-generation-runtime";
+import { useDynamicRuntime } from "../dynamic/use-dynamic-runtime";
 import { useBrowserStore } from "../store/browser-store";
 import { NavigationBar } from "../components/chrome/NavigationBar";
 import { BrowserStatusBar } from "../components/chrome/BrowserStatusBar";
@@ -18,6 +19,7 @@ const SettingsPage = lazy(() =>
 
 export function BrowserApp() {
   useGenerationRuntime();
+  useDynamicRuntime();
   const tabs = useBrowserStore((state) => state.tabs);
   const activeTabId = useBrowserStore((state) => state.activeTabId);
   const preferences = useBrowserStore((state) => state.preferences);

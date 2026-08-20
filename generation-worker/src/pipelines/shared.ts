@@ -134,11 +134,13 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
       modelExchanges: input.modelExchanges,
       warnings,
       capabilityManifest: transformed.capabilityManifest,
+      ...(transformed.dynamicManifest ? { dynamicManifest: transformed.dynamicManifest } : {}),
       ...(input.request.context.parentArtifactId
         ? { parentArtifactId: input.request.context.parentArtifactId }
         : {}),
     },
     capabilityManifest: transformed.capabilityManifest,
+    ...(transformed.dynamicManifest ? { dynamicManifest: transformed.dynamicManifest } : {}),
   };
 
   return { artifact, issues: validation.issues };

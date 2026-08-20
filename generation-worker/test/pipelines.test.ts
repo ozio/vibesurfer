@@ -160,6 +160,26 @@ describe("directed generation pipeline", () => {
     expect(events.phases.at(-1)).toBe("committing");
   });
 
+  it("selects dynamic regions for a live route but not for an ordinary article", async () => {
+    const live = await runGenerationPipeline({
+      request: generationCommand({ url: "https://example.com/chat" }),
+      executor: new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "live-route" }),
+      signal: new AbortController().signal,
+      emit: emitter().value,
+    });
+    const article = await runGenerationPipeline({
+      request: generationCommand({ url: "https://example.com/articles/quiet-gardens" }),
+      executor: new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "static-route" }),
+      signal: new AbortController().signal,
+      emit: emitter().value,
+    });
+
+    expect(live.artifact.capabilityManifest.map((entry) => entry.id)).toContain("dynamic-regions");
+    expect(live.artifact.dynamicManifest?.regions).toEqual([{ id: "live-thread", refreshSeconds: 60 }]);
+    expect(article.artifact.capabilityManifest.map((entry) => entry.id)).not.toContain("dynamic-regions");
+    expect(article.artifact.dynamicManifest).toBeUndefined();
+  });
+
   it("never makes a semantic repair request after deterministic validation fails", async () => {
     const executor = new BrokenBuilderExecutor();
     const events = emitter();

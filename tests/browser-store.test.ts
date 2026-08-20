@@ -355,6 +355,13 @@ test("version-one persisted tabs migrate without changing explicit remote surfac
   assert.equal(migrated.generationSettings?.style.progressiveRendering, true);
   assert.equal(migrated.generationSettings?.images.provider, "tag-placeholder");
   assert.equal(migrated.generationSettings?.images.allowExternalRequests, true);
+  assert.equal(migrated.generationSettings?.dynamicMode, "active");
+});
+
+test("migration preserves explicit dynamic modes and defaults legacy profiles to active", () => {
+  assert.equal(migrateBrowserState({ generationSettings: {} }, 10).generationSettings?.dynamicMode, "active");
+  assert.equal(migrateBrowserState({ generationSettings: { dynamicMode: "off" } }, 11).generationSettings?.dynamicMode, "off");
+  assert.equal(migrateBrowserState({ generationSettings: { dynamicMode: "always" } }, 11).generationSettings?.dynamicMode, "always");
 });
 
 test("migration preserves an explicit generated JavaScript opt-in", () => {

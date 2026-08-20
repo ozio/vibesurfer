@@ -1,11 +1,13 @@
 import {
   createArtifactRenderCommand,
+  createArtifactHostCommand,
   createBridgeInit,
   isBootstrapReady,
   parseArtifactFrameEvent,
   type ArtifactBridgeIdentity,
   type ArtifactFrameEvent,
   type ArtifactRenderPayload,
+  type ArtifactDynamicRegionSnapshot,
 } from "./bridge-protocol";
 
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 4_000;
@@ -26,6 +28,11 @@ export interface ArtifactFrameConnection {
   disconnect: () => void;
   isReady: () => boolean;
   updateRender: (render: ArtifactRenderPayload) => void;
+  setDynamicPending: (requestId: string, regionIds: string[]) => void;
+  patchDynamic: (input: { requestId: string; sessionRevision: number; patches: ArtifactDynamicRegionSnapshot[]; announcement?: string }) => void;
+  setDynamicError: (input: { requestId: string; regionIds: string[]; message: string; retryable: boolean }) => void;
+  syncState: (input: { requestId?: string; sessionRevision: number; bindings: Record<string, string>; snapshots?: ArtifactDynamicRegionSnapshot[] }) => void;
+  requestDynamicSnapshot: (regionIds: string[]) => Promise<ArtifactDynamicRegionSnapshot[]>;
 }
 
 /**
@@ -54,6 +61,11 @@ export function connectArtifactFrame({
       disconnect: () => undefined,
       isReady: () => false,
       updateRender: () => undefined,
+      setDynamicPending: () => undefined,
+      patchDynamic: () => undefined,
+      setDynamicError: () => undefined,
+      syncState: () => undefined,
+      requestDynamicSnapshot: async () => [],
     };
   }
 
@@ -66,6 +78,7 @@ export function connectArtifactFrame({
   const seenInstanceIds = new Set<string>();
   let timeout: number | undefined;
   let active: { instanceId: string; channel: MessageChannel } | undefined;
+  const snapshotRequests = new Map<string, { resolve: (regions: ArtifactDynamicRegionSnapshot[]) => void; timeout: number }>();
 
   const armTimeout = () => {
     if (timeout !== undefined) window.clearTimeout(timeout);
@@ -86,6 +99,11 @@ export function connectArtifactFrame({
       active.channel.port1.close();
       active = undefined;
     }
+    for (const pending of snapshotRequests.values()) {
+      window.clearTimeout(pending.timeout);
+      pending.resolve([]);
+    }
+    snapshotRequests.clear();
   };
 
   const acceptBootstrap = (event: MessageEvent<unknown>) => {
@@ -144,6 +162,14 @@ export function connectArtifactFrame({
         ready = true;
         if (timeout !== undefined) window.clearTimeout(timeout);
       }
+      if (parsed.event.type === "dynamic-snapshot") {
+        const pending = snapshotRequests.get(parsed.event.requestId);
+        if (!pending) return;
+        window.clearTimeout(pending.timeout);
+        snapshotRequests.delete(parsed.event.requestId);
+        pending.resolve(parsed.event.regions);
+        return;
+      }
       onEvent(parsed.event);
     };
     nextChannel.port1.start();
@@ -185,5 +211,37 @@ export function connectArtifactFrame({
     }
   };
 
-  return { disconnect, isReady: () => ready && !disconnected, updateRender };
+  const postDynamic = (command: Parameters<typeof createArtifactHostCommand>[1]) => {
+    if (disconnected || !ready || !active) return;
+    try {
+      active.channel.port1.postMessage(createArtifactHostCommand(identity, command));
+    } catch (error) {
+      onProtocolError?.(error instanceof Error ? error.message : "Dynamic command could not be sent");
+    }
+  };
+
+  const requestDynamicSnapshot = (regionIds: string[]) => new Promise<ArtifactDynamicRegionSnapshot[]>((resolve) => {
+    if (disconnected || !ready || !active) {
+      resolve([]);
+      return;
+    }
+    const requestId = crypto.randomUUID();
+    const timeout = window.setTimeout(() => {
+      snapshotRequests.delete(requestId);
+      resolve([]);
+    }, 2_000);
+    snapshotRequests.set(requestId, { resolve, timeout });
+    postDynamic({ type: "dynamic-snapshot-request", requestId, regionIds });
+  });
+
+  return {
+    disconnect,
+    isReady: () => ready && !disconnected,
+    updateRender,
+    setDynamicPending: (requestId, regionIds) => postDynamic({ type: "dynamic-pending", requestId, regionIds }),
+    patchDynamic: (input) => postDynamic({ type: "dynamic-patch", ...input }),
+    setDynamicError: (input) => postDynamic({ type: "dynamic-error", ...input }),
+    syncState: (input) => postDynamic({ type: "state-sync", ...input, snapshots: input.snapshots ?? [] }),
+    requestDynamicSnapshot,
+  };
 }

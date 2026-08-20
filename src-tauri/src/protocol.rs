@@ -55,6 +55,16 @@ pub struct SiteWorldRecord {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SiteSessionRecord {
+    pub profile_id: String,
+    pub site_world_id: String,
+    pub revision: i64,
+    pub updated_at: String,
+    pub payload: Value,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderConnectionRecord {
     pub id: String,
     pub profile_id: String,

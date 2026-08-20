@@ -1,6 +1,7 @@
 import type { ArtifactRenderPayload } from "./bridge-protocol";
 import { repairEscapedNavigationUrl } from "../lib/navigation";
 import type { ThemeId } from "../types/browser";
+import type { DynamicManifest } from "../types/browser";
 
 const BLOCKED_ELEMENTS = [
   "base",
@@ -36,6 +37,7 @@ export interface GeneratedArtifactDocumentInput {
   nonce?: string;
   allowGeneratedScripts?: boolean;
   browserTheme?: ThemeId;
+  dynamicManifest?: DynamicManifest;
 }
 
 export type ArtifactSanitizationWarningCode =
@@ -82,7 +84,13 @@ export function compileGeneratedArtifactDocument(
   return {
     artifactId,
     nonce,
-    payload: { pageUrl, title, html: srcDoc, executeScripts: allowGeneratedScripts },
+    payload: {
+      pageUrl,
+      title,
+      html: srcDoc,
+      executeScripts: allowGeneratedScripts,
+      ...(input.dynamicManifest ? { dynamicManifest: input.dynamicManifest } : {}),
+    },
     srcDoc,
     warnings: warnings.toArray(),
   };

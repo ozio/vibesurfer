@@ -5,7 +5,58 @@ import { ArtifactCapabilityUseSchema, CapabilityIdSchema } from "./capabilities/
 import { IconSetSchema } from "./iconify/catalog.js";
 
 export const PROTOCOL_VERSION = 1 as const;
-export const GENERATION_PROMPT_VERSION = 14 as const;
+export const GENERATION_PROMPT_VERSION = 15 as const;
+
+export const DynamicModeSchema = z.enum(["off", "active", "always"]);
+export type DynamicMode = z.infer<typeof DynamicModeSchema>;
+
+export const DynamicRegionSchema = z.object({
+  id: z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/),
+  refreshSeconds: z.number().int().min(60).max(3_600).optional(),
+}).strict();
+export type DynamicRegion = z.infer<typeof DynamicRegionSchema>;
+
+export const DynamicActionSchema = z.object({
+  action: z.string().regex(/^(?:state:(?:cart\.add|cart\.remove|cart\.setQuantity|wishlist\.toggle|value\.set)|model:[a-z][a-z0-9.-]{0,63})$/),
+  execution: z.enum(["state", "model"]),
+  targets: z.array(z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/)).max(16),
+}).strict().superRefine((value, context) => {
+  if (!value.action.startsWith(`${value.execution}:`)) {
+    context.addIssue({ code: "custom", path: ["execution"], message: "Dynamic action execution must match its namespace." });
+  }
+  if (new Set(value.targets).size !== value.targets.length) {
+    context.addIssue({ code: "custom", path: ["targets"], message: "Dynamic action targets must be unique." });
+  }
+});
+export type DynamicAction = z.infer<typeof DynamicActionSchema>;
+
+export const DynamicManifestSchema = z.object({
+  version: z.literal(1),
+  regions: z.array(DynamicRegionSchema).max(16),
+  actions: z.array(DynamicActionSchema).max(32),
+  bindings: z.array(z.string().max(80)).max(64),
+  localTabs: z.boolean().default(false),
+}).strict();
+export type DynamicManifest = z.infer<typeof DynamicManifestSchema>;
+
+export const JsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
+  z.string().max(16_384),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+  z.array(JsonValueSchema).max(256),
+  z.record(z.string().max(120), JsonValueSchema),
+]));
+
+export const DynamicRegionResultSchema = z.object({
+  patches: z.array(z.object({
+    regionId: z.string().regex(/^[A-Za-z][A-Za-z0-9_.-]{0,63}$/),
+    html: z.string().max(64 * 1024),
+  }).strict()).max(16),
+  modelState: JsonValueSchema.optional(),
+  announcement: z.string().max(500).optional(),
+}).strict();
+export type DynamicRegionResult = z.infer<typeof DynamicRegionResultSchema>;
 
 export const ProviderKindSchema = z.enum([
   "mock",
@@ -159,6 +210,7 @@ export const GenerationSettingsSchema = z
     tailwindVersion: z.string().min(1).max(40).default("4.3.3"),
     allowGeneratedScripts: z.boolean().default(false),
     motionEnabled: z.boolean().default(true),
+    dynamicMode: DynamicModeSchema.default("active"),
     capabilities: z.object({
       audioSpeechEnabled: z.boolean().default(true),
       externalMediaEnabled: z.boolean().default(false),
@@ -302,7 +354,7 @@ export type TokenUsage = z.infer<typeof TokenUsageSchema>;
 export const ModelExchangeSchema = z
   .object({
     id: z.string().min(1).max(160),
-    purpose: z.enum(["page-director", "page-builder"]),
+    purpose: z.enum(["page-director", "page-builder", "region-builder"]),
     providerId: z.string().min(1).max(200),
     modelId: z.string().min(1).max(300),
     actualProviderKind: ProviderKindSchema,
@@ -350,6 +402,7 @@ export const PageArtifactSchema = z
     sitePatch: SiteWorldPatchSchema,
     payload: z.record(z.string(), z.unknown()),
     capabilityManifest: z.array(ArtifactCapabilityUseSchema).max(64).default([]),
+    dynamicManifest: DynamicManifestSchema.optional(),
   })
   .strict();
 export type PageArtifact = z.infer<typeof PageArtifactSchema>;

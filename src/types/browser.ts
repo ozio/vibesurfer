@@ -3,6 +3,7 @@ export type ThemeId = "native" | "sedative" | "ie-classic" | "cyberpunk";
 export type ColorScheme = "system" | "light" | "dark";
 export type TabLayout = "horizontal" | "vertical";
 export type Density = "comfortable" | "compact";
+export type DynamicMode = "off" | "active" | "always";
 export type TabKind = "new-tab" | "remote" | "generated" | "settings" | "history";
 export type LoadState = "idle" | "loading" | "error";
 export type NavigationDisposition = "current" | "foreground-tab" | "background-tab";
@@ -88,7 +89,7 @@ export interface TokenUsage {
 
 export interface ModelExchange {
   id: string;
-  purpose: "page-director" | "page-builder";
+  purpose: "page-director" | "page-builder" | "region-builder";
   providerId: string;
   modelId: string;
   actualProviderKind: string;
@@ -128,7 +129,7 @@ export const CAPABILITY_IDS = [
   "image-intents", "local-dom-scripts", "pattern-background", "motion-presets",
   "data-chart", "diagram", "math", "code-highlight", "qr-code", "avatar",
   "synthetic-map", "micro-widgets", "carousel", "slideshow", "speech", "sound",
-  "external-media", "gifcities", "real-map",
+  "dynamic-regions", "external-media", "gifcities", "real-map",
 ] as const;
 export type CapabilityId = typeof CAPABILITY_IDS[number];
 
@@ -141,6 +142,25 @@ export interface ArtifactCapabilityUse {
   execution: CapabilityExecutionTarget;
   instances: number;
   noticeIds: string[];
+}
+
+export interface DynamicRegionManifestEntry {
+  id: string;
+  refreshSeconds?: number;
+}
+
+export interface DynamicActionManifestEntry {
+  action: string;
+  execution: "state" | "model";
+  targets: string[];
+}
+
+export interface DynamicManifest {
+  version: 1;
+  regions: DynamicRegionManifestEntry[];
+  actions: DynamicActionManifestEntry[];
+  bindings: string[];
+  localTabs: boolean;
 }
 
 export interface ArtifactSitePatch {
@@ -186,6 +206,7 @@ export interface PageArtifact {
   modelExchanges?: ModelExchange[];
   warnings: ArtifactWarning[];
   capabilityManifest?: ArtifactCapabilityUse[];
+  dynamicManifest?: DynamicManifest;
   allowGeneratedScripts?: boolean;
   sitePatch?: ArtifactSitePatch;
   siteIdentity?: SiteIdentity;
@@ -280,6 +301,43 @@ export interface SiteWorld {
   revision: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+
+export interface SiteSessionCartItem {
+  productId: string;
+  quantity: number;
+  unitPriceMinor?: number;
+  currency?: string;
+}
+
+export interface SiteRegionSnapshot {
+  html: string;
+  revision: number;
+  updatedAt: string;
+}
+
+export interface SiteSessionState {
+  profileId: string;
+  siteWorldId: string;
+  revision: number;
+  cart: { items: Record<string, SiteSessionCartItem> };
+  wishlist: string[];
+  values: Record<string, JsonValue>;
+  modelState?: JsonValue;
+  regionSnapshots: Record<string, Record<string, SiteRegionSnapshot>>;
+  updatedAt: string;
+}
+
+export type DynamicBadgeStatus = "live" | "paused" | "updating" | "error";
+
+export interface DynamicTabStatus {
+  status: DynamicBadgeStatus;
+  lastUpdatedAt?: string;
+  nextUpdateAt?: string;
+  error?: GenerationError;
+  consecutiveErrors: number;
 }
 
 export type GenerationJobStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
@@ -470,6 +528,7 @@ export interface GenerationSettings {
   promptVersion: number;
   maxOutputTokens: number;
   reuseCachedPages: boolean;
+  dynamicMode: DynamicMode;
   style: ArtifactStyleSettings;
   images: ImageGenerationSettings;
   capabilities: GenerationCapabilitySettings;

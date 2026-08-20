@@ -7,7 +7,7 @@ import type { ModelExchange, ProviderKind, TokenUsage } from "../domain.js";
 import type { PromptBundle, PromptStage } from "../prompt-builder.js";
 
 export interface GenerateObjectRequest<T> {
-  purpose: PromptStage;
+  purpose: PromptStage | "region-builder";
   schema: z.ZodType<T>;
   prompt: PromptBundle;
   abortSignal: AbortSignal;
@@ -24,7 +24,7 @@ export interface GeneratedObject<T> {
 export type GenerationMode = "directed" | "compact";
 
 export interface GenerateTextRequest {
-  purpose: PromptStage;
+  purpose: PromptStage | "region-builder";
   prompt: PromptBundle;
   abortSignal: AbortSignal;
   maxOutputTokens: number;

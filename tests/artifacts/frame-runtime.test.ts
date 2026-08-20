@@ -261,6 +261,82 @@ describe("artifact frame runtime", () => {
       harness.close();
     }
   });
+
+  test("keeps local tabs available and applies only revisioned host-authorized region patches", () => {
+    const harness = createRuntimeHarness();
+    try {
+      const bootstrap = harness.parentMessages[0] as BootstrapMessage;
+      const port = new FakeMessagePort();
+      harness.window.dispatchEvent(new harness.window.MessageEvent("message", {
+        data: { protocol: ARTIFACT_BRIDGE_PROTOCOL, version: ARTIFACT_BRIDGE_VERSION, type: "init", instanceId: bootstrap.instanceId, ...identity },
+        source: harness.window,
+        ports: [port as unknown as MessagePort],
+      }));
+      const dynamicManifest = {
+        version: 1 as const,
+        regions: [{ id: "thread", refreshSeconds: 60 }],
+        actions: [{ action: "model:chat.send", execution: "model" as const, targets: ["thread"] }],
+        bindings: ["cart.count"],
+        localTabs: true,
+      };
+      port.dispatch(renderCommand({
+        title: "Reactive",
+        dynamicManifest,
+        html: `<main>
+          <div data-vibe-tabs><button id="tab-one" role="tab" aria-controls="panel-one">One</button><button id="tab-two" role="tab" aria-controls="panel-two">Two</button><section id="panel-one" role="tabpanel">First</section><section id="panel-two" role="tabpanel">Second</section></div>
+          <span data-vibe-bind="cart.count">0</span>
+          <section data-vibe-region="thread">Old thread</section>
+          <form id="chat" data-vibe-action="model:chat.send" data-vibe-target="thread"><input name="message" value="Hello"><button>Send</button></form>
+        </main>`,
+      }));
+
+      expect(harness.document.querySelector("#panel-one")).not.toHaveAttribute("hidden");
+      expect(harness.document.querySelector("#panel-two")).toHaveAttribute("hidden");
+      harness.document.querySelector<HTMLButtonElement>("#tab-two")?.click();
+      expect(harness.document.querySelector("#panel-one")).toHaveAttribute("hidden");
+      expect(harness.document.querySelector("#panel-two")).not.toHaveAttribute("hidden");
+
+      // Generated scripts and synthetic DOM events cannot cause host work.
+      harness.document.querySelector<HTMLFormElement>("#chat")?.requestSubmit();
+      expect(port.messages.some((message) => message.type === "dynamic-action")).toBe(false);
+
+      port.dispatch({
+        ...envelopeForRuntime(),
+        type: "state-sync",
+        sessionRevision: 1,
+        bindings: { "cart.count": "3" },
+        snapshots: [{ regionId: "thread", html: "<p>Restored</p>", revision: 1 }],
+      });
+      expect(harness.document.querySelector('[data-vibe-bind="cart.count"]')).toHaveTextContent("3");
+      expect(harness.document.querySelector('[data-vibe-region="thread"]')).toHaveTextContent("Restored");
+
+      port.dispatch({
+        ...envelopeForRuntime(),
+        type: "dynamic-patch",
+        requestId: "host-job-1",
+        sessionRevision: 2,
+        patches: [{
+          regionId: "thread",
+          revision: 2,
+          html: '<script>window.compromised=true</script><style>bad</style><p style="color:red" data-vibe-action="model:evil">Fresh</p>',
+        }],
+      });
+      const thread = harness.document.querySelector('[data-vibe-region="thread"]');
+      expect(thread).toHaveTextContent("Fresh");
+      expect(thread?.querySelector("script, style, [style], [data-vibe-action]")).toBeNull();
+      port.dispatch({
+        ...envelopeForRuntime(),
+        type: "dynamic-patch",
+        requestId: "host-job-stale",
+        sessionRevision: 2,
+        patches: [{ regionId: "thread", revision: 1, html: "<p>Stale</p>" }],
+      });
+      expect(thread).toHaveTextContent("Fresh");
+      expect((harness.window as Window & { compromised?: boolean }).compromised).toBeUndefined();
+    } finally {
+      harness.close();
+    }
+  });
 });
 
 const hostileArtifactHtml = `<!doctype html>
@@ -299,7 +375,7 @@ const hostileArtifactHtml = `<!doctype html>
   </body>
 </html>`;
 
-function renderCommand(patch: { title: string; html: string; executeScripts?: boolean }) {
+function renderCommand(patch: { title: string; html: string; executeScripts?: boolean; dynamicManifest?: Record<string, unknown> }) {
   return {
     protocol: ARTIFACT_BRIDGE_PROTOCOL,
     version: ARTIFACT_BRIDGE_VERSION,
@@ -308,6 +384,10 @@ function renderCommand(patch: { title: string; html: string; executeScripts?: bo
     pageUrl: "https://safe.example/base/index.html",
     ...patch,
   };
+}
+
+function envelopeForRuntime() {
+  return { protocol: ARTIFACT_BRIDGE_PROTOCOL, version: ARTIFACT_BRIDGE_VERSION, ...identity };
 }
 
 function createRuntimeHarness() {

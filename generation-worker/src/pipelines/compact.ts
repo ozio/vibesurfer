@@ -223,7 +223,8 @@ function compactBrief(context: PipelineContext, html: string): ApprovedPageBrief
     facts: [] as string[],
     routes: routesFromHtml(html, new URL(context.request.url)),
   };
-  const selectedCapabilityContracts = compactCapabilityContracts(context.request.settings, context.request.browserTheme);
+  const selectedCapabilityContracts = { ...compactCapabilityContracts(context.request.settings, context.request.browserTheme) };
+  if (!shouldUseDynamicRegions(context)) delete selectedCapabilityContracts["dynamic-regions"];
   const selectedCapabilities = Object.keys(selectedCapabilityContracts) as CapabilityId[];
   if (context.request.settings.allowGeneratedScripts) selectedCapabilities.push("local-dom-scripts");
   const direction: PageDirection = {
@@ -264,7 +265,8 @@ function compactPrompt(context: PipelineContext): PromptBundle {
   const images = request.settings.images.mode === "tag-placeholder"
     ? "For a useful image, use <img data-vibe-image=\"short semantic query\" alt=\"meaningful description\"> instead of a remote URL."
     : "Do not depend on remote images.";
-  const capabilityContracts = compactCapabilityContracts(request.settings, request.browserTheme);
+  const capabilityContracts = { ...compactCapabilityContracts(request.settings, request.browserTheme) };
+  if (!shouldUseDynamicRegions(context)) delete capabilityContracts["dynamic-regions"];
   const capabilities = Object.entries(capabilityContracts)
     .filter(([id]) => !["semantic-navigation", "inline-page-css", "tailwind-utilities", "image-intents"].includes(id))
     .map(([id, contract]) => `${id}: ${contract}`)
@@ -311,7 +313,18 @@ function compactPrompt(context: PipelineContext): PromptBundle {
     "Begin with <!doctype html>.",
   ].join("\n\n");
   const fingerprint = createHash("sha256").update(system).update("\0").update(prompt).digest("hex");
-  return { system, prompt, fingerprint, version: 14 };
+  return { system, prompt, fingerprint, version: 15 };
+}
+
+function shouldUseDynamicRegions(context: PipelineContext): boolean {
+  if (context.request.settings.dynamicMode === "off") return false;
+  const navigation = context.request.context.navigationIntent;
+  return /(?:chat|cart|wishlist|search|feed|live|status|auction|market|shop|store|message|inbox|track)/i.test([
+    context.request.url,
+    navigation.anchorText,
+    navigation.linkContext,
+    navigation.surroundingText,
+  ].join(" "));
 }
 
 function decodeBasicEntities(value: string): string {

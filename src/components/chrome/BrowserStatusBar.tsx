@@ -167,5 +167,6 @@ function stageName(stage: ModelExchange["purpose"]) {
   return ({
     "page-director": "Director",
     "page-builder": "Builder",
+    "region-builder": "Region Builder",
   } satisfies Record<ModelExchange["purpose"], string>)[stage];
 }

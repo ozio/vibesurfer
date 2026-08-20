@@ -158,9 +158,10 @@ export const DEFAULT_BROWSER_PREFERENCES: BrowserPreferences = {
 };
 
 export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
-  promptVersion: 14,
+  promptVersion: 15,
   maxOutputTokens: 16_000,
   reuseCachedPages: true,
+  dynamicMode: "active",
   style: {
     tailwindEnabled: true,
     tailwindVersion: "4.3.3",
@@ -1292,7 +1293,7 @@ export const useBrowserStore = create<BrowserState>()(
     }),
     {
       name: "vibesurfer-browser-state",
-      version: 10,
+      version: 11,
       migrate: (persistedState, version) => migrateBrowserState(persistedState, version) as BrowserState,
       partialize: (state) => ({
         tabs: state.preferences.reopenSession ? state.tabs : initialTabs,
@@ -1984,7 +1985,7 @@ function migrateProfileWorkspace(value: unknown, profile: BrowserProfile): Profi
       theme: profile.chromeSkin,
     } as BrowserPreferences,
     codexSelection: migrateCodexSelection(value.codexSelection),
-    generationSettings: migrateGenerationSettings(value.generationSettings, 10),
+    generationSettings: migrateGenerationSettings(value.generationSettings, 11),
   };
 }
 
@@ -2224,6 +2225,7 @@ function migrateGenerationSettings(value: unknown, version: number): GenerationS
       100_000,
     ),
     reuseCachedPages: booleanValue(source.reuseCachedPages) ?? DEFAULT_GENERATION_SETTINGS.reuseCachedPages,
+    dynamicMode: source.dynamicMode === "off" || source.dynamicMode === "always" ? source.dynamicMode : "active",
     style: {
       tailwindEnabled: booleanValue(style.tailwindEnabled) ?? DEFAULT_GENERATION_SETTINGS.style.tailwindEnabled,
       tailwindVersion: DEFAULT_GENERATION_SETTINGS.style.tailwindVersion,

@@ -142,6 +142,9 @@ export function capabilityCatalog(settings: GenerationSettings, browserTheme: Br
       settings.motionEnabled !== false
         ? "Page-appropriate motion is allowed, but it must support comprehension and respect the destination's era and tone."
         : "Motion is disabled: do not emit CSS animation, transitions, animated scrolling, Web Animations, or timer-driven visual motion.",
+      settings.dynamicMode === "off"
+        ? "Host-mediated state and model-backed dynamic regions are unavailable. Local data-vibe-tabs controls remain available."
+        : "Host-mediated dynamic regions are available only when genuinely useful; automatic refresh is host-scheduled and never page-scripted.",
       "Every meaningful navigational link carries bounded data-vibe-context; local DOM-only forms carry data-vibe-local.",
       "Complete HTML document; progressive above-the-fold markup first",
       "No origin fetches, external scripts/styles, frames, embeds, objects, meta refresh, downloads, or parent/native access. The selected Iconify contract may supply one exact compiler marker that is removed before execution.",
@@ -179,7 +182,7 @@ function stageInstruction(input: PromptInput): string {
         input.context.siteWorld && input.context.identityStrategy === "reuse"
           ? "The supplied SiteIdentity is frozen. Return only a page-specific direction and non-contradictory additions. Never return or revise identity, favicon, palette, typography, purpose, audience, locale, or era."
           : "Return a complete durable SiteIdentity plus the page direction. Give the origin a distinctive persistent favicon using one or two UTF characters, a legible foreground, a non-generic background color, and a circle, square, or rounded-square shape; it must remain usable at 16px and must not default every origin to the same blue tile. For an unknown hostname, invent an unusual, concrete entity and a visual language specific to its name; creative interpretation is required. For a recognizable hostname, preserve its canonical function and familiar interface.",
-        "Select fonts and capabilities only from the supplied versioned catalog. Choose iconSet by visual language from the supplied iconSets, or null when icons would not improve the design. Never return an unlisted prefix. Make palette roles explicit. Make composition and sections specific enough that Builder does not need to redesign the page. For original sites and inner pages, creativeRationale must explain why the chosen information flow avoids the routine logo/nav/content/sidebar shell. Recognizable canonical roots must retain their familiar geometry.",
+        "Select fonts and capabilities only from the supplied versioned catalog. Select dynamic-regions only for a genuinely live interface such as a chat, cart, wishlist, search, auction, changing feed, tracker, or status surface. Never add timers to an article, ordinary brochure, or static showcase merely because live regions are available. Choose iconSet by visual language from the supplied iconSets, or null when icons would not improve the design. Never return an unlisted prefix. Make palette roles explicit. Make composition and sections specific enough that Builder does not need to redesign the page. For original sites and inner pages, creativeRationale must explain why the chosen information flow avoids the routine logo/nav/content/sidebar shell. Recognizable canonical roots must retain their familiar geometry.",
       ].join(" ");
     case "page-builder":
       return `${BASE_PAGE_INSTRUCTION}\nImplement the approved brief exactly. Identity, favicon, role palette, fonts, locale, era, density, and composition are immutable. Do not return or redefine them. Produce only final page metadata and one complete HTML document.`;
@@ -221,6 +224,7 @@ export function buildPrompt(input: PromptInput): PromptBundle {
       motion: input.settings.motionEnabled !== false ? "enabled" : "disabled",
       tailwind: input.settings.tailwindEnabled ? "utility-first-required" : "unavailable",
       generatedJavaScript: input.settings.allowGeneratedScripts ? "local-dom-only" : "disabled",
+      dynamicRegions: input.settings.dynamicMode === "off" ? "disabled" : "host-mediated-when-useful",
       meaningfulLinkContext: "data-vibe-context-required",
     }, null, 2)}\n</rendering_preferences>`,
     `<navigation_context>\n${JSON.stringify(compactContext(input.context), null, 2)}\n</navigation_context>`,

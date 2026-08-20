@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import {
   ExistingSiteDirectorResultSchema,
+  DynamicRegionResultSchema,
   NewSiteDirectorResultSchema,
   PageResultSchema,
   type ApprovedPageBrief,
@@ -238,6 +239,8 @@ function makeDirectorResult(url: URL, seed: number, prompt: string): unknown {
     if (hostname === "bububu.com") return "streamline-cyber";
     return "lucide";
   })();
+  const liveInterface = /(?:chat|cart|wishlist|search|feed|live|status|auction|market|shop|store|message|inbox|track)/i
+    .test(`${url.hostname}${url.pathname}${url.search}`);
   const direction = {
     siteClassification: identity.classification,
     locale: identity.locale,
@@ -256,7 +259,9 @@ function makeDirectorResult(url: URL, seed: number, prompt: string): unknown {
     ],
     iconSet,
     imagery: ["coastal-city", "community-studio"],
-    selectedCapabilities: availableCapabilities.slice(0, 16),
+    selectedCapabilities: (liveInterface && availableCapabilities.includes("dynamic-regions")
+      ? ["dynamic-regions", ...availableCapabilities.filter((id) => id !== "dynamic-regions")]
+      : availableCapabilities.filter((id) => id !== "dynamic-regions")).slice(0, 16),
     creativeRationale: `A concrete service for ${url.hostname}, with an identity tied to the hostname rather than a generic landing page.`,
     implementationNotes: "Keep the route hierarchy visible and render the approved visual system exactly.",
   };
@@ -311,6 +316,28 @@ function makeHtml(url: URL, site: SiteWorldPatch, title: string, prompt: string)
   const image = imagesOff
     ? ""
     : `<img data-vibe-image="coastal city, morning light, editorial" data-vibe-aspect="16/9" alt="An imagined city in soft morning light" class="aspect-video w-full rounded-2xl object-cover">`;
+  const dynamicEnabled = approvedBrief(prompt)?.direction.selectedCapabilities.includes("dynamic-regions") === true;
+  const commerce = /(?:cart|wishlist|market|shop|store|auction)/i.test(`${url.hostname}${url.pathname}`);
+  const dynamicMarkup = !dynamicEnabled ? "" : commerce
+    ? `<section class="${shellClass}" aria-labelledby="live-cart-title">
+        <h2 id="live-cart-title">Live cart</h2>
+        <p><strong data-vibe-bind="cart.count">0</strong> items · <span data-vibe-bind="cart.total">0</span></p>
+        <form data-vibe-action="state:cart.add">
+          <input type="hidden" name="productId" value="sku-204">
+          <input type="hidden" name="quantity" value="1">
+          <input type="hidden" name="unitPriceMinor" value="1499">
+          <input type="hidden" name="currency" value="USD">
+          <button type="submit">Add field guide to cart</button>
+        </form>
+      </section>`
+    : `<section class="${shellClass}" aria-labelledby="live-region-title">
+        <h2 id="live-region-title">Live updates</h2>
+        <div data-vibe-region="live-thread" data-vibe-refresh="60" aria-live="polite"><p>The thread is ready for its next update.</p></div>
+        <form data-vibe-action="model:thread.send" data-vibe-target="live-thread">
+          <label>Message <input name="message" required></label>
+          <button type="submit">Send</button>
+        </form>
+      </section>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -343,6 +370,7 @@ function makeHtml(url: URL, site: SiteWorldPatch, title: string, prompt: string)
       <h2 id="explore-more" class="w-full text-2xl font-bold">Explore more</h2>
       ${nav}
     </section>
+    ${dynamicMarkup}
   </main>
   <footer class="${shellClass} border-t border-slate-200 py-8 text-sm text-slate-500">${escapeHtml(title)}</footer>
 </body>
@@ -367,7 +395,7 @@ export class DeterministicMockExecutor implements ModelExecutor {
   readonly actualProviderKind = "mock" as const;
   readonly providerId: string;
   readonly modelId: string;
-  readonly calls: PromptStage[] = [];
+  readonly calls: Array<PromptStage | "region-builder"> = [];
   readonly #seed: string;
   readonly #latencyMs: number;
 
@@ -396,6 +424,20 @@ export class DeterministicMockExecutor implements ModelExecutor {
       case "page-builder":
         candidate = makePageResult(url, seed, request.prompt.prompt);
         break;
+      case "region-builder": {
+        const targets = [...request.prompt.prompt.matchAll(/"targets":\s*\[([^\]]+)\]/g)]
+          .flatMap((match) => [...(match[1] ?? "").matchAll(/"([A-Za-z][A-Za-z0-9_.-]{0,63})"/g)])
+          .map((match) => match[1]!)
+          .slice(0, 16);
+        candidate = DynamicRegionResultSchema.parse({
+          patches: [...new Set(targets)].map((regionId) => ({
+            regionId,
+            html: `<div role="status"><strong>Updated</strong><p>Fresh deterministic content for ${escapeHtml(regionId)}.</p></div>`,
+          })),
+          announcement: "Live content updated.",
+        });
+        break;
+      }
     }
 
     const output = request.schema.parse(candidate);

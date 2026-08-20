@@ -4,10 +4,11 @@ import { parse, parseFragment, serialize } from "parse5";
 
 import { compileCapabilities } from "../capabilities/transform.js";
 import type { ArtifactCapabilityUse, CapabilityId } from "../capabilities/types.js";
-import type { ArtifactWarning, BrowserTheme, GenerationSettings } from "../domain.js";
+import type { ArtifactWarning, BrowserTheme, DynamicManifest, GenerationSettings } from "../domain.js";
 import type { IconSet } from "../iconify/catalog.js";
 import { compileIconify } from "../iconify/transform.js";
 import { createImageResolver, type ImageIntentResolver } from "../images/resolver.js";
+import { compileDynamicManifest } from "./dynamic-manifest.js";
 import { compileTailwind, sanitizeCompiledCss } from "./tailwind.js";
 import {
   elements,
@@ -417,6 +418,7 @@ export interface TransformHtmlResult {
   html: string;
   warnings: ArtifactWarning[];
   capabilityManifest: ArtifactCapabilityUse[];
+  dynamicManifest?: DynamicManifest;
 }
 
 export interface TransformPreviewHtmlInput {
@@ -474,6 +476,11 @@ export async function transformHtml(input: TransformHtmlInput): Promise<Transfor
     preview: false,
     signal: input.signal,
   });
+  const dynamic = compileDynamicManifest({
+    document,
+    enabled: input.settings.dynamicMode !== "off"
+      && (input.selectedCapabilities ?? []).includes("dynamic-regions"),
+  });
   sanitizeDocument(document, pageUrl, input.settings.allowGeneratedScripts);
   ensureHeadMetadata(document, input.title);
 
@@ -492,7 +499,8 @@ export async function transformHtml(input: TransformHtmlInput): Promise<Transfor
 
   return {
     html: `<!doctype html>\n${serialize(document).replace(/^<!DOCTYPE html>/i, "").trimStart()}`,
-    warnings: [...source.warnings, ...iconify.warnings, ...capabilities.warnings, ...styleWarnings, ...imageWarnings],
+    warnings: [...source.warnings, ...iconify.warnings, ...capabilities.warnings, ...dynamic.warnings, ...styleWarnings, ...imageWarnings],
     capabilityManifest: capabilities.manifest,
+    ...(dynamic.manifest ? { dynamicManifest: dynamic.manifest } : {}),
   };
 }

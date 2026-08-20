@@ -266,6 +266,7 @@ function countRuntimeMarkers(document: DocumentNode, capability: CapabilityId): 
     case "slideshow": return all.filter((element) => getAttribute(element, "data-vibe-slideshow") !== undefined).length;
     case "speech": return all.filter((element) => getAttribute(element, "data-vibe-speak") !== undefined).length;
     case "sound": return all.filter((element) => getAttribute(element, "data-vibe-sound") !== undefined).length;
+    case "dynamic-regions": return all.filter((element) => getAttribute(element, "data-vibe-region") !== undefined).length;
     default: return 0;
   }
 }
@@ -513,7 +514,7 @@ export async function compileCapabilities(input: CompileCapabilitiesInput): Prom
     }
   }
 
-  for (const id of ["motion-presets", "micro-widgets", "carousel", "slideshow", "speech", "sound"] as const) {
+  for (const id of ["motion-presets", "micro-widgets", "carousel", "slideshow", "speech", "sound", "dynamic-regions"] as const) {
     if (!selected.has(id)) continue;
     const instances = countRuntimeMarkers(input.document, id);
     if (instances > 0) counts.set(id, instances);

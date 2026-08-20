@@ -1,13 +1,16 @@
 import {
+  DynamicGenerateCommandSchema,
   GenerateCommandSchema,
   PublicProviderConnectionSchema,
   type GenerateCommand,
+  type DynamicGenerateCommand,
   type HostGenerateCommand,
   type ProviderCredentials,
   type ProviderVerifyCommand,
   type PublicProviderConnection,
 } from "./types.js";
 import {
+  SiteIdentitySchema,
   PageSummarySchema,
   SiteWorldSchema,
   type PageSummary,
@@ -249,6 +252,105 @@ export interface NormalizedHostGeneration {
   credentials?: ProviderCredentials;
 }
 
+export interface NormalizedHostDynamicGeneration {
+  command: DynamicGenerateCommand;
+  connection: PublicProviderConnection;
+  credentials?: ProviderCredentials;
+}
+
+export function isHostDynamicGeneration(input: HostGenerateCommand): boolean {
+  return record(input.request).kind === "dynamic-region";
+}
+
+export function normalizeHostDynamicGeneration(input: HostGenerateCommand): NormalizedHostDynamicGeneration {
+  const request = record(input.request);
+  const settings = record(request.settings);
+  const style = record(settings.style);
+  const images = record(settings.images);
+  const providerValue = request.provider ?? {
+    id: request.providerId,
+    kind: request.providerKind,
+    baseUrl: request.baseUrl,
+    modelId: request.modelId,
+  };
+  const normalizedProvider = normalizeProvider(providerValue, input.credential, string(request.modelId));
+  const rawPromptSnapshot = record(request.worldPromptSnapshot);
+  const imageMode = normalizeImageMode(images);
+  const identity = SiteIdentitySchema.parse(request.siteIdentity);
+  const page = record(request.page);
+  const action = record(request.action);
+
+  const command = DynamicGenerateCommandSchema.parse({
+    v: 1,
+    type: "dynamic.generate",
+    requestId: input.requestId,
+    jobId: input.jobId,
+    profileId: string(request.profileId) ?? "personal",
+    siteWorldId: string(request.siteWorldId) ?? "site-unknown",
+    url: normalizeHttpUrl(request.url),
+    provider: {
+      connectionId: normalizedProvider.connection.id,
+      modelId: normalizedProvider.modelId,
+      ...(normalizedProvider.reasoningEffort ? { reasoningEffort: normalizedProvider.reasoningEffort } : {}),
+      ...(normalizedProvider.serviceTier ? { serviceTier: normalizedProvider.serviceTier } : {}),
+    },
+    worldPromptSnapshot: {
+      revision: Math.max(0, Math.round(number(rawPromptSnapshot.revision) ?? 0)),
+      vibe: (string(rawPromptSnapshot.vibe) ?? "").slice(0, 1_000),
+      prompt: string(rawPromptSnapshot.prompt) ?? "",
+    },
+    siteIdentity: identity,
+    page: {
+      title: string(page.title) ?? identity.name,
+      summary: string(page.summary) ?? identity.purpose,
+    },
+    action: {
+      action: string(action.action) ?? "manual:refresh",
+      trigger: action.trigger === "timer" || action.trigger === "action" ? action.trigger : "manual",
+      targets: Array.isArray(action.targets) ? action.targets : [],
+      fields: record(action.fields),
+    },
+    regions: Array.isArray(request.regions)
+      ? request.regions.map((value) => {
+          const region = record(value);
+          return {
+            id: string(region.regionId ?? region.id),
+            html: string(region.html) ?? "",
+            revision: Math.max(0, Math.round(number(region.revision) ?? 0)),
+          };
+        })
+      : [],
+    trustedState: request.trustedState ?? {},
+    ...(request.modelState !== undefined ? { modelState: request.modelState } : {}),
+    settings: {
+      tailwindEnabled: boolean(settings.tailwindEnabled ?? style.tailwindEnabled) ?? true,
+      tailwindVersion: string(settings.tailwindVersion ?? style.tailwindVersion) ?? "4.3.3",
+      allowGeneratedScripts: false,
+      motionEnabled: boolean(settings.motionEnabled ?? style.motionEnabled) ?? true,
+      dynamicMode: settings.dynamicMode === "off" || settings.dynamicMode === "always" ? settings.dynamicMode : "active",
+      capabilities: {
+        audioSpeechEnabled: false,
+        externalMediaEnabled: false,
+        experimentalEnabled: false,
+      },
+      images: {
+        mode: imageMode,
+        fetchExternal: false,
+        safeContent: boolean(images.safeContent) ?? true,
+      },
+      maxOutputTokens: integerInRange(settings.maxOutputTokens, 8_000, 512, 100_000),
+      minInternalLinks: integerInRange(settings.minInternalLinks, 4, 4, 30),
+      maxArtifactBytes: integerInRange(settings.maxArtifactBytes, 1_000_000, 32_000, 2_000_000),
+    },
+    browserTheme: request.browserTheme,
+  });
+  return {
+    command,
+    connection: normalizedProvider.connection,
+    ...(normalizedProvider.credentials ? { credentials: normalizedProvider.credentials } : {}),
+  };
+}
+
 export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedHostGeneration {
   const request = input.request;
   const settings = record(request.settings);
@@ -315,6 +417,9 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
       tailwindVersion: string(settings.tailwindVersion ?? style.tailwindVersion) ?? "4.3.3",
       allowGeneratedScripts: boolean(settings.allowGeneratedScripts ?? style.allowGeneratedScripts) ?? false,
       motionEnabled: boolean(settings.motionEnabled ?? style.motionEnabled) ?? true,
+      dynamicMode: settings.dynamicMode === "off" || settings.dynamicMode === "always"
+        ? settings.dynamicMode
+        : "active",
       capabilities: {
         audioSpeechEnabled: boolean(record(settings.capabilities).audioSpeechEnabled) ?? true,
         externalMediaEnabled: boolean(record(settings.capabilities).externalMediaEnabled) ?? false,

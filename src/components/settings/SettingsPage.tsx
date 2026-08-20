@@ -36,7 +36,7 @@ import {
 } from "../../generation/host-api";
 import { isTauri, openExternal } from "../../lib/platform";
 import { useBrowserStore } from "../../store/browser-store";
-import type { Density, ProviderConnection, ProviderKind, TabLayout, ThemeId } from "../../types/browser";
+import type { Density, DynamicMode, ProviderConnection, ProviderKind, TabLayout, ThemeId } from "../../types/browser";
 
 const sections = [
   { id: "general", label: "General", icon: Settings2 },
@@ -170,6 +170,29 @@ function GenerationSettings() {
         eyebrow="Page synthesis"
         title="Generation"
       />
+      <section className="settings-group">
+        <h2>Live regions</h2>
+        <div className="segmented-control" aria-label="Dynamic update mode">
+          {(["off", "active", "always"] as DynamicMode[]).map((mode) => (
+            <button
+              key={mode}
+              className={settings.dynamicMode === mode ? "is-active" : ""}
+              type="button"
+              onClick={() => {
+                if (mode === "always" && settings.dynamicMode !== "always"
+                    && !window.confirm("Always-on live regions can continue making model requests in background tabs and consume tokens while VibeSurfer is open. Enable this mode?")) return;
+                patchGenerationSettings({ dynamicMode: mode });
+              }}
+            >
+              {mode === "off" ? "Off" : mode === "active" ? "Active tab" : "Always"}
+            </button>
+          ))}
+        </div>
+        <div className="settings-callout settings-callout--compact" role="note">
+          <RefreshCw aria-hidden="true" />
+          <span><strong>Host-mediated updates</strong><small>Manual cart, wishlist, chat, and refresh actions stay inside the private page bridge. Active tab pauses timers when VibeSurfer loses focus; Always keeps generated tabs current while the app runs.</small></span>
+        </div>
+      </section>
       <section className="settings-group">
         <h2>Artifact styling</h2>
         <GenerationToggle

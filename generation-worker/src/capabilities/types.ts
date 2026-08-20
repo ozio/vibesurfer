@@ -21,6 +21,7 @@ export const CAPABILITY_IDS = [
   "slideshow",
   "speech",
   "sound",
+  "dynamic-regions",
   "external-media",
   "gifcities",
   "real-map",

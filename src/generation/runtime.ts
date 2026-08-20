@@ -3,6 +3,7 @@ import { faviconSourceValue } from "../lib/favicon";
 import { isTauri } from "../lib/platform";
 import { useBrowserStore, type BrowserState } from "../store/browser-store";
 import { normalizeCapabilityManifest } from "./capability-manifest";
+import { normalizeDynamicManifest } from "./dynamic-manifest";
 import { getCachedArtifact, savePersistedSiteWorld } from "./host-api";
 import type {
   FaviconDescriptor,
@@ -396,6 +397,7 @@ function normalizeArtifact(raw: Record<string, unknown>, job: GenerationJob): Pa
         )
       : [],
     capabilityManifest: normalizeCapabilityManifest(raw.capabilityManifest ?? payload.capabilityManifest),
+    dynamicManifest: normalizeDynamicManifest(raw.dynamicManifest ?? payload.dynamicManifest),
     sitePatch: normalizeSitePatch(raw.sitePatch ?? payload.sitePatch),
     siteIdentity: normalizeSiteIdentity(raw.siteIdentity ?? payload.siteIdentity),
     siteAdditions: isRecord(raw.siteAdditions ?? payload.siteAdditions)
@@ -415,7 +417,7 @@ function normalizeModelExchanges(value: unknown): PageArtifact["modelExchanges"]
   return value.flatMap((item) => {
     if (!isRecord(item) || !isRecord(item.usage)) return [];
     const purpose = stringValue(item.purpose);
-    if (!purpose || !["page-director", "page-builder"].includes(purpose)) return [];
+    if (!purpose || !["page-director", "page-builder", "region-builder"].includes(purpose)) return [];
     const id = stringValue(item.id);
     const providerId = stringValue(item.providerId);
     const modelId = stringValue(item.modelId);

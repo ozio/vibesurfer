@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { deterministicGlyphFavicon } from "../lib/favicon";
 import { isTauri } from "../lib/platform";
 import { normalizeCapabilityManifest } from "./capability-manifest";
+import { normalizeDynamicManifest } from "./dynamic-manifest";
 import type {
   ArtifactSitePatch,
   FaviconDescriptor,
@@ -10,6 +11,7 @@ import type {
   ProviderConnectionStatus,
   ProviderKind,
   SiteWorld,
+  SiteSessionState,
   TokenUsage,
 } from "../types/browser";
 
@@ -54,6 +56,14 @@ export interface SiteWorldRecord {
   createdAt: string;
   updatedAt: string;
   archivedAt?: string;
+  payload: Record<string, unknown>;
+}
+
+export interface SiteSessionRecord {
+  profileId: string;
+  siteWorldId: string;
+  revision: number;
+  updatedAt: string;
   payload: Record<string, unknown>;
 }
 
@@ -122,6 +132,26 @@ export async function savePersistedSiteWorld(profileId: string, siteWorld: SiteW
   if (!isTauri()) return false;
   return invoke<boolean>("upsert_site_world", {
     siteWorld: toSiteWorldRecord(profileId, siteWorld),
+  });
+}
+
+export async function getPersistedSiteSession(profileId: string, siteWorldId: string): Promise<SiteSessionState | undefined> {
+  if (!isTauri()) return undefined;
+  const record = await invoke<SiteSessionRecord | null>("get_site_session", { profileId, siteWorldId });
+  if (!record || record.profileId !== profileId || record.siteWorldId !== siteWorldId) return undefined;
+  return { ...record.payload, profileId, siteWorldId, revision: record.revision, updatedAt: record.updatedAt } as unknown as SiteSessionState;
+}
+
+export async function savePersistedSiteSession(session: SiteSessionState): Promise<boolean> {
+  if (!isTauri()) return false;
+  return invoke<boolean>("upsert_site_session", {
+    session: {
+      profileId: session.profileId,
+      siteWorldId: session.siteWorldId,
+      revision: session.revision,
+      updatedAt: session.updatedAt,
+      payload: structuredClone(session) as unknown as Record<string, unknown>,
+    } satisfies SiteSessionRecord,
   });
 }
 
@@ -287,6 +317,7 @@ function fromArtifactRecord(record: ArtifactRecord): PageArtifact | undefined {
         : [])
       : [],
     capabilityManifest: normalizeCapabilityManifest(payload.capabilityManifest),
+    dynamicManifest: normalizeDynamicManifest(payload.dynamicManifest),
     sitePatch: isRecord(payload.sitePatch) ? payload.sitePatch as unknown as ArtifactSitePatch : undefined,
     siteIdentity: isRecord(payload.siteIdentity) ? payload.siteIdentity as unknown as PageArtifact["siteIdentity"] : undefined,
     siteAdditions: isRecord(payload.siteAdditions) ? payload.siteAdditions as unknown as PageArtifact["siteAdditions"] : undefined,

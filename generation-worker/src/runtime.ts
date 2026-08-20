@@ -3,11 +3,18 @@ import { z } from "zod";
 import { PROTOCOL_VERSION, type GenerationPhase } from "./domain.js";
 import { normalizeError } from "./errors.js";
 import { runGenerationPipeline, type PipelineEmitter } from "./pipelines/index.js";
+import { runDynamicPipeline } from "./pipelines/dynamic.js";
 import { InMemoryProviderRegistry } from "./providers/registry.js";
-import { normalizeHostGeneration, normalizeProviderVerification } from "./protocol/compat.js";
+import {
+  isHostDynamicGeneration,
+  normalizeHostDynamicGeneration,
+  normalizeHostGeneration,
+  normalizeProviderVerification,
+} from "./protocol/compat.js";
 import { parseCommandLine } from "./protocol/parse.js";
 import type {
   GenerateCommand,
+  DynamicGenerateCommand,
   HostWorkerOutput,
   PublicProviderConnection,
   WorkerInput,
@@ -77,7 +84,7 @@ export class WorkerRuntime {
           protocolVersion: PROTOCOL_VERSION,
           workerVersion: WORKER_VERSION,
           capabilities: {
-            generationStages: ["page-director", "page-builder"],
+            generationStages: ["page-director", "page-builder", "region-builder"],
             providers: ["mock", "openai", "anthropic", "google", "openai-compatible", "codex"],
           },
         });
@@ -111,12 +118,30 @@ export class WorkerRuntime {
         return;
       case "generate":
         if ("request" in command) {
-          const normalized = normalizeHostGeneration(command);
-          this.registry.upsert(normalized.connection, normalized.credentials);
-          await this.startJob(normalized.command, normalized.connection.id);
+          const dynamic = isHostDynamicGeneration(command);
+          try {
+            const normalized = dynamic
+              ? normalizeHostDynamicGeneration(command)
+              : normalizeHostGeneration(command);
+            this.registry.upsert(normalized.connection, normalized.credentials);
+            await this.startJob(normalized.command, normalized.connection.id);
+          } catch (error) {
+            const normalized = normalizeError(error);
+            await this.#send({
+              type: dynamic ? "dynamic.failed" : "generation.failed",
+              requestId: command.requestId,
+              jobId: command.jobId,
+              sequence: 1,
+              at: new Date().toISOString(),
+              error: normalized,
+            });
+          }
         } else {
           await this.startJob(command);
         }
+        return;
+      case "dynamic.generate":
+        await this.startJob(command);
         return;
       case "cancel":
         await this.cancelJob(command.requestId, command.jobId);
@@ -206,7 +231,7 @@ export class WorkerRuntime {
     }
   }
 
-  private async startJob(request: GenerateCommand, ephemeralConnectionId?: string): Promise<void> {
+  private async startJob(request: GenerateCommand | DynamicGenerateCommand, ephemeralConnectionId?: string): Promise<void> {
     if (this.#jobs.has(request.jobId)) {
       await this.#send({
         v: PROTOCOL_VERSION,
@@ -241,7 +266,7 @@ export class WorkerRuntime {
     await this.#send({ v: PROTOCOL_VERSION, type: "ack", requestId, accepted: Boolean(job) });
   }
 
-  private async runJob(request: GenerateCommand, signal: AbortSignal): Promise<void> {
+  private async runJob(request: GenerateCommand | DynamicGenerateCommand, signal: AbortSignal): Promise<void> {
     let sequence = 0;
     const sendJob = async (output: JobOutputInput) => {
       sequence += 1;
@@ -254,6 +279,25 @@ export class WorkerRuntime {
         request.provider,
         `${request.jobId}:${request.url}`,
       );
+      if (request.type === "dynamic.generate") {
+        await sendJob({
+          type: "dynamic.started",
+          requestId: request.requestId,
+          jobId: request.jobId,
+          providerId: executor.providerId,
+          modelId: executor.modelId,
+          actualProviderKind: executor.actualProviderKind,
+        });
+        const dynamic = await runDynamicPipeline({ request, executor, signal });
+        await sendJob({
+          type: "dynamic.completed",
+          requestId: request.requestId,
+          jobId: request.jobId,
+          result: dynamic.result,
+          usage: dynamic.usage,
+        });
+        return;
+      }
       await sendJob({
         type: "generation.started",
         requestId: request.requestId,
@@ -321,13 +365,13 @@ export class WorkerRuntime {
       const normalized = normalizeError(error);
       if (normalized.code === "cancelled" || signal.aborted) {
         await sendJob({
-          type: "generation.cancelled",
+          type: request.type === "dynamic.generate" ? "dynamic.cancelled" : "generation.cancelled",
           requestId: request.requestId,
           jobId: request.jobId,
         });
       } else {
         await sendJob({
-          type: "generation.failed",
+          type: request.type === "dynamic.generate" ? "dynamic.failed" : "generation.failed",
           requestId: request.requestId,
           jobId: request.jobId,
           error: normalized,

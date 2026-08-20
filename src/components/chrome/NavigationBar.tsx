@@ -6,12 +6,17 @@ import { AddressBar } from "./AddressBar";
 import { AppMenu } from "./AppMenu";
 import { ModelControl } from "./ModelControl";
 import { ProfileMenu } from "./ProfileMenu";
+import { DynamicBadge } from "./DynamicBadge";
 
 export function NavigationBar({ tab }: { tab: BrowserTab }) {
   const go = useBrowserStore((state) => state.go);
   const navigate = useBrowserStore((state) => state.navigate);
   const reload = useBrowserStore((state) => state.reload);
   const setLoadState = useBrowserStore((state) => state.setLoadState);
+  const artifact = useBrowserStore((state) => {
+    const id = tab.artifactId ?? tab.fallbackArtifactId;
+    return id ? state.artifacts[id] : undefined;
+  });
   const canGoBack = tab.historyIndex > 0;
   const canGoForward = tab.historyIndex < tab.history.length - 1;
 
@@ -30,6 +35,7 @@ export function NavigationBar({ tab }: { tab: BrowserTab }) {
         <IconButton label="Home" onClick={() => navigate(tab.id, "vibe://new-tab")}><Home aria-hidden="true" /></IconButton>
       </div>
       <AddressBar tab={tab} />
+      <DynamicBadge tab={tab} artifact={artifact} />
       <ModelControl />
       <ProfileMenu />
       <AppMenu />

@@ -2,7 +2,7 @@
   "use strict";
 
   const PROTOCOL = "vibesurfer:artifact-bridge";
-  const VERSION = 1;
+  const VERSION = 2;
   const MAX_ARTIFACT_ID_LENGTH = 512;
   const MAX_NONCE_LENGTH = 128;
   const MAX_PAGE_URL_LENGTH = 4_096;
@@ -10,6 +10,9 @@
   const MAX_RENDER_HTML_LENGTH = MAX_RENDER_MESSAGE_BYTES;
   const MAX_GENERATED_SCRIPT_COUNT = 16;
   const MAX_GENERATED_SCRIPT_LENGTH = 256 * 1024;
+  const MAX_DYNAMIC_ACTION_BYTES = 32 * 1024;
+  const MAX_DYNAMIC_PATCH_BYTES = 256 * 1024;
+  const MAX_DYNAMIC_REGION_HTML_LENGTH = 64 * 1024;
   const GENERATED_SCRIPT_NONCE = "dmliaWVzdXJmZXItYXJ0aWZhY3Q";
   const BOOTSTRAP_INTERVAL_MS = 150;
   const MAX_BOOTSTRAP_ATTEMPTS = 32;
@@ -155,6 +158,10 @@
   let bootstrapAttempts = 0;
   let capabilityCleanups = [];
   let audioContext = null;
+  let dynamicManifest = null;
+  let sessionRevision = 0;
+  const regionRevisions = new Map();
+  const dynamicRequests = new Map();
   const compact = (value, limit) => String(value == null ? "" : value).replace(/\s+/g, " ").trim().slice(0, limit);
   const send = (type, payload = {}) => {
     if (!port) return;
@@ -223,6 +230,242 @@
     if (audioContext) {
       try { void audioContext.close(); } catch { /* unavailable */ }
       audioContext = null;
+    }
+  };
+
+  const REGION_ID = /^[A-Za-z][A-Za-z0-9_.-]{0,63}$/;
+  const DYNAMIC_ACTION = /^(?:state:(?:cart\.add|cart\.remove|cart\.setQuantity|wishlist\.toggle|value\.set)|model:[a-z][a-z0-9.-]{0,63})$/;
+  const normalizeDynamicManifest = (value) => {
+    if (!value || typeof value !== "object" || value.version !== 1
+        || !Array.isArray(value.regions) || value.regions.length > 16
+        || !Array.isArray(value.actions) || value.actions.length > 32
+        || !Array.isArray(value.bindings) || value.bindings.length > 64) return null;
+    const regions = [];
+    const regionIds = new Set();
+    for (const region of value.regions) {
+      if (!region || typeof region !== "object" || !REGION_ID.test(region.id)
+          || regionIds.has(region.id)) return null;
+      if (region.refreshSeconds !== undefined
+          && (!Number.isInteger(region.refreshSeconds) || region.refreshSeconds < 60 || region.refreshSeconds > 3_600)) return null;
+      regions.push({ id: region.id, ...(region.refreshSeconds ? { refreshSeconds: region.refreshSeconds } : {}) });
+      regionIds.add(region.id);
+    }
+    const actions = [];
+    for (const action of value.actions) {
+      if (!action || typeof action !== "object" || !DYNAMIC_ACTION.test(action.action)
+          || (action.execution !== "state" && action.execution !== "model")
+          || !Array.isArray(action.targets) || action.targets.length > 16
+          || !action.action.startsWith(`${action.execution}:`)
+          || new Set(action.targets).size !== action.targets.length
+          || action.targets.some((target) => !regionIds.has(target))) return null;
+      actions.push({ action: action.action, execution: action.execution, targets: [...new Set(action.targets)] });
+    }
+    const bindings = value.bindings.filter((binding) => typeof binding === "string"
+      && /^(?:cart\.(?:count|total)|wishlist\.count|value\.[A-Za-z][A-Za-z0-9_.-]{0,63})$/.test(binding));
+    if (bindings.length !== value.bindings.length) return null;
+    return { version: 1, regions, actions, bindings, localTabs: value.localTabs === true };
+  };
+
+  const directRegion = (regionId) => Array.from(document.querySelectorAll("[data-vibe-region]"))
+    .find((element) => element.getAttribute("data-vibe-region") === regionId) || null;
+
+  const snapshotsFor = (regionIds) => regionIds.flatMap((regionId) => {
+    const region = directRegion(regionId);
+    if (!region) return [];
+    return [{ regionId, html: region.innerHTML.slice(0, MAX_DYNAMIC_REGION_HTML_LENGTH), revision: regionRevisions.get(regionId) || 0 }];
+  });
+
+  const fieldsFor = (form, submitter) => {
+    const fields = Object.create(null);
+    let formData;
+    try { formData = submitter ? new FormData(form, submitter) : new FormData(form); }
+    catch { formData = new FormData(form); }
+    for (const [name, value] of formData.entries()) {
+      if (typeof value !== "string" || !name || name.length > 512 || value.length > 2_000) continue;
+      const values = fields[name] || (fields[name] = []);
+      if (values.length < 32) values.push(value);
+    }
+    return fields;
+  };
+
+  const manifestActionFor = (element) => {
+    if (!dynamicManifest) return null;
+    const action = (element.getAttribute("data-vibe-action") || "").trim();
+    const targets = [...new Set((element.getAttribute("data-vibe-target") || "").trim().split(/\s+/).filter(Boolean))];
+    return dynamicManifest.actions.find((candidate) => candidate.action === action
+      && candidate.targets.length === targets.length
+      && candidate.targets.every((target) => targets.includes(target))) || null;
+  };
+
+  const sendDynamicAction = (source, submitter, cached) => {
+    const manifestAction = cached ? cached.manifestAction : manifestActionFor(source);
+    if (!manifestAction) return false;
+    const fields = cached ? cached.fields : source instanceof HTMLFormElement
+      ? fieldsFor(source, submitter)
+      : Object.create(null);
+    const requestId = crypto.randomUUID();
+    const payload = {
+      requestId,
+      action: manifestAction.action,
+      targets: manifestAction.targets,
+      fields,
+      regions: snapshotsFor(manifestAction.targets),
+    };
+    if (estimateBytes(payload) > MAX_DYNAMIC_ACTION_BYTES) {
+      reportError("The dynamic action was too large.");
+      return true;
+    }
+    dynamicRequests.set(requestId, { source, submitter, manifestAction, fields });
+    send("dynamic-action", payload);
+    return true;
+  };
+
+  const setRequestPending = (requestId, regionIds) => {
+    const request = dynamicRequests.get(requestId);
+    if (request) {
+      const controls = request.source instanceof HTMLFormElement
+        ? request.source.querySelectorAll("button, input[type=submit]")
+        : [request.source];
+      request.controls = Array.from(controls).map((control) => ({ control, disabled: control.disabled }));
+      request.controls.forEach(({ control }) => { control.disabled = true; });
+    }
+    for (const regionId of regionIds) {
+      const region = directRegion(regionId);
+      if (!region) continue;
+      region.setAttribute("aria-busy", "true");
+      region.querySelectorAll('[data-vibesurfer-dynamic-status="pending"]').forEach((status) => status.remove());
+      const status = document.createElement("div");
+      status.setAttribute("data-vibesurfer-dynamic-status", "pending");
+      status.setAttribute("role", "status");
+      status.textContent = "Updating…";
+      region.append(status);
+    }
+  };
+
+  const finishRequest = (requestId) => {
+    const request = dynamicRequests.get(requestId);
+    if (request && request.controls) request.controls.forEach(({ control, disabled }) => { control.disabled = disabled; });
+    for (const regionId of request?.manifestAction.targets || []) {
+      const region = directRegion(regionId);
+      if (!region) continue;
+      region.removeAttribute("aria-busy");
+      region.querySelectorAll('[data-vibesurfer-dynamic-status="pending"]').forEach((status) => status.remove());
+    }
+    dynamicRequests.delete(requestId);
+  };
+
+  const sanitizeDynamicFragment = (html) => {
+    if (typeof html !== "string" || html.length > MAX_DYNAMIC_REGION_HTML_LENGTH) return null;
+    const template = document.createElement("template");
+    template.innerHTML = html;
+    for (const element of template.content.querySelectorAll("base,body,embed,head,html,iframe,link,meta,object,script,style,template")) element.remove();
+    for (const element of template.content.querySelectorAll("*")) {
+      for (const attribute of Array.from(element.attributes)) {
+        const name = attribute.name.toLowerCase();
+        if (name.startsWith("on") || name === "style" || name === "srcdoc"
+            || name.startsWith("data-vibe-") || ["src", "srcset", "poster", "action", "formaction"].includes(name)) {
+          element.removeAttribute(attribute.name);
+          continue;
+        }
+        if (name === "href") {
+          const resolved = safeUrl(attribute.value, pageUrl);
+          const page = safeUrl(pageUrl, pageUrl);
+          if (!resolved || !page || resolved.origin !== page.origin) element.removeAttribute(attribute.name);
+          else element.setAttribute(attribute.name, resolved.href);
+        }
+      }
+    }
+    return template.content;
+  };
+
+  const applyRegionPatches = (message) => {
+    if (!Number.isInteger(message.sessionRevision) || message.sessionRevision < sessionRevision
+        || !Array.isArray(message.patches) || message.patches.length > 16
+        || estimateBytes(message) > MAX_DYNAMIC_PATCH_BYTES) return;
+    for (const patch of message.patches) {
+      if (!patch || typeof patch !== "object" || !REGION_ID.test(patch.regionId)
+          || !Number.isInteger(patch.revision) || patch.revision <= (regionRevisions.get(patch.regionId) || 0)
+          || !dynamicManifest?.regions.some((region) => region.id === patch.regionId)) continue;
+      const region = directRegion(patch.regionId);
+      const fragment = sanitizeDynamicFragment(patch.html);
+      if (!region || !fragment) continue;
+      region.replaceChildren(fragment);
+      regionRevisions.set(patch.regionId, patch.revision);
+      region.removeAttribute("aria-busy");
+    }
+    sessionRevision = message.sessionRevision;
+    finishRequest(message.requestId);
+    if (message.announcement) {
+      const announcement = document.createElement("div");
+      announcement.setAttribute("role", "status");
+      announcement.setAttribute("aria-live", "polite");
+      announcement.hidden = true;
+      announcement.textContent = compact(message.announcement, 500);
+      document.body.append(announcement);
+      window.setTimeout(() => announcement.remove(), 1_000);
+    }
+  };
+
+  const applyDynamicError = (message) => {
+    const request = dynamicRequests.get(message.requestId);
+    for (const regionId of Array.isArray(message.regionIds) ? message.regionIds : []) {
+      const region = directRegion(regionId);
+      if (!region) continue;
+      region.removeAttribute("aria-busy");
+      region.querySelectorAll("[data-vibesurfer-dynamic-status]").forEach((status) => status.remove());
+      const error = document.createElement("div");
+      error.setAttribute("data-vibesurfer-dynamic-status", "error");
+      error.setAttribute("role", "alert");
+      error.append(document.createTextNode(compact(message.message, 1_024) || "Update failed."));
+      if (message.retryable === true && request) {
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.textContent = "Retry";
+        retry.addEventListener("click", (event) => {
+          if (!event.isTrusted) return;
+          error.remove();
+          sendDynamicAction(request.source, request.submitter, request);
+        }, { once: true });
+        error.append(document.createTextNode(" "), retry);
+      }
+      region.append(error);
+    }
+    finishRequest(message.requestId);
+  };
+
+  const applyStateSync = (message) => {
+    if (!Number.isInteger(message.sessionRevision) || message.sessionRevision < sessionRevision
+        || !message.bindings || typeof message.bindings !== "object") return;
+    sessionRevision = message.sessionRevision;
+    for (const binding of dynamicManifest?.bindings || []) {
+      if (typeof message.bindings[binding] !== "string") continue;
+      for (const element of document.querySelectorAll("[data-vibe-bind]")) {
+        if (element.getAttribute("data-vibe-bind") === binding) element.textContent = message.bindings[binding];
+      }
+    }
+    applyRegionPatches({ requestId: "", sessionRevision, patches: Array.isArray(message.snapshots) ? message.snapshots : [] });
+    if (typeof message.requestId === "string") finishRequest(message.requestId);
+  };
+
+  const activateTab = (tab) => {
+    const tabs = tab.closest("[data-vibe-tabs]");
+    if (!tabs) return;
+    for (const candidate of tabs.querySelectorAll('[role="tab"]')) {
+      const selected = candidate === tab;
+      candidate.setAttribute("aria-selected", selected ? "true" : "false");
+      candidate.tabIndex = selected ? 0 : -1;
+      const panelId = candidate.getAttribute("aria-controls");
+      const panel = panelId ? document.getElementById(panelId) : null;
+      if (panel && panel.getAttribute("role") === "tabpanel") panel.hidden = !selected;
+    }
+    tab.focus();
+  };
+
+  const enhanceTabs = () => {
+    for (const tabs of document.querySelectorAll("[data-vibe-tabs]")) {
+      const candidates = Array.from(tabs.querySelectorAll('[role="tab"]'));
+      const selected = candidates.find((tab) => tab.getAttribute("aria-selected") === "true") || candidates[0];
+      if (selected) activateTab(selected);
     }
   };
 
@@ -467,6 +710,21 @@
 
   document.addEventListener("click", (event) => {
     if (event.button !== 0 || !(event.target instanceof Element)) return;
+    const tab = event.target.closest('[role="tab"]');
+    if (tab && tab.closest("[data-vibe-tabs]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      activateTab(tab);
+      return;
+    }
+    const dynamicSource = event.target.closest("[data-vibe-action]");
+    const dynamicSubmitter = event.target.closest('button, input[type="submit"], input[type="image"]');
+    if (dynamicSource && (!(dynamicSource instanceof HTMLFormElement) || dynamicSubmitter)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.isTrusted) sendDynamicAction(dynamicSource, dynamicSubmitter || dynamicSource, null);
+      return;
+    }
     if (handleCapabilityClick(event)) return;
     const anchor = event.target.closest("a[href], area[href]");
     if (anchor instanceof HTMLAnchorElement || anchor instanceof HTMLAreaElement) {
@@ -504,6 +762,29 @@
   }, true);
 
   document.addEventListener("keydown", (event) => {
+    if (event.target instanceof Element && event.target.matches('[role="tab"]')
+        && event.target.closest("[data-vibe-tabs]")
+        && ["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const tabs = Array.from(event.target.closest("[data-vibe-tabs]").querySelectorAll('[role="tab"]'));
+      const current = tabs.indexOf(event.target);
+      const next = event.key === "Home" ? tabs[0]
+        : event.key === "End" ? tabs[tabs.length - 1]
+          : tabs[(current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+      if (next) activateTab(next);
+      return;
+    }
+    const dynamicForm = event.target instanceof Element ? event.target.closest("form[data-vibe-action]") : null;
+    if (dynamicForm && event.key === "Enter" && !(event.target instanceof HTMLTextAreaElement)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.isTrusted) {
+        const submitter = dynamicForm.querySelector('button:not([type]), button[type="submit"], input[type="submit"], input[type="image"]');
+        sendDynamicAction(dynamicForm, submitter, null);
+      }
+      return;
+    }
     if (event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key === ",") {
       event.preventDefault();
       event.stopPropagation();
@@ -513,7 +794,13 @@
   }, true);
 
   document.addEventListener("submit", (event) => {
-    if (event.target instanceof HTMLFormElement) submitForm(event, event.target, event.submitter);
+    if (!(event.target instanceof HTMLFormElement)) return;
+    if (event.target.hasAttribute("data-vibe-action")) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    submitForm(event, event.target, event.submitter);
   }, true);
 
   const reportError = (message) => send("runtime-error", {
@@ -566,6 +853,11 @@
 
     let incoming;
     let generatedScripts;
+    const nextDynamicManifest = message.dynamicManifest === undefined ? null : normalizeDynamicManifest(message.dynamicManifest);
+    if (message.dynamicManifest !== undefined && !nextDynamicManifest) {
+      reportError("The artifact dynamic manifest was rejected.");
+      return;
+    }
     try {
       incoming = new DOMParser().parseFromString(message.html, "text/html");
       generatedScripts = sanitizeIncomingDocument(incoming, nextPageUrl.href, message.executeScripts === true);
@@ -609,15 +901,42 @@
     }
     hoveredHref = "";
     pageUrl = nextPageUrl.href;
+    dynamicManifest = nextDynamicManifest;
+    sessionRevision = 0;
+    regionRevisions.clear();
+    for (const region of dynamicManifest?.regions || []) regionRevisions.set(region.id, 0);
     document.title = compact(message.title, 512) || "Untitled page";
     if (message.executeScripts === true) executeGeneratedScripts(generatedScripts);
     enhanceCapabilities();
+    enhanceTabs();
     scrollingElement.scrollLeft = previousScrollLeft;
     scrollingElement.scrollTop = previousScrollTop;
     const wasRendered = rendered;
     rendered = true;
     if (!wasRendered) send("ready", { title: document.title });
     else send("link-hover");
+  };
+
+  const handleHostCommand = (message) => {
+    if (!message || typeof message !== "object" || message.protocol !== PROTOCOL || message.version !== VERSION
+        || message.artifactId !== artifactId || message.nonce !== nonce) return;
+    if (message.type === "render") {
+      void renderArtifact(message);
+      return;
+    }
+    if (!rendered || !dynamicManifest || estimateBytes(message) > MAX_DYNAMIC_PATCH_BYTES) return;
+    if (message.type === "dynamic-pending" && typeof message.requestId === "string" && Array.isArray(message.regionIds)) {
+      setRequestPending(message.requestId, message.regionIds.filter((id) => dynamicManifest.regions.some((region) => region.id === id)));
+    } else if (message.type === "dynamic-patch" && typeof message.requestId === "string") {
+      applyRegionPatches(message);
+    } else if (message.type === "dynamic-error" && typeof message.requestId === "string") {
+      applyDynamicError(message);
+    } else if (message.type === "state-sync") {
+      applyStateSync(message);
+    } else if (message.type === "dynamic-snapshot-request" && typeof message.requestId === "string" && Array.isArray(message.regionIds)) {
+      const allowed = message.regionIds.filter((id) => dynamicManifest.regions.some((region) => region.id === id)).slice(0, 16);
+      send("dynamic-snapshot", { requestId: message.requestId, regions: snapshotsFor(allowed) });
+    }
   };
 
   const acceptPort = (event) => {
@@ -629,7 +948,7 @@
     window.removeEventListener("message", acceptPort);
     if (bootstrapTimer !== undefined) window.clearInterval(bootstrapTimer);
     port = event.ports[0];
-    port.onmessage = (messageEvent) => { void renderArtifact(messageEvent.data); };
+    port.onmessage = (messageEvent) => handleHostCommand(messageEvent.data);
     port.start();
     send("ready-for-render");
   };

@@ -4,6 +4,7 @@ import {
   ARTIFACT_BRIDGE_VERSION,
   MAX_ARTIFACT_RENDER_BYTES,
   MAX_BRIDGE_MESSAGE_BYTES,
+  MAX_DYNAMIC_ACTION_BYTES,
   createArtifactRenderCommand,
   createBootstrapReady,
   createBridgeInit,
@@ -54,6 +55,18 @@ test("creates one bounded, identity-bound render command", () => {
     title: "Oversized",
     html: "x".repeat(MAX_ARTIFACT_RENDER_BYTES),
   })).toThrow("exceeds the size limit");
+  expect(() => createArtifactRenderCommand(identity, {
+    pageUrl: "https://example.com/",
+    title: "Invalid manifest",
+    html: "<main>Safe</main>",
+    dynamicManifest: {
+      version: 1,
+      regions: [{ id: "thread", refreshSeconds: 60 }],
+      actions: [{ action: "model:send", execution: "state", targets: ["thread"] }],
+      bindings: [],
+      localTabs: false,
+    },
+  })).toThrow("namespace");
 });
 
 test("accepts the shell ready-for-render stage", () => {
@@ -219,4 +232,35 @@ test("rejects messages over the transport budget", () => {
   }, identity);
 
   expect(result).toEqual({ ok: false, reason: "Message exceeds the size limit" });
+});
+
+test("accepts bounded manifest-backed dynamic actions and rejects oversized or malformed ones", () => {
+  const valid = parseArtifactFrameEvent({
+    ...envelope,
+    type: "dynamic-action",
+    requestId: "dynamic-request-1",
+    action: "state:cart.setQuantity",
+    targets: ["cart-panel"],
+    fields: { productId: ["sku-1"], quantity: ["2"] },
+    regions: [{ regionId: "cart-panel", html: "<p>Cart</p>", revision: 1 }],
+  }, identity);
+  expect(valid.ok).toBe(true);
+  expect(parseArtifactFrameEvent({
+    ...envelope,
+    type: "dynamic-action",
+    requestId: "dynamic-request-2",
+    action: "navigate-anywhere",
+    targets: [],
+    fields: {},
+    regions: [],
+  }, identity).ok).toBe(false);
+  expect(parseArtifactFrameEvent({
+    ...envelope,
+    type: "dynamic-action",
+    requestId: "dynamic-request-3",
+    action: "model:send",
+    targets: ["thread"],
+    fields: { message: ["x".repeat(MAX_DYNAMIC_ACTION_BYTES)] },
+    regions: [],
+  }, identity)).toEqual({ ok: false, reason: "Dynamic action exceeds the size limit" });
 });

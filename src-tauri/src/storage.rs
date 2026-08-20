@@ -5,10 +5,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
 use thiserror::Error;
 
-use crate::protocol::{ArtifactRecord, ProviderConnectionRecord, SiteWorldRecord};
+use crate::protocol::{ArtifactRecord, ProviderConnectionRecord, SiteSessionRecord, SiteWorldRecord};
 
 const MAX_ARTIFACT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_SITE_WORLD_BYTES: usize = 1024 * 1024;
+const MAX_SITE_SESSION_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Error)]
 pub enum StorageError {
@@ -22,6 +23,10 @@ pub enum StorageError {
     SiteWorldTooLarge,
     #[error("site world revision cannot be negative")]
     InvalidSiteWorldRevision,
+    #[error("site session exceeds the 256 KiB storage limit")]
+    SiteSessionTooLarge,
+    #[error("site session revision cannot be negative")]
+    InvalidSiteSessionRevision,
     #[error("storage lock is poisoned")]
     Poisoned,
 }
@@ -276,16 +281,73 @@ impl Storage {
     }
 
     pub fn delete_site_world(&self, id: &str, profile_id: &str) -> Result<usize, StorageError> {
-        Ok(self.connection_guard()?.execute(
+        let mut connection = self.connection_guard()?;
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "DELETE FROM site_sessions WHERE site_world_id=?1 AND profile_id=?2",
+            params![id, profile_id],
+        )?;
+        let deleted = transaction.execute(
             "DELETE FROM site_worlds WHERE id=?1 AND profile_id=?2",
             params![id, profile_id],
-        )?)
+        )?;
+        transaction.commit()?;
+        Ok(deleted)
     }
 
     pub fn delete_profile_site_worlds(&self, profile_id: &str) -> Result<usize, StorageError> {
-        Ok(self
-            .connection_guard()?
-            .execute("DELETE FROM site_worlds WHERE profile_id=?1", [profile_id])?)
+        let mut connection = self.connection_guard()?;
+        let transaction = connection.transaction()?;
+        transaction.execute("DELETE FROM site_sessions WHERE profile_id=?1", [profile_id])?;
+        let deleted = transaction.execute("DELETE FROM site_worlds WHERE profile_id=?1", [profile_id])?;
+        transaction.commit()?;
+        Ok(deleted)
+    }
+
+    pub fn upsert_site_session(&self, session: &SiteSessionRecord) -> Result<bool, StorageError> {
+        if session.revision < 0 {
+            return Err(StorageError::InvalidSiteSessionRevision);
+        }
+        let payload = serde_json::to_string(&session.payload)?;
+        if payload.len() > MAX_SITE_SESSION_BYTES {
+            return Err(StorageError::SiteSessionTooLarge);
+        }
+        let changed = self.connection_guard()?.execute(
+            "INSERT INTO site_sessions (profile_id, site_world_id, revision, updated_at, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(profile_id, site_world_id) DO UPDATE SET
+               revision=excluded.revision, updated_at=excluded.updated_at, payload=excluded.payload
+             WHERE excluded.revision >= site_sessions.revision",
+            params![session.profile_id, session.site_world_id, session.revision, session.updated_at, payload],
+        )?;
+        Ok(changed > 0)
+    }
+
+    pub fn site_session(
+        &self,
+        profile_id: &str,
+        site_world_id: &str,
+    ) -> Result<Option<SiteSessionRecord>, StorageError> {
+        let connection = self.connection_guard()?;
+        let row = connection.query_row(
+            "SELECT profile_id, site_world_id, revision, updated_at, payload
+             FROM site_sessions WHERE profile_id=?1 AND site_world_id=?2",
+            params![profile_id, site_world_id],
+            |row| Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+            )),
+        ).optional()?;
+        row.map(|row| Ok(SiteSessionRecord {
+            profile_id: row.0,
+            site_world_id: row.1,
+            revision: row.2,
+            updated_at: row.3,
+            payload: serde_json::from_str(&row.4)?,
+        })).transpose()
     }
 
     pub fn archive_profile_site_worlds(
@@ -337,6 +399,7 @@ impl Storage {
             "artifacts",
             "generation_jobs",
             "site_worlds",
+            "site_sessions",
             "page_summaries",
             "navigation_edges",
             "provider_connections",
@@ -631,6 +694,15 @@ CREATE TABLE IF NOT EXISTS site_worlds (
   archived_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS site_sessions (
+  profile_id TEXT NOT NULL,
+  site_world_id TEXT NOT NULL,
+  revision INTEGER NOT NULL,
+  updated_at TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  PRIMARY KEY(profile_id, site_world_id)
+);
+
 CREATE TABLE IF NOT EXISTS page_summaries (
   artifact_id TEXT PRIMARY KEY,
   profile_id TEXT NOT NULL,
@@ -695,6 +767,7 @@ CREATE TABLE IF NOT EXISTS cached_assets (
 mod tests {
     use serde_json::json;
 
+    use crate::protocol::SiteSessionRecord;
     use super::{ArtifactRecord, SiteWorldRecord, Storage};
 
     #[test]
@@ -753,6 +826,24 @@ mod tests {
                 .id,
             artifact.id
         );
+    }
+
+    #[test]
+    fn site_session_is_profile_scoped_revisioned_and_bounded() {
+        let storage = Storage::open(std::path::Path::new(":memory:")).unwrap();
+        let initial = SiteSessionRecord {
+            profile_id: "personal".into(),
+            site_world_id: "site-1".into(),
+            revision: 2,
+            updated_at: "2026-08-20T00:00:00Z".into(),
+            payload: json!({"cart":{"items":{}},"wishlist":[],"values":{},"regionSnapshots":{}}),
+        };
+        assert!(storage.upsert_site_session(&initial).unwrap());
+        assert!(storage.site_session("other", "site-1").unwrap().is_none());
+        assert_eq!(storage.site_session("personal", "site-1").unwrap().unwrap().revision, 2);
+        let stale = SiteSessionRecord { revision: 1, payload: json!({"stale":true}), ..initial };
+        assert!(!storage.upsert_site_session(&stale).unwrap());
+        assert_eq!(storage.site_session("personal", "site-1").unwrap().unwrap().revision, 2);
     }
 
     #[test]

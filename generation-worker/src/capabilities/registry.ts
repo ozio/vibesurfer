@@ -241,6 +241,17 @@ const descriptors: readonly CapabilityDescriptor[] = [
     available: (settings) => settings.capabilities.audioSpeechEnabled,
   },
   {
+    id: "dynamic-regions",
+    directorHint: "host-mediated live regions for chats, feeds, auctions, statuses, carts, wishlists, or other genuinely changing interfaces",
+    builderContract: "Use dynamic regions only when the page genuinely benefits from in-place changes. Mark replaceable blocks with unique data-vibe-region IDs. Use data-vibe-action=\"state:cart.add|state:cart.remove|state:cart.setQuantity|state:wishlist.toggle|state:value.set\" for trusted state or data-vibe-action=\"model:semantic-name\" for generated content; list permitted region IDs in data-vibe-target. Use named form fields for parameters. A model-refreshed region may use data-vibe-refresh=\"60\" or more. Bind deterministic text with data-vibe-bind=\"cart.count|cart.total|wishlist.count|value.key\". Do not write JavaScript, fetch, or timers for these actions. Render a useful initial state, and use this capability sparingly: ordinary articles and static storefronts stay static.",
+    execution: "host",
+    maxInstances: 16,
+    version: "1",
+    noticeIds: [],
+    compact: true,
+    available: (settings) => settings.dynamicMode !== "off",
+  },
+  {
     id: "external-media",
     directorHint: "licensed stock photo or video from a configured provider",
     builderContract: "External media is resolved by the trusted host. Use only the supplied data-vibe-media marker and preserve its attribution container.",
