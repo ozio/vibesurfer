@@ -36,6 +36,10 @@ interface PendingArchivedNavigation {
   intent: Partial<NavigationIntent>;
 }
 
+function openModelPicker() {
+  window.dispatchEvent(new Event("vibesurfer:open-model-picker"));
+}
+
 export function PageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHover?: (href?: string) => void }) {
   if (tab.kind === "new-tab") return <NewTabPage />;
   if (tab.kind === "history") return <HistoryPage />;
@@ -387,6 +391,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
         title={cancelled ? "Generation stopped" : "This page could not be generated"}
         message={job?.error?.message ?? (cancelled ? "The generation was cancelled." : "The model did not return a usable artifact.")}
         onRetry={job?.error?.retryable === false ? undefined : () => regenerate(tab.id)}
+        onChooseModel={job?.error?.code === "rate-limited" ? openModelPicker : undefined}
       />
     );
   }
@@ -436,6 +441,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
           partial={hasPreview}
           message={job?.error?.message ?? "The model did not return a usable artifact."}
           onRetry={job?.error?.retryable === false ? undefined : () => regenerate(tab.id)}
+          onChooseModel={job?.error?.code === "rate-limited" ? openModelPicker : undefined}
         />
       )}
       {contextMenu && (
@@ -505,11 +511,13 @@ function GenerationFailureNotice({
   partial,
   message,
   onRetry,
+  onChooseModel,
 }: {
   cancelled: boolean;
   partial: boolean;
   message: string;
   onRetry?: () => void;
+  onChooseModel?: () => void;
 }) {
   return (
     <div className="generation-failure-notice" role="alert">
@@ -518,6 +526,7 @@ function GenerationFailureNotice({
         <strong>{cancelled ? "Generation stopped" : "Generation failed"}</strong>
         <small>{message} {partial ? "The partial result is still shown." : "The last complete version is still shown."}</small>
       </span>
+      {onChooseModel && <button className="button button--primary" type="button" onClick={onChooseModel}>Choose another model</button>}
       {onRetry && <button className="button" type="button" onClick={onRetry}>Try again</button>}
     </div>
   );
@@ -652,7 +661,17 @@ function SourceDialog({
   );
 }
 
-function ArtifactError({ title, message, onRetry }: { title: string; message: string; onRetry?: () => void }) {
+function ArtifactError({
+  title,
+  message,
+  onRetry,
+  onChooseModel,
+}: {
+  title: string;
+  message: string;
+  onRetry?: () => void;
+  onChooseModel?: () => void;
+}) {
   return (
     <div className="page-surface page-surface--generated">
       <div className="artifact-error" role="alert">
@@ -660,7 +679,12 @@ function ArtifactError({ title, message, onRetry }: { title: string; message: st
           <TriangleAlert aria-hidden="true" />
           <h2>{title}</h2>
           <p>{message}</p>
-          {onRetry && <button className="button button--primary" type="button" onClick={onRetry}>Try again</button>}
+          {(onRetry || onChooseModel) && (
+            <div className="artifact-error__actions">
+              {onChooseModel && <button className="button button--primary" type="button" onClick={onChooseModel}>Choose another model</button>}
+              {onRetry && <button className={`button${onChooseModel ? "" : " button--primary"}`} type="button" onClick={onRetry}>Try again</button>}
+            </div>
+          )}
         </div>
       </div>
     </div>

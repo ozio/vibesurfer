@@ -10,6 +10,7 @@ import {
   codexExecutableFromEnvironment,
   extractPartialJsonStringField,
   normalizeCodexOutputSchema,
+  sanitizeCodexErrorDetail,
   stripCodexOptionalNulls,
 } from "../src/providers/codex.js";
 
@@ -19,7 +20,7 @@ interface FakeCodex {
   cleanup: () => Promise<void>;
 }
 
-async function createFakeCodex(mode: "success" | "hang"): Promise<FakeCodex> {
+async function createFakeCodex(mode: "success" | "hang" | "usage-limit"): Promise<FakeCodex> {
   const root = await mkdtemp(join(tmpdir(), "vibesurfer-fake-codex-"));
   const executable = join(root, "codex");
   const invocationPath = join(root, "invocation.json");
@@ -57,6 +58,18 @@ lines.on("line", (line) => {
   send({ id: message.id, result: { turn: { id: "turn-1" } } });
   if (${JSON.stringify(mode)} === "hang") {
     setInterval(() => undefined, 1000);
+    return;
+  }
+  if (${JSON.stringify(mode)} === "usage-limit") {
+    send({ method: "turn/completed", params: {
+      threadId: "thread-1",
+      turn: {
+        id: "turn-1",
+        status: "failed",
+        items: [],
+        error: { message: "You've hit your usage limit for GPT-Test. Switch to another model now, or try again tomorrow." },
+      },
+    } });
     return;
   }
   const output = JSON.stringify({ ok: true });
@@ -106,6 +119,11 @@ function request(abortSignal: AbortSignal, onPartial?: (partial: unknown) => voi
 }
 
 describe.sequential("CodexModelExecutor", () => {
+  it("keeps useful Codex failures while redacting credentials and local paths", () => {
+    expect(sanitizeCodexErrorDetail("schema rejected at /Users/alice/work bearer sk-secretvalue123 ?token=abc123"))
+      .toBe("schema rejected at [path] Bearer [redacted] ?token=[redacted]");
+  });
+
   it("uses the selected system Codex app-server with isolated, no-tool settings", async () => {
     const fake = await createFakeCodex("success");
     try {
@@ -250,8 +268,29 @@ describe.sequential("CodexModelExecutor", () => {
     }
   });
 
+  it("classifies a Codex usage limit as a safe rate-limit error", async () => {
+    const fake = await createFakeCodex("usage-limit");
+    try {
+      const executor = new CodexModelExecutor({
+        providerId: "codex",
+        modelId: "gpt-test",
+        environment: {
+          VIBESURFER_CODEX_PATH: fake.executable,
+          HOME: "/fake/home",
+        },
+      });
+      await expect(executor.generateObject(request(new AbortController().signal))).rejects.toMatchObject({
+        name: "AI_APICallError",
+        statusCode: 429,
+        message: "Codex request failed: You've hit your usage limit for GPT-Test. Switch to another model now, or try again tomorrow.",
+      });
+    } finally {
+      await fake.cleanup();
+    }
+  });
+
   it("rejects a relative executable instead of resolving it through PATH", () => {
     expect(() => codexExecutableFromEnvironment({ VIBESURFER_CODEX_PATH: "codex" }))
-      .toThrow("system Codex session");
+      .toThrow("VIBESURFER_CODEX_PATH is missing or is not absolute");
   });
 });

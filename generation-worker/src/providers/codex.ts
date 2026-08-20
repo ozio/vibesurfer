@@ -156,11 +156,22 @@ function abortError(): Error {
   return error;
 }
 
+export function sanitizeCodexErrorDetail(detail: string): string {
+  const sanitized = detail
+    .replace(/\bBearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/\b(?:sk|sess|key)-[A-Za-z0-9._-]{8,}\b/g, "[redacted]")
+    .replace(/\/(?:Users|home|private|var|tmp)\/[^\s,;]+/g, "[path]")
+    .replace(/([?&](?:key|token|secret|credential|authorization)=)[^&\s]+/gi, "$1[redacted]")
+    .replace(/\s+/g, " ")
+    .trim();
+  return sanitized.slice(0, 420) || "Codex app-server rejected the request without an explanation.";
+}
+
 class CodexExecutionError extends Error {
   readonly statusCode?: number;
 
   constructor(detail: string) {
-    super("The system Codex session could not complete the generation request.");
+    super(`Codex request failed: ${sanitizeCodexErrorDetail(detail)}`);
     this.name = "AI_APICallError";
     const normalized = detail.toLowerCase();
     if (
@@ -169,7 +180,13 @@ class CodexExecutionError extends Error {
       || normalized.includes("unauthorized")
     ) {
       this.statusCode = 401;
-    } else if (normalized.includes("rate limit") || normalized.includes("too many requests")) {
+    } else if (
+      normalized.includes("rate limit")
+      || normalized.includes("usage limit")
+      || normalized.includes("spending limit")
+      || normalized.includes("too many requests")
+      || normalized.includes("quota")
+    ) {
       this.statusCode = 429;
     }
   }

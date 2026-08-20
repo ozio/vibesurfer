@@ -21,6 +21,12 @@ function errorName(error: unknown): string {
   return typeof name === "string" ? name : "";
 }
 
+function errorMessage(error: unknown): string {
+  if (typeof error !== "object" || error === null) return "";
+  const message = Reflect.get(error, "message");
+  return typeof message === "string" ? message : "";
+}
+
 export function isAbortError(error: unknown): boolean {
   return errorName(error) === "AbortError";
 }
@@ -47,11 +53,21 @@ export function normalizeError(error: unknown): NormalizedError {
   }
 
   const status = statusCode(error);
+  const message = errorMessage(error);
+  const codexMessage = message.startsWith("Codex request failed:") ? message : undefined;
   if (status === 401 || status === 403) {
-    return { code: "invalid-api-key", message: "The provider rejected the configured credential.", retryable: false };
+    return {
+      code: "invalid-api-key",
+      message: codexMessage ?? "The provider rejected the configured credential.",
+      retryable: false,
+    };
   }
   if (status === 429) {
-    return { code: "rate-limited", message: "The provider rate limit was reached.", retryable: true };
+    return {
+      code: "rate-limited",
+      message: codexMessage ?? "The provider rate limit was reached.",
+      retryable: true,
+    };
   }
   if (status !== undefined && status >= 500) {
     return { code: "provider-unavailable", message: "The provider is temporarily unavailable.", retryable: true };
@@ -60,7 +76,11 @@ export function normalizeError(error: unknown): NormalizedError {
     return { code: "timeout", message: "The generation request timed out.", retryable: true };
   }
   if (["APICallError", "AI_APICallError"].includes(errorName(error))) {
-    return { code: "provider-unavailable", message: "The provider request failed.", retryable: true };
+    return {
+      code: "provider-unavailable",
+      message: codexMessage ?? "The provider request failed.",
+      retryable: true,
+    };
   }
 
   return {
