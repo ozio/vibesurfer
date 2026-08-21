@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import {
   BadgeInfo,
   Bot,
@@ -7,10 +7,12 @@ import {
   CircleUserRound,
   Columns3,
   Globe2,
+  FlaskConical,
   KeyRound,
   LockKeyhole,
   MonitorCog,
   RefreshCw,
+  Play,
   Search,
   Settings2,
   ShieldCheck,
@@ -162,7 +164,9 @@ function GenerationSettings() {
   const patchStyleSettings = useBrowserStore((state) => state.patchStyleSettings);
   const patchImageSettings = useBrowserStore((state) => state.patchImageSettings);
   const patchCapabilitySettings = useBrowserStore((state) => state.patchCapabilitySettings);
+  const patchVoiceSettings = useBrowserStore((state) => state.patchVoiceSettings);
   const patchPrivacySettings = useBrowserStore((state) => state.patchPrivacySettings);
+  const openCapabilities = useBrowserStore((state) => state.openCapabilities);
 
   return (
     <>
@@ -207,7 +211,7 @@ function GenerationSettings() {
           checked={settings.style.allowGeneratedScripts}
           onCheckedChange={(allowGeneratedScripts) => patchStyleSettings({ allowGeneratedScripts })}
         />
-        <div className={`settings-callout settings-callout--compact${settings.style.allowGeneratedScripts ? " is-enabled" : ""}`} role="note">
+        <div className={`settings-callout settings-callout--compact security-note${settings.style.allowGeneratedScripts ? " is-enabled" : ""}`} role="note">
           <TriangleAlert aria-hidden="true" />
           <span>
             <strong>Security warning</strong>
@@ -217,6 +221,11 @@ function GenerationSettings() {
       </section>
       <section className="settings-group">
         <h2>Built-in capabilities</h2>
+        <details className="settings-details capability-explainer">
+          <summary>How built-in capabilities work</summary>
+          <p>Generated pages request small semantic features. VibeSurfer validates them and compiles trusted local implementations for charts, diagrams, slideshows, pseudo-video, speech and restrained patterns.</p>
+          <p>The page itself cannot contact an origin, load scripts from a CDN, read credentials or call native APIs. These choices affect newly generated pages; existing artifacts remain unchanged until regenerated.</p>
+        </details>
         <GenerationToggle
           title="Allow audio and read-aloud controls"
           description="Let newly generated pages offer user-triggered system speech and small procedural Web Audio cues. Nothing autoplays."
@@ -235,6 +244,9 @@ function GenerationSettings() {
           checked={settings.capabilities.experimentalEnabled}
           onCheckedChange={(experimentalEnabled) => patchCapabilitySettings({ experimentalEnabled })}
         />
+        <button className="button capability-lab-link" type="button" onClick={openCapabilities}>
+          <FlaskConical aria-hidden="true" /> Open capability lab
+        </button>
       </section>
       <section className="settings-group">
         <h2>Images</h2>
@@ -251,6 +263,24 @@ function GenerationSettings() {
             safeContent: true,
           })}
         />
+      </section>
+      <section className="settings-group voice-audio-settings">
+        <h2>Voice &amp; Audio</h2>
+        <label className="settings-field">
+          <span><strong>Speech engine</strong><small>Russian automatically uses the macOS system voice because Kokoro has no Russian voice.</small></span>
+          <select value={settings.voice.engine} onChange={(event) => patchVoiceSettings({ engine: event.target.value as "local" | "system" | "cloud" })}>
+            <option value="local">Local Kokoro</option><option value="system">macOS system</option><option value="cloud">Cloud provider</option>
+          </select>
+        </label>
+        {settings.voice.engine === "cloud" && <>
+          <label className="settings-field"><span><strong>Provider</strong><small>Credentials stay in Keychain and are never exposed to the page.</small></span><select value={settings.voice.provider} onChange={(event) => patchVoiceSettings({ provider: event.target.value as "openai" | "elevenlabs" | "deepgram" })}><option value="openai">OpenAI</option><option value="elevenlabs">ElevenLabs</option><option value="deepgram">Deepgram</option></select></label>
+          <label className="settings-field"><span><strong>Model</strong><small>Provider model identifier.</small></span><input value={settings.voice.model} onChange={(event) => patchVoiceSettings({ model: event.target.value.slice(0, 120) })} /></label>
+        </>}
+        <label className="settings-field"><span><strong>Voice</strong><small>Local asset, system voice name, or provider voice ID.</small></span><input value={settings.voice.voice} onChange={(event) => patchVoiceSettings({ voice: event.target.value.slice(0, 120) })} /></label>
+        <label className="settings-field"><span><strong>Speed</strong><small>{settings.voice.speed.toFixed(2)}×</small></span><input type="range" min="0.6" max="1.5" step="0.05" value={settings.voice.speed} onChange={(event) => patchVoiceSettings({ speed: Number(event.target.value) })} /></label>
+        <GenerationToggle title="Procedural music" description="Allow the trusted player to synthesize the Director's bounded mood presets. Music starts only after Play and ducks under narration." checked={settings.voice.musicEnabled} onCheckedChange={(musicEnabled) => patchVoiceSettings({ musicEnabled })} />
+        <button className="button voice-test-button" type="button" onClick={() => testSystemVoice(settings.voice.speed)}><Play aria-hidden="true" /> Test Voice</button>
+        <p className="settings-inline-note" role="note">Cloud speech is requested only from an explicit player action. Pause, seek and tab close cancel the active cue scheduler.</p>
       </section>
       <section className="settings-group">
         <h2>Continuity</h2>
@@ -733,14 +763,24 @@ function GenerationToggle({
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
 }) {
+  const id = useId();
   return (
     <div className="setting-row">
-      <span><strong>{title}</strong><small>{description}</small></span>
-      <Switch.Root className="switch" checked={checked} onCheckedChange={onCheckedChange} aria-label={title}>
+      <label htmlFor={id}><strong>{title}</strong><small>{description}</small></label>
+      <span className="setting-row__state" aria-hidden="true">{checked ? "On" : "Off"}</span>
+      <Switch.Root id={id} className="switch" checked={checked} onCheckedChange={onCheckedChange} aria-label={title}>
         <Switch.Thumb className="switch__thumb" />
       </Switch.Root>
     </div>
   );
+}
+
+function testSystemVoice(speed: number) {
+  if (!("speechSynthesis" in window) || !("SpeechSynthesisUtterance" in window)) return;
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance("Hallunet voice preview. Playback begins only after you press Play.");
+  utterance.rate = speed;
+  window.speechSynthesis.speak(utterance);
 }
 
 function clampNumber(value: string, minimum: number, maximum: number): number {

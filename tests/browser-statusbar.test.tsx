@@ -4,9 +4,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { BrowserStatusBar } from "../src/components/chrome/BrowserStatusBar";
 import type { PageArtifact } from "../src/types/browser";
+import { useBrowserStore } from "../src/store/browser-store";
 
 describe("BrowserStatusBar", () => {
-  it("shows Hallunet, exposes hovered URLs, and opens the full model transcript", async () => {
+  it("shows Hallunet, exposes hovered URLs, and opens the activity page", () => {
     render(
       <BrowserStatusBar
         location="https://example.com/"
@@ -20,11 +21,8 @@ describe("BrowserStatusBar", () => {
     expect(screen.getByText("Hallunet")).toBeInTheDocument();
     expect(screen.getAllByText("https://example.com/next").length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByRole("button", { name: /1 req · in 120 · out 80/i })[0]);
-    expect(screen.getByRole("dialog", { name: "Generation details" })).toBeInTheDocument();
-    fireEvent.click(screen.getByText("1. Director"));
-    expect(await screen.findByText("system prompt contents")).toBeInTheDocument();
-    expect(await screen.findByText("request contents")).toBeInTheDocument();
-    expect(await screen.findByText("response contents")).toBeInTheDocument();
+    const state = useBrowserStore.getState();
+    expect(state.tabs.find((tab) => tab.id === state.activeTabId)).toMatchObject({ kind: "activity", location: "vibe://activity?job=job-one" });
   });
 });
 

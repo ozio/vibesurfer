@@ -9,7 +9,7 @@ import {
 import { connectArtifactFrame } from "../../src/artifacts/iframe-host";
 
 const identity = { artifactId: "artifact-race", nonce: "nonce-race" };
-const render = { pageUrl: "https://example.test/", title: "Fixture", html: "<main>Fixture</main>" };
+const render = { revision: 1, renderMode: "final" as const, pageUrl: "https://example.test/", title: "Fixture", html: "<main>Fixture</main>" };
 const firstInstance = "runtime-instance-0001";
 const secondInstance = "runtime-instance-0002";
 
@@ -51,7 +51,7 @@ describe("artifact frame host bootstrap", () => {
     expect(connection.isReady()).toBe(true);
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ type: "ready", title: "Race recovered" }));
 
-    const nextRender = { ...render, title: "Streaming update", html: "<main>More HTML</main>" };
+    const nextRender = { ...render, revision: 2, title: "Streaming update", html: "<main>More HTML</main>" };
     connection.updateRender(nextRender);
     expect(channel.port1.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
       type: "render",

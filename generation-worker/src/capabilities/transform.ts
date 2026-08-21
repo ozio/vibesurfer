@@ -264,6 +264,7 @@ function countRuntimeMarkers(document: DocumentNode, capability: CapabilityId): 
     case "micro-widgets": return all.filter((element) => getAttribute(element, "data-vibe-widget")).length;
     case "carousel": return all.filter((element) => getAttribute(element, "data-vibe-carousel") !== undefined).length;
     case "slideshow": return all.filter((element) => getAttribute(element, "data-vibe-slideshow") !== undefined).length;
+    case "pseudo-video": return all.filter((element) => getAttribute(element, "data-vibe-pseudo-video") !== undefined).length;
     case "speech": return all.filter((element) => getAttribute(element, "data-vibe-speak") !== undefined).length;
     case "sound": return all.filter((element) => getAttribute(element, "data-vibe-sound") !== undefined).length;
     case "dynamic-regions": return all.filter((element) => getAttribute(element, "data-vibe-region") !== undefined).length;
@@ -302,13 +303,28 @@ function enforceCapabilityBudgets(document: DocumentNode, selected: ReadonlySet<
     warn("local-dom-scripts", scriptMaximum);
   }
 
-  capAttribute("pattern-background", "data-vibe-pattern");
+  if (selected.has("pattern-background")) {
+    const patterns = elements(document).filter((element) => getAttribute(element, "data-vibe-pattern") !== undefined);
+    const fullPage = patterns.find((element) => element.tagName === "html" || element.tagName === "body");
+    const family = fullPage
+      ? getAttribute(fullPage, "data-vibe-pattern")
+      : patterns[0] ? getAttribute(patterns[0], "data-vibe-pattern") : undefined;
+    let kept = 0;
+    for (const element of patterns) {
+      const sameFamily = getAttribute(element, "data-vibe-pattern") === family;
+      const allowed = sameFamily && kept < 2 && (!fullPage || element === fullPage);
+      if (allowed) kept += 1;
+      else removeAttribute(element, "data-vibe-pattern");
+    }
+    if (kept < patterns.length) warn("pattern-background", fullPage ? 1 : 2);
+  }
   capAttribute("motion-presets", "data-vibe-motion");
   capAttribute("math", "data-vibe-math");
   capAttribute("code-highlight", "data-vibe-code");
   capAttribute("micro-widgets", "data-vibe-widget");
   capAttribute("carousel", "data-vibe-carousel");
   capAttribute("slideshow", "data-vibe-slideshow");
+  capAttribute("pseudo-video", "data-vibe-pseudo-video");
   capAttribute("speech", "data-vibe-speak");
   capAttribute("sound", "data-vibe-sound");
 
@@ -319,6 +335,68 @@ function enforceCapabilityBudgets(document: DocumentNode, selected: ReadonlySet<
     if (matches.length <= maximum) continue;
     for (const element of matches.slice(maximum)) replaceFailure(element, id, captionText(element));
     warn(id, maximum);
+  }
+  return warnings;
+}
+
+const VIDEO_MUSIC_PRESETS = new Set([
+  "calm-documentary", "warm-memory", "melancholy", "investigative-tension",
+  "danger", "resolution", "silence",
+]);
+
+function isWithin(element: ElementNode, container: ElementNode): boolean {
+  let candidate: Node | undefined = element;
+  while (candidate && "parentNode" in candidate) {
+    if (candidate === container) return true;
+    candidate = candidate.parentNode as Node | undefined;
+  }
+  return candidate === container;
+}
+
+function boundedInteger(value: string | undefined, minimum: number, maximum: number, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Math.min(maximum, Math.max(minimum, Number.isFinite(parsed) ? parsed : fallback));
+}
+
+function sanitizePseudoVideo(document: DocumentNode, selected: ReadonlySet<CapabilityId>): ArtifactWarning[] {
+  if (!selected.has("pseudo-video")) return [];
+  const warnings: ArtifactWarning[] = [];
+  const videos = elements(document).filter((element) => getAttribute(element, "data-vibe-pseudo-video") !== undefined);
+  for (const video of videos.slice(0, 1)) {
+    const scenes = elements(document).filter((element) => getAttribute(element, "data-vibe-video-scene") !== undefined && isWithin(element, video));
+    let total = 0;
+    let removed = 0;
+    for (const [index, scene] of scenes.entries()) {
+      if (index >= 12 || total >= 600_000) {
+        removeNode(scene);
+        removed += 1;
+        continue;
+      }
+      const duration = Math.min(boundedInteger(getAttribute(scene, "data-duration-ms"), 1_000, 120_000, 5_000), 600_000 - total);
+      if (duration < 1_000) {
+        removeNode(scene);
+        removed += 1;
+        continue;
+      }
+      setAttribute(scene, "data-duration-ms", String(duration));
+      total += duration;
+    }
+    setAttribute(video, "data-vibe-duration-ms", String(total));
+    if (removed > 0) warnings.push({ code: "pseudo-video-scenes-capped", message: "Pseudo-video was limited to 12 scenes and 10 minutes." });
+
+    for (const cue of elements(document).filter((element) => isWithin(element, video))) {
+      if (getAttribute(cue, "data-vibe-narration") !== undefined) {
+        setAttribute(cue, "data-at-ms", String(boundedInteger(getAttribute(cue, "data-at-ms"), 0, Math.max(0, total - 1), 0)));
+        setAttribute(cue, "data-pause-after-ms", String(boundedInteger(getAttribute(cue, "data-pause-after-ms"), 0, 30_000, 0)));
+      }
+      if (getAttribute(cue, "data-vibe-music") !== undefined) {
+        const preset = getAttribute(cue, "data-preset") ?? "silence";
+        setAttribute(cue, "data-preset", VIDEO_MUSIC_PRESETS.has(preset) ? preset : "silence");
+        const intensity = Math.min(1, Math.max(0, Number.parseFloat(getAttribute(cue, "data-intensity") ?? "0.45") || 0));
+        setAttribute(cue, "data-intensity", intensity.toFixed(2));
+        setAttribute(cue, "data-at-ms", String(boundedInteger(getAttribute(cue, "data-at-ms"), 0, Math.max(0, total - 1), 0)));
+      }
+    }
   }
   return warnings;
 }
@@ -335,6 +413,7 @@ function stripUnavailableMarkers(document: DocumentNode, selected: ReadonlySet<C
       ["data-vibe-pattern", "pattern-background"], ["data-vibe-motion", "motion-presets"],
       ["data-vibe-widget", "micro-widgets"], ["data-vibe-carousel", "carousel"],
       ["data-vibe-slideshow", "slideshow"], ["data-vibe-speak", "speech"], ["data-vibe-sound", "sound"],
+      ["data-vibe-pseudo-video", "pseudo-video"],
     ];
     for (const [attribute, capability] of attributes) {
       if (getAttribute(element, attribute) !== undefined && !selected.has(capability)) removeAttribute(element, attribute);
@@ -361,6 +440,7 @@ export async function compileCapabilities(input: CompileCapabilitiesInput): Prom
   const warnings = [
     ...stripUnavailableMarkers(input.document, selected),
     ...enforceCapabilityBudgets(input.document, selected),
+    ...sanitizePseudoVideo(input.document, selected),
   ];
   const counts = new Map<CapabilityId, number>();
   let remainingHeavy = MAX_HEAVY_INSTANCES;
@@ -514,7 +594,7 @@ export async function compileCapabilities(input: CompileCapabilitiesInput): Prom
     }
   }
 
-  for (const id of ["motion-presets", "micro-widgets", "carousel", "slideshow", "speech", "sound", "dynamic-regions"] as const) {
+  for (const id of ["motion-presets", "micro-widgets", "carousel", "slideshow", "pseudo-video", "speech", "sound", "dynamic-regions"] as const) {
     if (!selected.has(id)) continue;
     const instances = countRuntimeMarkers(input.document, id);
     if (instances > 0) counts.set(id, instances);

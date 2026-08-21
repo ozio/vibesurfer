@@ -39,6 +39,8 @@ test("accepts bootstrap only from the expected artifact identity", () => {
 
 test("creates one bounded, identity-bound render command", () => {
   expect(createArtifactRenderCommand(identity, {
+    revision: 1,
+    renderMode: "final",
     pageUrl: "https://example.com/path",
     title: "Rendered page",
     html: "<main>Safe</main>",
@@ -49,13 +51,19 @@ test("creates one bounded, identity-bound render command", () => {
     title: "Rendered page",
     html: "<main>Safe</main>",
     executeScripts: false,
+    revision: 1,
+    renderMode: "final",
   });
   expect(() => createArtifactRenderCommand(identity, {
+    revision: 2,
+    renderMode: "final",
     pageUrl: "https://example.com/",
     title: "Oversized",
     html: "x".repeat(MAX_ARTIFACT_RENDER_BYTES),
   })).toThrow("exceeds the size limit");
   expect(() => createArtifactRenderCommand(identity, {
+    revision: 3,
+    renderMode: "final",
     pageUrl: "https://example.com/",
     title: "Invalid manifest",
     html: "<main>Safe</main>",

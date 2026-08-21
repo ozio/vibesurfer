@@ -104,6 +104,15 @@ describe("generation runtime protocol", () => {
     expect(normalizeRuntimeEvent({ type: "generation.phase", phase: "repairing" }, job)).toBeUndefined();
   });
 
+  it("normalizes bounded progress and compiler warnings", () => {
+    expect(normalizeRuntimeEvent({ type: "generation.progress", stage: "page-builder", stageIndex: 2, stageCount: 2, currentOutputTokens: 420, maxOutputTokens: 1_000, approximate: true, percent: 135, at: "2026-08-12T00:00:03.000Z" }, job)).toEqual({
+      type: "generation.progress",
+      jobId: job.id,
+      progress: { stage: "builder", stageIndex: 2, stageCount: 2, currentOutputTokens: 420, maxOutputTokens: 1_000, approximate: true, percent: 99, emittedAt: "2026-08-12T00:00:03.000Z" },
+    });
+    expect(normalizeRuntimeEvent({ type: "generation.warning", code: "pattern-background-capped", message: "Two patterns kept." }, job)).toEqual({ type: "generation.warning", jobId: job.id, warning: { code: "pattern-background-capped", message: "Two patterns kept." } });
+  });
+
   it("normalizes exactly the two new model exchanges", () => {
     const event = normalizeRuntimeEvent({
       type: "generation.completed",

@@ -11,6 +11,7 @@ import type {
   GenerationError,
   GenerationJob,
   GenerationPhase,
+  GenerationProgress,
   GenerationRuntimeEvent,
   PageArtifact,
   ProviderConnection,
@@ -267,6 +268,12 @@ export function dispatchRuntimeEvent(event: GenerationRuntimeEvent): void {
     case "generation.phase":
       state.setGenerationPhase(event.jobId, event.phase);
       break;
+    case "generation.progress":
+      state.setGenerationProgress(event.jobId, event.progress);
+      break;
+    case "generation.warning":
+      state.addGenerationWarning(event.jobId, event.warning);
+      break;
     case "generation.metadata":
       state.setGenerationMetadata(event.jobId, {
         provisionalTitle: event.metadata.title,
@@ -316,6 +323,32 @@ export function normalizeRuntimeEvent(wire: WireEvent, job: GenerationJob): Gene
       const phase = normalizePhase(stringValue(source.phase));
       return phase ? { type: "generation.phase", jobId, phase } : undefined;
     }
+    case "generation.progress": {
+      const stage = normalizeGenerationStage(stringValue(source.stage));
+      const percent = numberValue(source.percent);
+      if (!stage || percent === undefined) return undefined;
+      const progress: GenerationProgress = {
+        stage,
+        stageIndex: Math.max(0, Math.trunc(numberValue(source.stageIndex) ?? 0)),
+        stageCount: Math.max(1, Math.trunc(numberValue(source.stageCount) ?? 1)),
+        approximate: source.approximate !== false,
+        percent: Math.min(99, Math.max(0, percent)),
+        emittedAt: stringValue(source.at) ?? stringValue(source.timestamp) ?? new Date().toISOString(),
+      };
+      const currentOutputTokens = numberValue(source.currentOutputTokens);
+      const maxOutputTokens = numberValue(source.maxOutputTokens);
+      if (currentOutputTokens !== undefined) progress.currentOutputTokens = Math.max(0, Math.trunc(currentOutputTokens));
+      if (maxOutputTokens !== undefined) progress.maxOutputTokens = Math.max(1, Math.trunc(maxOutputTokens));
+      return { type: "generation.progress", jobId, progress };
+    }
+    case "generation.warning": {
+      const code = stringValue(source.code);
+      const message = stringValue(source.message);
+      return code && message ? { type: "generation.warning", jobId, warning: { code, message } } : undefined;
+    }
+    case "generation.stage":
+      // Stage records are persisted by the host and displayed by vibe://activity.
+      return undefined;
     case "generation.metadata":
     case "metadata.partial": {
       const metadata = isRecord(source.metadata) ? source.metadata : source;
@@ -353,6 +386,24 @@ export function normalizeRuntimeEvent(wire: WireEvent, job: GenerationJob): Gene
     }
     case "generation.cancelled":
       return { type: "generation.cancelled", jobId };
+    default:
+      return undefined;
+  }
+}
+
+function normalizeGenerationStage(value: string | undefined): GenerationProgress["stage"] | undefined {
+  switch (value) {
+    case "queued":
+    case "director":
+    case "builder":
+    case "compile":
+    case "assets":
+    case "finalize":
+      return value;
+    case "page-director":
+      return "director";
+    case "page-builder":
+      return "builder";
     default:
       return undefined;
   }
@@ -409,6 +460,9 @@ function normalizeArtifact(raw: Record<string, unknown>, job: GenerationJob): Pa
     worldPromptSnapshot: isRecord(raw.worldPromptSnapshot ?? payload.worldPromptSnapshot)
       ? (raw.worldPromptSnapshot ?? payload.worldPromptSnapshot) as PageArtifact["worldPromptSnapshot"]
       : job.worldPromptSnapshot,
+    voiceSettings: isRecord(raw.voiceSettings ?? payload.voiceSettings)
+      ? (raw.voiceSettings ?? payload.voiceSettings) as PageArtifact["voiceSettings"]
+      : job.generationSettingsSnapshot.voice,
   };
 }
 
@@ -699,7 +753,7 @@ function makeMockArtifact(state: BrowserState, job: GenerationJob, title: string
 function mockLuckyRoutes(theme: BrowserState["preferences"]["theme"]): string[][] {
   if (theme === "ie-classic") return [
     ["http://www.lunarcities.net/~nightshift/observatory.html", "Night Shift Observatory"],
-    ["http://directory.msn.com/Elseweb/Impossible_Museums/", "Impossible Museums"],
+    ["http://directory.msn.com/Hallunet/Impossible_Museums/", "Impossible Museums"],
     ["http://www.radiomars.gov/livecam/", "Mars Radio Livecam"],
     ["http://geocities.com/Area51/Corridor/7714/", "Corridor 7714"],
     ["http://www.angelfire.com/zine/tomorrowweather/", "Tomorrow's Weather"],

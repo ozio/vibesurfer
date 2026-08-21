@@ -4,7 +4,7 @@ export type ColorScheme = "system" | "light" | "dark";
 export type TabLayout = "horizontal" | "vertical";
 export type Density = "comfortable" | "compact";
 export type DynamicMode = "off" | "active" | "always";
-export type TabKind = "new-tab" | "remote" | "generated" | "settings" | "history";
+export type TabKind = "new-tab" | "remote" | "generated" | "settings" | "history" | "activity" | "capabilities";
 export type LoadState = "idle" | "loading" | "error";
 export type NavigationDisposition = "current" | "foreground-tab" | "background-tab";
 export type NavigationTrigger =
@@ -116,7 +116,14 @@ export interface ImageFavicon {
   mimeType?: string;
 }
 
-export type FaviconDescriptor = GlyphFavicon | ImageFavicon;
+export type SystemFaviconName = "new-tab" | "settings" | "history" | "activity" | "capabilities";
+
+export interface SystemFavicon {
+  kind: "system";
+  icon: SystemFaviconName;
+}
+
+export type FaviconDescriptor = GlyphFavicon | ImageFavicon | SystemFavicon;
 export type FaviconSource = string | FaviconDescriptor;
 
 export interface ArtifactWarning {
@@ -128,7 +135,7 @@ export const CAPABILITY_IDS = [
   "semantic-navigation", "favicon-glyph", "tailwind-utilities", "inline-page-css",
   "image-intents", "local-dom-scripts", "pattern-background", "motion-presets",
   "data-chart", "diagram", "math", "code-highlight", "qr-code", "avatar",
-  "synthetic-map", "micro-widgets", "carousel", "slideshow", "speech", "sound",
+  "synthetic-map", "micro-widgets", "carousel", "slideshow", "pseudo-video", "speech", "sound",
   "dynamic-regions", "external-media", "gifcities", "real-map",
 ] as const;
 export type CapabilityId = typeof CAPABILITY_IDS[number];
@@ -213,6 +220,7 @@ export interface PageArtifact {
   siteAdditions?: SiteAdditions;
   pageDirection?: PageDirection;
   worldPromptSnapshot?: ProfilePromptSnapshot;
+  voiceSettings?: VoiceAudioSettings;
 }
 
 export interface SiteVisualLanguage {
@@ -403,11 +411,26 @@ export interface GenerationJob {
   provisionalSummary?: string;
   previewHtml?: string;
   previewRevision?: number;
+  progress?: GenerationProgress;
+  warnings?: ArtifactWarning[];
   error?: GenerationError;
   usage?: TokenUsage;
   createdAt: string;
   startedAt?: string;
   updatedAt: string;
+}
+
+export type GenerationStage = "queued" | "director" | "builder" | "compile" | "assets" | "finalize";
+
+export interface GenerationProgress {
+  stage: GenerationStage;
+  stageIndex: number;
+  stageCount: number;
+  currentOutputTokens?: number;
+  maxOutputTokens?: number;
+  approximate: boolean;
+  percent: number;
+  emittedAt: string;
 }
 
 export type BrowsingHistoryStatus = "loading" | "cached" | "completed" | "error";
@@ -429,6 +452,8 @@ export interface BrowsingHistoryEntry {
 export type GenerationRuntimeEvent =
   | { type: "generation.started"; jobId: string }
   | { type: "generation.phase"; jobId: string; phase: GenerationPhase }
+  | { type: "generation.progress"; jobId: string; progress: GenerationProgress }
+  | { type: "generation.warning"; jobId: string; warning: ArtifactWarning }
   | {
       type: "generation.metadata";
       jobId: string;
@@ -524,6 +549,15 @@ export interface GenerationCapabilitySettings {
   experimentalEnabled: boolean;
 }
 
+export interface VoiceAudioSettings {
+  engine: "local" | "system" | "cloud";
+  provider: "openai" | "elevenlabs" | "deepgram";
+  model: string;
+  voice: string;
+  speed: number;
+  musicEnabled: boolean;
+}
+
 export interface GenerationSettings {
   promptVersion: number;
   maxOutputTokens: number;
@@ -532,6 +566,7 @@ export interface GenerationSettings {
   style: ArtifactStyleSettings;
   images: ImageGenerationSettings;
   capabilities: GenerationCapabilitySettings;
+  voice: VoiceAudioSettings;
   privacy: GenerationPrivacySettings;
 }
 

@@ -35,8 +35,8 @@ const addressLanguage: Record<ThemeId, {
     starterAddress: "stillroom.fm/live",
   },
   "ie-classic": {
-    network: "the Elseweb",
-    placeholder: "Search the Elseweb or type a Web address",
+    network: "Hallunet",
+    placeholder: "Search Hallunet or type a Web address",
     queryDetail: "Search all alternate Web pages",
     addressDetail: "Go to this Web address",
     starterLabel: "Visit the Unknown Web Ring",

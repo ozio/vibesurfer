@@ -391,20 +391,29 @@ export async function runCompactPipeline(context: PipelineContext): Promise<Pipe
   await emit.metadata({ favicon: initialBrief.identity.favicon });
   await emit.phase("generating", 0.2);
   const preview = createProgressivePagePreview({ request, emit, approvedBrief: initialBrief });
+  const prompt = compactPrompt(context);
+  const maxOutputTokens = Math.min(request.settings.maxOutputTokens, 16_000);
+  const startedAt = new Date().toISOString();
+  await emit.stage?.({ stage: "page-builder", status: "running", startedAt, payload: { systemPrompt: prompt.system, prompt: prompt.prompt, maxOutputTokens } });
+  await emit.progress?.({ stage: "builder", stageIndex: 1, stageCount: 1, currentOutputTokens: 0, maxOutputTokens, approximate: true, percent: 5 });
   const generated = await executor.generateText({
     purpose: "page-builder",
-    prompt: compactPrompt(context),
+    prompt,
     abortSignal: signal,
-    maxOutputTokens: Math.min(request.settings.maxOutputTokens, 16_000),
+    maxOutputTokens,
     onPartialText: async (accumulatedText) => {
       try {
         await preview.handle({ html: normalizeGeneratedHtml(accumulatedText) });
       } catch {
         // The first streamed tokens may only contain a fence or whitespace.
       }
+      const currentOutputTokens = Math.ceil(accumulatedText.length / 4);
+      await emit.progress?.({ stage: "builder", stageIndex: 1, stageCount: 1, currentOutputTokens, maxOutputTokens, approximate: true, percent: Math.min(84, Math.max(5, Math.round(5 + Math.min(1, currentOutputTokens / maxOutputTokens) * 80))) });
     },
   });
   await preview.flush();
+  await emit.stage?.({ stage: "page-builder", status: "completed", startedAt: generated.exchange.startedAt, completedAt: generated.exchange.completedAt, payload: generated.exchange as unknown as Record<string, unknown> });
+  await emit.progress?.({ stage: "builder", stageIndex: 1, stageCount: 1, currentOutputTokens: generated.usage.outputTokens, maxOutputTokens, approximate: false, percent: 85 });
 
   const page = pageResult(generated.text, request.url, request.settings.minInternalLinks, request.settings.tailwindEnabled);
   const approvedBrief = compactBrief(context, page.html);

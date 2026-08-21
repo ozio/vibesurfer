@@ -12,6 +12,7 @@ import {
 import { openExternal } from "../../lib/platform";
 import { activatePersistedSiteWorld } from "../../generation/host-api";
 import { attachDynamicFrame, handleDynamicAction } from "../../dynamic/runtime";
+import { LocalSpeechPlayer } from "../../audio/local-speech";
 import { useBrowserStore } from "../../store/browser-store";
 import type {
   BrowserTab,
@@ -19,6 +20,8 @@ import type {
 } from "../../types/browser";
 import { NewTabPage } from "./NewTabPage";
 import { HistoryPage } from "./HistoryPage";
+import { ActivityPage } from "./ActivityPage";
+import { CapabilityLabPage } from "./CapabilityLabPage";
 
 interface PageContextMenuState {
   left: number;
@@ -44,6 +47,8 @@ function openModelPicker() {
 export function PageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHover?: (href?: string) => void }) {
   if (tab.kind === "new-tab") return <NewTabPage />;
   if (tab.kind === "history") return <HistoryPage />;
+  if (tab.kind === "activity") return <ActivityPage tab={tab} />;
+  if (tab.kind === "capabilities") return <CapabilityLabPage />;
   if (tab.kind === "generated") return <GeneratedPageSurface tab={tab} onLinkHover={onLinkHover} />;
 
   return (
@@ -87,6 +92,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
     connection: ArtifactFrameConnection;
   } | null>(null);
   const detachDynamicFrameRef = useRef<(() => void) | null>(null);
+  const speechPlayerRef = useRef<LocalSpeechPlayer | null>(null);
   const readyKeyRef = useRef<string | undefined>(undefined);
   const [readyKey, setReadyKey] = useState<string>();
   const [armedKey, setArmedKey] = useState<string>();
@@ -125,34 +131,40 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       if (shouldShowPreview && job?.previewHtml) {
         const url = job.normalizedUrl ?? job.requestedUrl ?? tab.virtualLocation?.url ?? tab.location;
         const title = job.provisionalTitle ?? artifact?.title ?? tab.title ?? "Generating page";
+        const document = compileGeneratedArtifactDocument({
+          artifactId: frameIdentity.key,
+          nonce: frameIdentity.nonce,
+          url,
+          title,
+          html: job.previewHtml,
+          browserTheme: theme,
+          voiceSettings: job.generationSettingsSnapshot.voice,
+        });
         return {
           ok: true as const,
-          document: compileGeneratedArtifactDocument({
-            artifactId: frameIdentity.key,
-            nonce: frameIdentity.nonce,
-            url,
-            title,
-            html: job.previewHtml,
-            browserTheme: theme,
-          }),
+          document,
+          renderPayload: { ...document.payload, revision: job.previewRevision ?? 0, renderMode: "preview" as const },
           sourceArtifactId: artifact?.id ?? job.sourceArtifactId ?? frameIdentity.key,
           sourceUrl: url,
           isPreview: true,
         };
       }
       if (artifact) {
+        const document = compileGeneratedArtifactDocument({
+          artifactId: frameIdentity.key,
+          nonce: frameIdentity.nonce,
+          url: artifact.url,
+          title: artifact.title,
+          html: artifact.html,
+          allowGeneratedScripts: artifact.allowGeneratedScripts === true,
+          dynamicManifest: artifact.dynamicManifest,
+          browserTheme: theme,
+          voiceSettings: artifact.voiceSettings ?? job?.generationSettingsSnapshot.voice,
+        });
         return {
           ok: true as const,
-          document: compileGeneratedArtifactDocument({
-            artifactId: frameIdentity.key,
-            nonce: frameIdentity.nonce,
-            url: artifact.url,
-            title: artifact.title,
-            html: artifact.html,
-            allowGeneratedScripts: artifact.allowGeneratedScripts === true,
-            dynamicManifest: artifact.dynamicManifest,
-            browserTheme: theme,
-          }),
+          document,
+          renderPayload: { ...document.payload, revision: (job?.previewRevision ?? 0) + 1, renderMode: "final" as const },
           sourceArtifactId: artifact.id,
           sourceUrl: artifact.url,
           isPreview: false,
@@ -165,6 +177,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       return {
         ok: true as const,
         document,
+        renderPayload: document.payload,
         sourceArtifactId: document.artifactId,
         sourceUrl: document.payload.pageUrl,
         isPreview: false,
@@ -211,6 +224,8 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       }
       detachDynamicFrameRef.current?.();
       detachDynamicFrameRef.current = null;
+      speechPlayerRef.current?.dispose();
+      speechPlayerRef.current = null;
     };
   }, [documentKey, onLinkHover]);
 
@@ -265,6 +280,27 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
 
     if (event.type === "browser-command") {
       openSettings("general");
+      return;
+    }
+
+    if (event.type === "speech-cancel") {
+      speechPlayerRef.current?.cancel();
+      if (event.requestId) connectionRef.current?.connection.setSpeechState({ requestId: event.requestId, status: "cancelled" });
+      return;
+    }
+
+    if (event.type === "speech-request") {
+      const connection = connectionRef.current?.connection;
+      if (event.engine !== "local") {
+        connection?.setSpeechState({ requestId: event.requestId, status: "failed", message: "Cloud speech requires a configured provider adapter." });
+        return;
+      }
+      const player = speechPlayerRef.current ??= new LocalSpeechPlayer();
+      void player.play({ id: event.requestId, text: event.text, voice: event.voice, speed: event.speed }).then(() => {
+        connectionRef.current?.connection.setSpeechState({ requestId: event.requestId, status: "completed" });
+      }).catch((error: unknown) => {
+        connectionRef.current?.connection.setSpeechState({ requestId: event.requestId, status: error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "failed", message: error instanceof Error ? error.message : "Speech failed." });
+      });
       return;
     }
 
@@ -381,7 +417,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
   const ensureFrameConnection = useCallback(() => {
     const current = connectionRef.current;
     if (current && current.key === documentKey && compiledResult?.ok) {
-      current.connection.updateRender(compiledResult.document.payload);
+      current.connection.updateRender(compiledResult.renderPayload);
       return;
     }
     connectionRef.current?.connection.disconnect();
@@ -393,7 +429,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       getIframe: () => frameRef.current,
       artifactId: document.artifactId,
       nonce: document.nonce,
-      render: document.payload,
+      render: compiledResult.renderPayload,
       onEvent: (event) => handleFrameEvent(event, documentKey),
       onRuntimeRestart: () => {
         readyKeyRef.current = undefined;
@@ -467,6 +503,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
           src={frameUrl}
           scrolling="auto"
           sandbox="allow-scripts"
+          allowFullScreen
           referrerPolicy="no-referrer"
           onLoad={ensureFrameConnection}
           onError={() => {

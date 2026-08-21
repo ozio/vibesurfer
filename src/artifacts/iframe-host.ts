@@ -33,6 +33,7 @@ export interface ArtifactFrameConnection {
   setDynamicError: (input: { requestId: string; regionIds: string[]; message: string; retryable: boolean }) => void;
   syncState: (input: { requestId?: string; sessionRevision: number; bindings: Record<string, string>; snapshots?: ArtifactDynamicRegionSnapshot[] }) => void;
   requestDynamicSnapshot: (regionIds: string[]) => Promise<ArtifactDynamicRegionSnapshot[]>;
+  setSpeechState: (input: { requestId: string; status: "completed" | "failed" | "cancelled"; message?: string }) => void;
 }
 
 /**
@@ -66,6 +67,7 @@ export function connectArtifactFrame({
       setDynamicError: () => undefined,
       syncState: () => undefined,
       requestDynamicSnapshot: async () => [],
+      setSpeechState: () => undefined,
     };
   }
 
@@ -243,5 +245,6 @@ export function connectArtifactFrame({
     setDynamicError: (input) => postDynamic({ type: "dynamic-error", ...input }),
     syncState: (input) => postDynamic({ type: "state-sync", ...input, snapshots: input.snapshots ?? [] }),
     requestDynamicSnapshot,
+    setSpeechState: (input) => postDynamic({ type: "speech-state", ...input }),
   };
 }

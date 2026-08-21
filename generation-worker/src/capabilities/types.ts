@@ -19,6 +19,7 @@ export const CAPABILITY_IDS = [
   "micro-widgets",
   "carousel",
   "slideshow",
+  "pseudo-video",
   "speech",
   "sound",
   "dynamic-regions",

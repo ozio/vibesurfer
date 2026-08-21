@@ -318,6 +318,22 @@ export class WorkerRuntime {
             progress,
           });
         },
+        progress: async (progress) => {
+          await sendJob({
+            type: "generation.progress",
+            requestId: request.requestId,
+            jobId: request.jobId,
+            ...progress,
+          });
+        },
+        stage: async (record) => {
+          await sendJob({
+            type: "generation.stage",
+            requestId: request.requestId,
+            jobId: request.jobId,
+            ...record,
+          });
+        },
         metadata: async (metadata) => {
           await sendJob({
             type: "generation.metadata",

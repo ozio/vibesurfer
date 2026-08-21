@@ -12,6 +12,7 @@ import { TabStrip } from "../components/chrome/TabStrip";
 import { TitleBar } from "../components/chrome/TitleBar";
 import { PageSurface } from "../components/content/PageSurface";
 import { VerticalSidebar } from "../components/content/VerticalSidebar";
+import { openBlankTabAndFocus } from "./browser-actions";
 
 const SettingsPage = lazy(() =>
   import("../components/settings/SettingsPage").then((module) => ({ default: module.SettingsPage })),
@@ -27,7 +28,6 @@ export function BrowserApp() {
   const activeProfileId = useBrowserStore((state) => state.activeProfileId);
   const profiles = useBrowserStore((state) => state.profiles);
   const providerConnections = useBrowserStore((state) => state.providerConnections);
-  const addTab = useBrowserStore((state) => state.addTab);
   const closeTab = useBrowserStore((state) => state.closeTab);
   const activateTab = useBrowserStore((state) => state.activateTab);
   const reload = useBrowserStore((state) => state.reload);
@@ -105,7 +105,7 @@ export function BrowserApp() {
         window.dispatchEvent(new Event("vibesurfer:focus-address"));
       } else if (key === "t") {
         event.preventDefault();
-        addTab();
+        openBlankTabAndFocus();
       } else if (key === "w") {
         event.preventDefault();
         closeTab(activeTabId);
@@ -127,7 +127,7 @@ export function BrowserApp() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [activateTab, activeTabId, addTab, closeTab, openHistory, openSettings, platform, reload, tabs]);
+  }, [activateTab, activeTabId, closeTab, openHistory, openSettings, platform, reload, tabs]);
 
   if (!activeTab) return null;
 
@@ -156,7 +156,7 @@ export function BrowserApp() {
         profileName={profile.name}
         modelName={model.name}
         artifact={activeArtifact}
-        activeUsage={activeJob?.usage}
+        activeJob={activeJob}
       />
     </div>
   );

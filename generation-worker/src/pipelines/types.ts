@@ -11,6 +11,22 @@ import type { ModelExecutor } from "../providers/executor.js";
 
 export interface PipelineEmitter {
   phase(phase: GenerationPhase, progress: number): void | Promise<void>;
+  progress?(progress: {
+    stage: "director" | "builder" | "compile" | "assets" | "finalize";
+    stageIndex: number;
+    stageCount: number;
+    currentOutputTokens?: number;
+    maxOutputTokens?: number;
+    approximate: boolean;
+    percent: number;
+  }): void | Promise<void>;
+  stage?(record: {
+    stage: "page-director" | "page-builder" | "region-builder";
+    status: "running" | "completed" | "failed";
+    startedAt: string;
+    completedAt?: string;
+    payload: Record<string, unknown>;
+  }): void | Promise<void>;
   metadata(metadata: { title?: string; favicon?: FaviconDescriptor; summary?: string }): void | Promise<void>;
   preview(html: string): void | Promise<void>;
   validation(issues: HtmlIssue[]): void | Promise<void>;

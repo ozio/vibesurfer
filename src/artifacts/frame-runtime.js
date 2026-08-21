@@ -2,7 +2,7 @@
   "use strict";
 
   const PROTOCOL = "vibesurfer:artifact-bridge";
-  const VERSION = 2;
+  const VERSION = 3;
   const MAX_ARTIFACT_ID_LENGTH = 512;
   const MAX_NONCE_LENGTH = 128;
   const MAX_PAGE_URL_LENGTH = 4_096;
@@ -157,8 +157,12 @@
   let bootstrapTimer;
   let bootstrapAttempts = 0;
   let capabilityCleanups = [];
+  let renderedRevision = -1;
+  let finalScriptsExecuted = false;
   let audioContext = null;
+  const pseudoVideoStates = new WeakMap();
   let dynamicManifest = null;
+  let voiceSettings = { engine: "system", voice: "", speed: 1, musicEnabled: true };
   let sessionRevision = 0;
   const regionRevisions = new Map();
   const dynamicRequests = new Map();
@@ -529,6 +533,231 @@
     oscillator.stop(now + 0.26);
   };
 
+  const formatMediaTime = (milliseconds) => {
+    const seconds = Math.max(0, Math.floor(milliseconds / 1_000));
+    const minutes = Math.floor(seconds / 60);
+    return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
+  };
+
+  const pseudoVideoScenes = (container) => Array.from(container.querySelectorAll("[data-vibe-video-scene]"))
+    .slice(0, 12)
+    .map((element) => ({
+      element,
+      duration: Math.max(1_000, Math.min(120_000, Number(element.getAttribute("data-duration-ms")) || 5_000)),
+    }));
+
+  const stopPseudoMusic = (state, fadeSeconds = 0.25) => {
+    if (!state.music) return;
+    const music = state.music;
+    state.music = null;
+    const now = music.context.currentTime;
+    try {
+      music.gain.gain.cancelScheduledValues(now);
+      music.gain.gain.setValueAtTime(Math.max(0.0001, music.gain.gain.value), now);
+      music.gain.gain.exponentialRampToValueAtTime(0.0001, now + fadeSeconds);
+      for (const oscillator of music.oscillators) oscillator.stop(now + fadeSeconds + 0.05);
+    } catch { /* The audio graph may already be stopped. */ }
+  };
+
+  const setPseudoMusic = (state, preset, intensity) => {
+    const allowed = {
+      "calm-documentary": [196, 246.94, 293.66],
+      "warm-memory": [220, 277.18, 329.63],
+      melancholy: [174.61, 220, 261.63],
+      "investigative-tension": [146.83, 174.61, 233.08],
+      danger: [110, 116.54, 164.81],
+      resolution: [261.63, 329.63, 392],
+    };
+    if (!voiceSettings.musicEnabled || !state.playing || preset === "silence" || !allowed[preset]) {
+      stopPseudoMusic(state);
+      state.musicPreset = "silence";
+      return;
+    }
+    if (state.musicPreset === preset && state.music) return;
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    if (!AudioContext) return;
+    if (!audioContext || audioContext.state === "closed") audioContext = new AudioContext();
+    const context = audioContext;
+    void context.resume();
+    const gain = context.createGain();
+    const now = context.currentTime;
+    const level = Math.max(0.012, Math.min(0.09, (Number(intensity) || 0.45) * 0.08));
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(level, now + 0.5);
+    gain.connect(context.destination);
+    const oscillators = allowed[preset].map((frequency, index) => {
+      const oscillator = context.createOscillator();
+      oscillator.type = preset === "danger" ? "sawtooth" : index === 0 ? "sine" : "triangle";
+      oscillator.frequency.setValueAtTime(frequency, now);
+      oscillator.detune.setValueAtTime((index - 1) * 3, now);
+      oscillator.connect(gain);
+      oscillator.start(now);
+      return oscillator;
+    });
+    stopPseudoMusic(state, 0.6);
+    state.music = { context, gain, oscillators, level };
+    state.musicPreset = preset;
+  };
+
+  const duckPseudoMusic = (state, ducked) => {
+    if (!state.music) return;
+    const { context, gain, level } = state.music;
+    const now = context.currentTime;
+    gain.gain.cancelScheduledValues(now);
+    gain.gain.setTargetAtTime(ducked ? Math.max(0.004, level * 0.22) : level, now, ducked ? 0.04 : 0.2);
+  };
+
+  const pausePseudoVideo = (state, preserveSpeech = false) => {
+    if (state.playing) state.currentMs = Math.min(state.totalMs, performance.now() - state.startedAt);
+    state.playing = false;
+    if (state.timer) window.clearInterval(state.timer);
+    state.timer = 0;
+    if (!preserveSpeech) {
+      if (state.activeSpeechRequest) send("speech-cancel", { requestId: state.activeSpeechRequest });
+      state.activeSpeechRequest = "";
+      try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch { /* unavailable */ }
+    }
+    stopPseudoMusic(state);
+  };
+
+  const narratePseudoCue = (state, cue) => {
+    const text = compact(cue.textContent, 4_000);
+    if (!text) return;
+    const lang = cue.getAttribute("lang") || document.documentElement.lang || "en";
+    const pauseAfter = Math.max(0, Math.min(30_000, Number(cue.getAttribute("data-pause-after-ms")) || 0));
+    const finish = () => {
+      duckPseudoMusic(state, false);
+      if (!pauseAfter || !state.playing) return;
+      pausePseudoVideo(state, true);
+      state.pauseTimer = window.setTimeout(() => playPseudoVideo(state), pauseAfter);
+    };
+    const russianFallback = /^ru(?:-|$)/i.test(lang) || /[А-Яа-яЁё]/.test(text);
+    if (!russianFallback && (voiceSettings.engine === "local" || voiceSettings.engine === "cloud")) {
+      const requestId = `speech-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+      state.activeSpeechRequest = requestId;
+      state.finishSpeech = finish;
+      duckPseudoMusic(state, true);
+      send("speech-request", { requestId, engine: voiceSettings.engine, text, lang, voice: voiceSettings.voice || "af_heart", speed: voiceSettings.speed || 1 });
+      return;
+    }
+    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
+    window.speechSynthesis.cancel();
+    duckPseudoMusic(state, true);
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = lang;
+    utterance.rate = Math.max(0.6, Math.min(1.5, Number(state.container.getAttribute("data-vibe-speech-rate")) || voiceSettings.speed || 1));
+    const selectedVoice = window.speechSynthesis.getVoices().find((voice) => voice.name === voiceSettings.voice || voice.lang.toLowerCase().startsWith(lang.toLowerCase().split("-")[0]));
+    if (selectedVoice) utterance.voice = selectedVoice;
+    utterance.onerror = () => duckPseudoMusic(state, false);
+    utterance.onend = finish;
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const renderPseudoVideo = (state, previousMs = state.currentMs) => {
+    const scenes = pseudoVideoScenes(state.container);
+    state.totalMs = Math.min(600_000, scenes.reduce((sum, scene) => sum + scene.duration, 0));
+    state.currentMs = Math.max(0, Math.min(state.totalMs, state.currentMs));
+    let cursor = 0;
+    let activeIndex = Math.max(0, scenes.length - 1);
+    for (const [index, scene] of scenes.entries()) {
+      if (state.currentMs < cursor + scene.duration) { activeIndex = index; break; }
+      cursor += scene.duration;
+    }
+    scenes.forEach((scene, index) => {
+      scene.element.toggleAttribute("hidden", index !== activeIndex);
+      scene.element.setAttribute("aria-hidden", index === activeIndex ? "false" : "true");
+      scene.element.style.setProperty("--vibe-video-progress", String(Math.max(0, Math.min(1, (state.currentMs - cursor) / scene.duration))));
+    });
+    const active = scenes[activeIndex]?.element;
+    const caption = state.container.querySelector("[data-vibe-video-caption]");
+    if (caption) caption.textContent = compact(active?.getAttribute("data-caption") || active?.querySelector("figcaption, [data-caption]")?.textContent || "", 1_000);
+    const range = state.container.querySelector("[data-vibe-video-seek]");
+    if (range) {
+      range.max = String(Math.max(1, state.totalMs));
+      range.value = String(Math.round(state.currentMs));
+      range.setAttribute("aria-valuetext", `${formatMediaTime(state.currentMs)} of ${formatMediaTime(state.totalMs)}`);
+    }
+    const elapsed = state.container.querySelector("[data-vibe-video-elapsed]");
+    const total = state.container.querySelector("[data-vibe-video-total]");
+    if (elapsed) elapsed.textContent = formatMediaTime(state.currentMs);
+    if (total) total.textContent = formatMediaTime(state.totalMs);
+    const play = state.container.querySelector("[data-vibe-video-play]");
+    if (play) {
+      play.textContent = state.playing ? "Pause" : "Play";
+      play.setAttribute("aria-pressed", state.playing ? "true" : "false");
+    }
+
+    if (state.playing && activeIndex !== state.sceneIndex) {
+      state.sceneIndex = activeIndex;
+      const musicCue = active?.querySelector("[data-vibe-music]");
+      setPseudoMusic(state, musicCue?.getAttribute("data-preset") || active?.getAttribute("data-music-preset") || "silence", musicCue?.getAttribute("data-intensity") || active?.getAttribute("data-music-intensity"));
+    }
+    let sceneStart = 0;
+    for (const scene of scenes) {
+      for (const cue of scene.element.querySelectorAll("[data-vibe-narration]")) {
+        const cueAt = sceneStart + Math.max(0, Math.min(scene.duration - 1, Number(cue.getAttribute("data-at-ms")) || 0));
+        const key = `${scenes.indexOf(scene)}:${cueAt}:${compact(cue.textContent, 80)}`;
+        if (state.playing && previousMs <= cueAt && state.currentMs >= cueAt && !state.firedCues.has(key)) {
+          state.firedCues.add(key);
+          narratePseudoCue(state, cue);
+        }
+      }
+      sceneStart += scene.duration;
+    }
+  };
+
+  const playPseudoVideo = (state) => {
+    if (!state.totalMs) renderPseudoVideo(state);
+    if (state.currentMs >= state.totalMs) {
+      state.currentMs = 0;
+      state.firedCues.clear();
+    }
+    state.playing = true;
+    state.startedAt = performance.now() - state.currentMs;
+    renderPseudoVideo(state, Math.max(0, state.currentMs - 1));
+    if (state.timer) window.clearInterval(state.timer);
+    state.timer = window.setInterval(() => {
+      const previous = state.currentMs;
+      state.currentMs = Math.min(state.totalMs, performance.now() - state.startedAt);
+      renderPseudoVideo(state, previous);
+      if (state.currentMs >= state.totalMs) pausePseudoVideo(state);
+    }, 100);
+  };
+
+  const ensurePseudoVideo = (container) => {
+    let controls = container.querySelector(":scope > [data-vibe-video-controls]");
+    if (!controls) {
+      controls = document.createElement("div");
+      controls.setAttribute("data-vibe-video-controls", "");
+      controls.innerHTML = '<button type="button" data-vibe-video-play aria-pressed="false">Play</button><button type="button" data-vibe-video-restart>Restart</button><label>Timeline <input type="range" min="0" value="0" step="100" data-vibe-video-seek></label><span><span data-vibe-video-elapsed>0:00</span> / <span data-vibe-video-total>0:00</span></span><button type="button" data-vibe-video-fullscreen>Fullscreen</button>';
+      container.append(controls);
+    }
+    if (!container.querySelector(":scope > [data-vibe-video-caption]")) {
+      const caption = document.createElement("p");
+      caption.setAttribute("data-vibe-video-caption", "");
+      caption.setAttribute("aria-live", "polite");
+      container.append(caption);
+    }
+    if (!container.querySelector(":scope > details[data-vibe-video-transcript]")) {
+      const details = document.createElement("details");
+      details.setAttribute("data-vibe-video-transcript", "");
+      const lines = Array.from(container.querySelectorAll("[data-vibe-narration]"), (cue) => `<p>${compact(cue.textContent, 4_000).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</p>`).join("");
+      details.innerHTML = `<summary>Transcript</summary>${lines || "<p>No narration.</p>"}`;
+      container.append(details);
+    }
+    let state = pseudoVideoStates.get(container);
+    if (!state) {
+      state = { container, currentMs: 0, totalMs: 0, playing: false, startedAt: 0, timer: 0, pauseTimer: 0, sceneIndex: -1, firedCues: new Set(), music: null, musicPreset: "silence", activeSpeechRequest: "", finishSpeech: null };
+      pseudoVideoStates.set(container, state);
+      capabilityCleanups.push(() => {
+        pausePseudoVideo(state);
+        if (state.pauseTimer) window.clearTimeout(state.pauseTimer);
+      });
+    }
+    renderPseudoVideo(state);
+    return state;
+  };
+
   const updateCountdown = (element) => {
     const target = Date.parse(element.getAttribute("data-target") || "");
     if (!Number.isFinite(target)) return false;
@@ -545,6 +774,8 @@
   const enhanceCapabilities = () => {
     const motionElements = Array.from(document.querySelectorAll("[data-vibe-motion]"));
     if (!reducedMotion()) motionElements.forEach((element, index) => {
+      if (element.dataset.vibeEnhancedMotion === "true") return;
+      element.dataset.vibeEnhancedMotion = "true";
       if (typeof element.animate !== "function") return;
       const preset = element.getAttribute("data-vibe-motion");
       if (preset === "pulse") {
@@ -557,9 +788,13 @@
     });
 
     for (const slideshow of document.querySelectorAll("[data-vibe-slideshow]")) {
+      const alreadyEnhanced = slideshow.dataset.vibeEnhancedSlideshow === "true";
+      slideshow.dataset.vibeEnhancedSlideshow = "true";
       showSlide(slideshow, Number(slideshow.dataset.vibeSlideIndex || 0));
-      if (slideshow.hasAttribute("data-autoplay") && !reducedMotion()) setSlideshowPlaying(slideshow, true);
+      if (!alreadyEnhanced && slideshow.hasAttribute("data-autoplay") && !reducedMotion()) setSlideshowPlaying(slideshow, true);
     }
+
+    for (const video of document.querySelectorAll("[data-vibe-pseudo-video]")) ensurePseudoVideo(video);
 
     for (const progress of document.querySelectorAll('[data-vibe-widget="progress"]')) {
       const value = Math.max(0, Number(progress.getAttribute("data-value")) || 0);
@@ -572,6 +807,8 @@
     }
 
     for (const countdown of document.querySelectorAll('[data-vibe-widget="countdown"]')) {
+      if (countdown.dataset.vibeEnhancedCountdown === "true") continue;
+      countdown.dataset.vibeEnhancedCountdown = "true";
       if (!updateCountdown(countdown)) continue;
       const timer = window.setInterval(() => {
         if (!updateCountdown(countdown)) window.clearInterval(timer);
@@ -583,6 +820,25 @@
   const handleCapabilityClick = (event) => {
     const target = event.target instanceof Element ? event.target.closest("button, [role=button]") : null;
     if (!target) return false;
+    const video = target.closest("[data-vibe-pseudo-video]");
+    if (video && (target.hasAttribute("data-vibe-video-play") || target.hasAttribute("data-vibe-video-restart") || target.hasAttribute("data-vibe-video-fullscreen"))) {
+      event.preventDefault();
+      event.stopPropagation();
+      const state = ensurePseudoVideo(video);
+      if (target.hasAttribute("data-vibe-video-play")) {
+        if (state.playing) pausePseudoVideo(state); else playPseudoVideo(state);
+        renderPseudoVideo(state);
+      } else if (target.hasAttribute("data-vibe-video-restart")) {
+        pausePseudoVideo(state);
+        state.currentMs = 0;
+        state.sceneIndex = -1;
+        state.firedCues.clear();
+        renderPseudoVideo(state);
+      } else if (video.requestFullscreen) {
+        void video.requestFullscreen().catch(() => undefined);
+      }
+      return true;
+    }
     const slideshow = target.closest("[data-vibe-slideshow]");
     if (slideshow && (target.hasAttribute("data-vibe-prev") || target.hasAttribute("data-vibe-next") || target.hasAttribute("data-vibe-play"))) {
       event.preventDefault();
@@ -733,6 +989,20 @@
     }
   }, true);
 
+  document.addEventListener("input", (event) => {
+    const target = event.target instanceof Element ? event.target.closest("[data-vibe-video-seek]") : null;
+    const video = target?.closest("[data-vibe-pseudo-video]");
+    if (!target || !video) return;
+    const state = ensurePseudoVideo(video);
+    const wasPlaying = state.playing;
+    pausePseudoVideo(state);
+    state.currentMs = Math.max(0, Math.min(state.totalMs, Number(target.value) || 0));
+    state.sceneIndex = -1;
+    state.firedCues.clear();
+    renderPseudoVideo(state);
+    if (wasPlaying) playPseudoVideo(state);
+  }, true);
+
   document.addEventListener("auxclick", (event) => {
     if (event.button !== 1 || !(event.target instanceof Element)) return;
     const anchor = event.target.closest("a[href], area[href]");
@@ -833,6 +1103,89 @@
     }
   };
 
+  const syncAttributes = (target, source) => {
+    const preserve = new Set(["value", "checked", "selected"]);
+    const runtimeOwned = (name) => name.startsWith("data-vibe-enhanced-")
+      || name === "data-vibe-slide-index" || name === "data-vibe-playing" || name === "data-vibe-timer";
+    for (const attribute of Array.from(target.attributes)) {
+      if (!source.hasAttribute(attribute.name) && !preserve.has(attribute.name) && !runtimeOwned(attribute.name)) target.removeAttribute(attribute.name);
+    }
+    for (const attribute of Array.from(source.attributes)) {
+      if (runtimeOwned(attribute.name) || (preserve.has(attribute.name) && (target === document.activeElement || target.matches(":checked")))) continue;
+      if (target.getAttribute(attribute.name) !== attribute.value) target.setAttribute(attribute.name, attribute.value);
+    }
+  };
+
+  const stableNodeKey = (node) => {
+    if (!(node instanceof Element)) return "";
+    const key = node.id || node.getAttribute("data-vibe-key") || node.getAttribute("data-vibe-region");
+    return key ? `${node.localName}:${key}` : "";
+  };
+
+  const compatibleNode = (left, right) => {
+    if (left.nodeType !== right.nodeType) return false;
+    if (left.nodeType === Node.ELEMENT_NODE) {
+      const leftKey = stableNodeKey(left);
+      const rightKey = stableNodeKey(right);
+      if (leftKey || rightKey) return leftKey === rightKey;
+      return left.localName === right.localName;
+    }
+    return left.nodeType === Node.TEXT_NODE || left.nodeType === Node.COMMENT_NODE;
+  };
+
+  const morphNode = (target, source) => {
+    if (target.nodeType === Node.TEXT_NODE || target.nodeType === Node.COMMENT_NODE) {
+      if (target.nodeValue !== source.nodeValue) target.nodeValue = source.nodeValue;
+      return;
+    }
+    if (!(target instanceof Element) || !(source instanceof Element) || target.localName !== source.localName) return;
+    syncAttributes(target, source);
+    morphChildren(target, source);
+  };
+
+  const morphChildren = (target, source) => {
+    const desired = Array.from(source.childNodes);
+    for (let index = 0; index < desired.length; index += 1) {
+      const incoming = desired[index];
+      let current = target.childNodes[index];
+      if (!current || !compatibleNode(current, incoming)) {
+        const incomingKey = stableNodeKey(incoming);
+        let match = null;
+        if (incomingKey) {
+          for (let cursor = index + 1; cursor < target.childNodes.length; cursor += 1) {
+            if (stableNodeKey(target.childNodes[cursor]) === incomingKey) {
+              match = target.childNodes[cursor];
+              break;
+            }
+          }
+        }
+        if (match) {
+          target.insertBefore(match, current || null);
+          current = match;
+        } else {
+          target.insertBefore(document.importNode(incoming, true), current || null);
+          current = target.childNodes[index];
+        }
+      }
+      morphNode(current, incoming);
+    }
+    while (target.childNodes.length > desired.length) target.lastChild.remove();
+  };
+
+  const syncArtifactStyles = (incomingStyles) => {
+    const existing = Array.from(document.head.querySelectorAll("style[data-vibesurfer-artifact-style]"));
+    incomingStyles.forEach((css, index) => {
+      const sanitized = sanitizeCss(css);
+      const style = existing[index] || document.createElement("style");
+      if (!existing[index]) {
+        style.setAttribute("data-vibesurfer-artifact-style", "");
+        document.head.append(style);
+      }
+      if (style.textContent !== sanitized) style.textContent = sanitized;
+    });
+    for (let index = incomingStyles.length; index < existing.length; index += 1) existing[index].remove();
+  };
+
   const renderArtifact = async (message) => {
     if (!message || typeof message !== "object"
         || message.protocol !== PROTOCOL || message.version !== VERSION || message.type !== "render"
@@ -840,11 +1193,19 @@
         || typeof message.pageUrl !== "string" || message.pageUrl.length > MAX_PAGE_URL_LENGTH
         || typeof message.title !== "string" || !message.title || message.title.length > 512
         || typeof message.html !== "string" || message.html.length > MAX_RENDER_HTML_LENGTH
+        || !Number.isInteger(message.revision) || message.revision < 0
+        || (message.renderMode !== "preview" && message.renderMode !== "final")
+        || (message.voiceSettings !== undefined && (!message.voiceSettings || typeof message.voiceSettings !== "object"
+          || !["local", "system", "cloud"].includes(message.voiceSettings.engine)
+          || typeof message.voiceSettings.voice !== "string" || message.voiceSettings.voice.length > 120
+          || typeof message.voiceSettings.speed !== "number" || message.voiceSettings.speed < 0.6 || message.voiceSettings.speed > 1.5
+          || typeof message.voiceSettings.musicEnabled !== "boolean"))
         || (message.executeScripts !== undefined && typeof message.executeScripts !== "boolean")
         || estimateBytes(message) > MAX_RENDER_MESSAGE_BYTES) {
       reportError("The artifact render payload was rejected.");
       return;
     }
+    if (message.revision <= renderedRevision) return;
     const nextPageUrl = safeUrl(message.pageUrl, message.pageUrl);
     if (!nextPageUrl) {
       reportError("The artifact page URL was rejected.");
@@ -870,49 +1231,47 @@
     const previousScrollLeft = rendered ? scrollingElement.scrollLeft : 0;
     const previousScrollTop = rendered ? scrollingElement.scrollTop : 0;
     const headStyles = Array.from(incoming.head.querySelectorAll("style"), (style) => style.textContent || "");
-    for (const oldStyle of document.head.querySelectorAll("style[data-vibesurfer-artifact-style]")) oldStyle.remove();
-    for (const css of headStyles) {
-      const style = document.createElement("style");
-      style.setAttribute("data-vibesurfer-artifact-style", "");
-      style.textContent = sanitizeCss(css);
-      document.head.append(style);
-    }
+    syncArtifactStyles(headStyles);
 
     applyDocumentAttributes(document.documentElement, incoming.documentElement, ["class", "style", "dir", "lang", "data-vibesurfer-browser-theme"]);
     document.documentElement.setAttribute("data-vibesurfer-artifact", "");
     applyDocumentAttributes(document.body, incoming.body, ["class", "style", "dir"]);
-    clearCapabilityRuntime();
-    const fragment = document.createDocumentFragment();
-    for (const child of Array.from(incoming.body.childNodes)) fragment.append(document.importNode(child, true));
-    let committed = false;
-    const commit = () => {
-      document.body.replaceChildren(fragment);
-      committed = true;
-    };
-    if (rendered && !reducedMotion() && typeof document.startViewTransition === "function") {
+    if (rendered) {
       try {
-        const transition = document.startViewTransition(commit);
-        await transition.updateCallbackDone;
+        morphChildren(document.body, incoming.body);
       } catch {
-        if (!committed) commit();
+        clearCapabilityRuntime();
+        const fragment = document.createDocumentFragment();
+        for (const child of Array.from(incoming.body.childNodes)) fragment.append(document.importNode(child, true));
+        document.body.replaceChildren(fragment);
       }
     } else {
-      commit();
+      clearCapabilityRuntime();
+      const fragment = document.createDocumentFragment();
+      for (const child of Array.from(incoming.body.childNodes)) fragment.append(document.importNode(child, true));
+      document.body.replaceChildren(fragment);
     }
     hoveredHref = "";
     pageUrl = nextPageUrl.href;
-    dynamicManifest = nextDynamicManifest;
-    sessionRevision = 0;
-    regionRevisions.clear();
-    for (const region of dynamicManifest?.regions || []) regionRevisions.set(region.id, 0);
+    if (message.renderMode === "final") {
+      if (message.voiceSettings) voiceSettings = { ...message.voiceSettings };
+      dynamicManifest = nextDynamicManifest;
+      sessionRevision = 0;
+      regionRevisions.clear();
+      for (const region of dynamicManifest?.regions || []) regionRevisions.set(region.id, 0);
+    }
     document.title = compact(message.title, 512) || "Untitled page";
-    if (message.executeScripts === true) executeGeneratedScripts(generatedScripts);
+    if (message.renderMode === "final" && message.executeScripts === true && !finalScriptsExecuted) {
+      executeGeneratedScripts(generatedScripts);
+      finalScriptsExecuted = true;
+    }
     enhanceCapabilities();
     enhanceTabs();
     scrollingElement.scrollLeft = previousScrollLeft;
     scrollingElement.scrollTop = previousScrollTop;
     const wasRendered = rendered;
     rendered = true;
+    renderedRevision = message.revision;
     if (!wasRendered) send("ready", { title: document.title });
     else send("link-hover");
   };
@@ -922,6 +1281,17 @@
         || message.artifactId !== artifactId || message.nonce !== nonce) return;
     if (message.type === "render") {
       void renderArtifact(message);
+      return;
+    }
+    if (rendered && message.type === "speech-state" && typeof message.requestId === "string") {
+      for (const container of document.querySelectorAll("[data-vibe-pseudo-video]")) {
+        const state = pseudoVideoStates.get(container);
+        if (!state || state.activeSpeechRequest !== message.requestId) continue;
+        state.activeSpeechRequest = "";
+        if (message.status === "completed") state.finishSpeech?.();
+        else duckPseudoMusic(state, false);
+        state.finishSpeech = null;
+      }
       return;
     }
     if (!rendered || !dynamicManifest || estimateBytes(message) > MAX_DYNAMIC_PATCH_BYTES) return;

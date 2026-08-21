@@ -1070,36 +1070,28 @@
 
 :root[data-theme="ie-classic"] .new-tab-page__content {
   width: min(840px, calc(100% - 70px));
-  margin: 26px auto 14px;
-  padding: 52px 24px 24px;
-  overflow: hidden;
-  border: 1px solid #7f9db9;
-  background: #ffffff;
-  box-shadow: 2px 2px 0 #d5d5d5;
+  margin: 34px auto 14px;
+  padding: 18px 24px 24px;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   text-align: left;
 }
 
 :root[data-theme="ie-classic"] .new-tab-page__content::before {
-  content: "VibeSurfer Elseweb Explorer";
-  position: absolute;
-  top: 0;
-  right: 0;
-  left: 0;
-  height: 37px;
-  padding: 9px 14px;
-  color: white;
-  background: linear-gradient(90deg, #003399, #5e9ad6);
-  font: 700 15px/19px "Trebuchet MS", Tahoma, sans-serif;
+  display: none;
+  content: none;
 }
 
 :root[data-theme="ie-classic"] .new-tab-page__masthead {
-  min-height: 43px;
+  min-height: 24px;
   margin: 0;
 }
 
 :root[data-theme="ie-classic"] .new-tab-page__mark {
   position: absolute;
-  top: 38px;
+  top: 0;
   right: 16px;
   width: 96px;
   height: 64px;
@@ -1712,11 +1704,16 @@
 }
 
 :root[data-theme="ie-classic"] .theme-card:active,
-:root[data-theme="ie-classic"] .layout-options > button:active,
-:root[data-theme="ie-classic"] .setting-row:active {
+:root[data-theme="ie-classic"] .layout-options > button:active {
   border-color: #716f64 #ffffff #ffffff #716f64;
   box-shadow: inset 1px 1px #716f64, inset -1px -1px #ffffff;
   transform: translate(1px, 1px);
+}
+
+:root[data-theme="ie-classic"] .security-note {
+  border: 1px solid #aca899;
+  background: #f8f7ef;
+  box-shadow: none;
 }
 
 :root[data-theme="ie-classic"] .site-info-popover {

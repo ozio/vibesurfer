@@ -187,6 +187,7 @@ describe("artifact frame runtime", () => {
         title: "Passive preview",
         html: interactiveHtml,
         executeScripts: false,
+        renderMode: "preview",
       }));
       expect((harness.window as Window & { generatedScriptRuns?: number }).generatedScriptRuns).toBeUndefined();
       expect(harness.document.querySelectorAll("script:not([data-vibesurfer-frame-runtime])")).toHaveLength(0);
@@ -200,6 +201,34 @@ describe("artifact frame runtime", () => {
       harness.document.querySelector<HTMLButtonElement>("#interactive-button")?.click();
       expect(harness.document.body.dataset.clicked).toBe("yes");
       expect(harness.document.querySelectorAll("script:not([data-vibesurfer-frame-runtime])")).toHaveLength(0);
+    } finally {
+      harness.close();
+    }
+  });
+
+  test("morphs streamed deltas while preserving node identity, focus, form state, scroll and one-shot motion", () => {
+    const harness = createRuntimeHarness();
+    try {
+      const bootstrap = harness.parentMessages[0] as BootstrapMessage;
+      const port = new FakeMessagePort();
+      const animate = vi.fn();
+      Object.defineProperty(harness.window.Element.prototype, "animate", { configurable: true, value: animate });
+      harness.window.dispatchEvent(new harness.window.MessageEvent("message", { data: { protocol: ARTIFACT_BRIDGE_PROTOCOL, version: ARTIFACT_BRIDGE_VERSION, type: "init", instanceId: bootstrap.instanceId, ...identity }, source: harness.window, ports: [port as unknown as MessagePort] }));
+      port.dispatch(renderCommand({ title: "Preview one", renderMode: "preview", html: '<main id="stable"><input id="query" value="model"><p id="copy" data-vibe-motion="reveal">First tokens</p></main>' }));
+      const input = harness.document.querySelector<HTMLInputElement>("#query")!;
+      input.focus();
+      input.value = "visitor text";
+      harness.document.documentElement.scrollTop = 140;
+      expect(animate).toHaveBeenCalledOnce();
+
+      port.dispatch(renderCommand({ title: "Preview two", renderMode: "preview", html: '<main id="stable"><input id="query" value="new model value"><p id="copy" data-vibe-motion="reveal">More tokens</p><aside id="new-node">Delta</aside></main>' }));
+      expect(harness.document.querySelector("#query")).toBe(input);
+      expect(harness.document.activeElement).toBe(input);
+      expect(input.value).toBe("visitor text");
+      expect(harness.document.querySelector("#copy")).toHaveTextContent("More tokens");
+      expect(harness.document.querySelector("#new-node")).toHaveTextContent("Delta");
+      expect(harness.document.documentElement.scrollTop).toBe(140);
+      expect(animate).toHaveBeenCalledOnce();
     } finally {
       harness.close();
     }
@@ -254,8 +283,9 @@ describe("artifact frame runtime", () => {
       expect(spoken).toEqual(["A bounded spoken story."]);
 
       port.dispatch(renderCommand({ title: "Capabilities again", html: capabilityHtml, executeScripts: false }));
-      harness.document.querySelector<HTMLButtonElement>("#next")?.click();
       expect(harness.document.querySelector("[data-vibe-slideshow]")).toHaveAttribute("data-vibe-slide-index", "1");
+      harness.document.querySelector<HTMLButtonElement>("#next")?.click();
+      expect(harness.document.querySelector("[data-vibe-slideshow]")).toHaveAttribute("data-vibe-slide-index", "0");
       expect(harness.document.querySelectorAll("script:not([data-vibesurfer-frame-runtime])")).toHaveLength(0);
     } finally {
       harness.close();
@@ -375,13 +405,16 @@ const hostileArtifactHtml = `<!doctype html>
   </body>
 </html>`;
 
-function renderCommand(patch: { title: string; html: string; executeScripts?: boolean; dynamicManifest?: Record<string, unknown> }) {
+let renderRevision = 0;
+function renderCommand(patch: { title: string; html: string; executeScripts?: boolean; renderMode?: "preview" | "final"; dynamicManifest?: Record<string, unknown> }) {
   return {
     protocol: ARTIFACT_BRIDGE_PROTOCOL,
     version: ARTIFACT_BRIDGE_VERSION,
     type: "render",
     ...identity,
     pageUrl: "https://safe.example/base/index.html",
+    revision: ++renderRevision,
+    renderMode: "final",
     ...patch,
   };
 }

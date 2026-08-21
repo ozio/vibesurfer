@@ -59,6 +59,13 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
     signal: input.signal,
     onPhase: async (phase) => {
       await input.emit.phase(phase, phase === "compiling-styles" ? 0.78 : 0.84);
+      await input.emit.progress?.({
+        stage: phase === "compiling-styles" ? "compile" : "assets",
+        stageIndex: 2,
+        stageCount: 2,
+        approximate: false,
+        percent: phase === "compiling-styles" ? 89 : 95,
+      });
     },
   });
   for (const warning of transformed.warnings) {
@@ -130,6 +137,7 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
       promptVersion: GENERATION_PROMPT_VERSION,
       settingsFingerprint: settingsFingerprint(input.request, input.executor.generationMode),
       allowGeneratedScripts: input.request.settings.allowGeneratedScripts,
+      voiceSettings: input.request.settings.voice,
       usage: input.usage,
       modelExchanges: input.modelExchanges,
       warnings,
@@ -143,6 +151,7 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
     ...(transformed.dynamicManifest ? { dynamicManifest: transformed.dynamicManifest } : {}),
   };
 
+  await input.emit.progress?.({ stage: "finalize", stageIndex: 2, stageCount: 2, approximate: false, percent: 98 });
   return { artifact, issues: validation.issues };
 }
 

@@ -246,6 +246,18 @@ function normalizeImageMode(settings: Record<string, unknown>): "off" | "local" 
   return mode === "off" ? "off" : "tag-placeholder";
 }
 
+function normalizeVoiceSettings(settings: Record<string, unknown>) {
+  const voice = record(settings.voice);
+  return {
+    engine: voice.engine === "system" || voice.engine === "cloud" ? voice.engine : "local" as const,
+    provider: voice.provider === "elevenlabs" || voice.provider === "deepgram" ? voice.provider : "openai" as const,
+    model: (string(voice.model) ?? "kokoro-82m-q8").slice(0, 120),
+    voice: (string(voice.voice) ?? "af_heart").slice(0, 120),
+    speed: Math.min(1.5, Math.max(0.6, number(voice.speed) ?? 1)),
+    musicEnabled: boolean(voice.musicEnabled) ?? true,
+  };
+}
+
 export interface NormalizedHostGeneration {
   command: GenerateCommand;
   connection: PublicProviderConnection;
@@ -333,6 +345,7 @@ export function normalizeHostDynamicGeneration(input: HostGenerateCommand): Norm
         externalMediaEnabled: false,
         experimentalEnabled: false,
       },
+      voice: normalizeVoiceSettings(settings),
       images: {
         mode: imageMode,
         fetchExternal: false,
@@ -425,6 +438,7 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
         externalMediaEnabled: boolean(record(settings.capabilities).externalMediaEnabled) ?? false,
         experimentalEnabled: boolean(record(settings.capabilities).experimentalEnabled) ?? false,
       },
+      voice: normalizeVoiceSettings(settings),
       images: {
         mode: imageMode,
         fetchExternal: imageMode === "tag-placeholder"

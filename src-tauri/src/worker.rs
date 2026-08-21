@@ -367,6 +367,19 @@ async fn run_generation(
                 }
                 validate_event_sequence(event_type, &event, &mut last_sequence)?;
 
+                if event_type != "generation.preview" {
+                    let timestamp = event.get("at").and_then(Value::as_str)
+                        .unwrap_or_else(|| event.get("timestamp").and_then(Value::as_str).unwrap_or(""));
+                    storage.record_job_event(
+                        job_id,
+                        profile_id,
+                        event_type,
+                        event.get("sequence").and_then(Value::as_i64),
+                        timestamp,
+                        &event,
+                    ).map_err(|error| WorkerError::Protocol(error.to_string()))?;
+                }
+
                 if event_type == "generation.completed" {
                     let mut artifact_value = event
                         .get("artifact")
@@ -374,6 +387,7 @@ async fn run_generation(
                         .ok_or_else(|| WorkerError::Protocol("completed event has no artifact".into()))?;
                     ensure_artifact_host_fields(&mut artifact_value, profile_id, job_id);
                     let artifact: ArtifactRecord = serde_json::from_value(artifact_value.clone())?;
+                    persist_model_exchanges(&storage, job_id, profile_id, &artifact)?;
                     event["artifact"] = artifact_value;
                     if !is_discovery {
                         storage
@@ -403,6 +417,21 @@ async fn run_generation(
                     if let Some(phase) = event.get("phase").and_then(Value::as_str) {
                         let _ = storage.update_job(job_id, phase, None, None);
                     }
+                } else if event_type == "generation.stage" {
+                    let stage = event.get("stage").and_then(Value::as_str).unwrap_or("unknown");
+                    let status = event.get("status").and_then(Value::as_str).unwrap_or("running");
+                    let started_at = event.get("startedAt").and_then(Value::as_str)
+                        .or_else(|| event.get("at").and_then(Value::as_str))
+                        .unwrap_or("");
+                    storage.upsert_generation_stage(
+                        job_id,
+                        profile_id,
+                        stage,
+                        status,
+                        started_at,
+                        event.get("completedAt").and_then(Value::as_str),
+                        event.get("payload").unwrap_or(&Value::Null),
+                    ).map_err(|error| WorkerError::Protocol(error.to_string()))?;
                 }
 
                 let _ = channel.send(event);
@@ -417,6 +446,10 @@ async fn run_generation(
                     "at": Utc::now().to_rfc3339()
                 });
                 let _ = storage.update_job(job_id, "cancelled", None, None);
+                let _ = storage.record_job_event(
+                    job_id, profile_id, event["type"].as_str().unwrap_or("generation.cancelled"),
+                    event["sequence"].as_i64(), event["at"].as_str().unwrap_or(""), &event,
+                );
                 let _ = channel.send(event);
                 terminal_event_seen = true;
                 break;
@@ -435,6 +468,10 @@ async fn run_generation(
                     }
                 });
                 let _ = storage.update_job(job_id, "failed", None, event.get("error"));
+                let _ = storage.record_job_event(
+                    job_id, profile_id, event["type"].as_str().unwrap_or("generation.failed"),
+                    event["sequence"].as_i64(), event["at"].as_str().unwrap_or(""), &event,
+                );
                 let _ = channel.send(event);
                 terminal_event_seen = true;
                 break;
@@ -449,6 +486,33 @@ async fn run_generation(
         )));
     }
     let _ = child.kill().await;
+    Ok(())
+}
+
+fn persist_model_exchanges(
+    storage: &Storage,
+    job_id: &str,
+    profile_id: &str,
+    artifact: &ArtifactRecord,
+) -> Result<(), WorkerError> {
+    let Some(exchanges) = artifact.payload.get("modelExchanges").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    for exchange in exchanges.iter().take(8) {
+        let stage = exchange.get("purpose").and_then(Value::as_str).unwrap_or("unknown");
+        let started_at = exchange.get("startedAt").and_then(Value::as_str)
+            .unwrap_or(&artifact.created_at);
+        let completed_at = exchange.get("completedAt").and_then(Value::as_str);
+        storage.upsert_generation_stage(
+            job_id,
+            profile_id,
+            stage,
+            "completed",
+            started_at,
+            completed_at,
+            exchange,
+        ).map_err(|error| WorkerError::Protocol(error.to_string()))?;
+    }
     Ok(())
 }
 

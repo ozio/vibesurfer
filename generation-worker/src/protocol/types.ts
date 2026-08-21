@@ -113,6 +113,7 @@ export const GenerateCommandSchema = z
         externalMediaEnabled: false,
         experimentalEnabled: false,
       },
+      voice: { engine: "local", provider: "openai", model: "kokoro-82m-q8", voice: "af_heart", speed: 1, musicEnabled: true },
       images: { mode: "tag-placeholder", fetchExternal: true, safeContent: true },
       maxOutputTokens: 20_000,
       minInternalLinks: 4,
@@ -267,6 +268,8 @@ export type GenerationEvent =
       actualProviderKind: ProviderKind;
     }
   | { type: "phase.changed"; phase: GenerationPhase; progress: number }
+  | { type: "generation.progress"; stage: string; stageIndex: number; stageCount: number; currentOutputTokens?: number; maxOutputTokens?: number; approximate: boolean; percent: number }
+  | { type: "generation.stage"; stage: string; status: string; startedAt: string; completedAt?: string; payload: Record<string, unknown> }
   | {
       type: "metadata.partial";
       title?: string;
@@ -395,6 +398,32 @@ export type HostWorkerOutput =
       sequence: number;
       at: string;
       html: string;
+    }
+  | {
+      type: "generation.progress";
+      requestId: string;
+      jobId: string;
+      sequence: number;
+      at: string;
+      stage: string;
+      stageIndex: number;
+      stageCount: number;
+      currentOutputTokens?: number;
+      maxOutputTokens?: number;
+      approximate: boolean;
+      percent: number;
+    }
+  | {
+      type: "generation.stage";
+      requestId: string;
+      jobId: string;
+      sequence: number;
+      at: string;
+      stage: string;
+      status: string;
+      startedAt: string;
+      completedAt?: string;
+      payload: Record<string, unknown>;
     }
   | {
       type: "generation.validation";

@@ -15,7 +15,7 @@ use std::{
 use codex_adapter::CodexCatalog;
 use native_menu::{build_native_menu, emit_native_menu_command, update_native_menu_state};
 use protocol::{
-    ArtifactRecord, GenerationStartRequest, GenerationStartResult, ProviderConnectionRecord,
+    ArtifactRecord, GenerationActivityDetail, GenerationJobRecord, GenerationStartRequest, GenerationStartResult, ProviderConnectionRecord,
     ProviderVerifyRequest, RuntimeStatus, SiteSessionRecord, SiteWorldRecord, WORKER_PROTOCOL_VERSION,
 };
 use secrets::SecretVault;
@@ -462,6 +462,31 @@ fn list_artifacts(
 }
 
 #[tauri::command]
+fn list_generation_jobs(
+    profile_id: String,
+    limit: Option<usize>,
+    offset: Option<usize>,
+    runtime: State<'_, AppRuntime>,
+) -> Result<Vec<GenerationJobRecord>, String> {
+    runtime
+        .storage
+        .list_generation_jobs(&profile_id, limit.unwrap_or(50), offset.unwrap_or(0))
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn get_generation_activity(
+    profile_id: String,
+    job_id: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<Option<GenerationActivityDetail>, String> {
+    runtime
+        .storage
+        .generation_activity(&profile_id, &job_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 fn delete_profile_artifacts(
     profile_id: String,
     runtime: State<'_, AppRuntime>,
@@ -877,6 +902,8 @@ pub fn run() {
             get_artifact,
             get_cached_artifact,
             list_artifacts,
+            list_generation_jobs,
+            get_generation_activity,
             delete_profile_artifacts,
             upsert_site_world,
             get_site_world,

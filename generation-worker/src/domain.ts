@@ -220,6 +220,14 @@ export const GenerationSettingsSchema = z
       externalMediaEnabled: false,
       experimentalEnabled: false,
     }),
+    voice: z.object({
+      engine: z.enum(["local", "system", "cloud"]).default("local"),
+      provider: z.enum(["openai", "elevenlabs", "deepgram"]).default("openai"),
+      model: z.string().max(120).default("kokoro-82m-q8"),
+      voice: z.string().max(120).default("af_heart"),
+      speed: z.number().min(0.6).max(1.5).default(1),
+      musicEnabled: z.boolean().default(true),
+    }).strict().default({ engine: "local", provider: "openai", model: "kokoro-82m-q8", voice: "af_heart", speed: 1, musicEnabled: true }),
     images: ImageSettingsSchema.default({
       mode: "tag-placeholder",
       fetchExternal: true,

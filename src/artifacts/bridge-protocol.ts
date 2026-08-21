@@ -1,7 +1,7 @@
-import type { DynamicManifest } from "../types/browser";
+import type { DynamicManifest, VoiceAudioSettings } from "../types/browser";
 
 export const ARTIFACT_BRIDGE_PROTOCOL = "vibesurfer:artifact-bridge" as const;
-export const ARTIFACT_BRIDGE_VERSION = 2 as const;
+export const ARTIFACT_BRIDGE_VERSION = 3 as const;
 
 export const MAX_BRIDGE_MESSAGE_BYTES = 256 * 1024;
 export const MAX_DYNAMIC_ACTION_BYTES = 32 * 1024;
@@ -43,11 +43,14 @@ interface ArtifactFrameEventBase extends ArtifactBridgeIdentity {
 }
 
 export interface ArtifactRenderPayload {
+  revision: number;
+  renderMode: "preview" | "final";
   pageUrl: string;
   title: string;
   html: string;
   executeScripts?: boolean;
   dynamicManifest?: DynamicManifest;
+  voiceSettings?: Pick<VoiceAudioSettings, "engine" | "voice" | "speed" | "musicEnabled">;
 }
 
 export interface ArtifactRenderCommand extends ArtifactFrameEventBase, ArtifactRenderPayload {
@@ -117,6 +120,21 @@ export interface ArtifactRuntimeErrorEvent extends ArtifactFrameEventBase {
   message: string;
 }
 
+export interface ArtifactSpeechRequestEvent extends ArtifactFrameEventBase {
+  type: "speech-request";
+  requestId: string;
+  engine: "local" | "cloud";
+  text: string;
+  lang: string;
+  voice: string;
+  speed: number;
+}
+
+export interface ArtifactSpeechCancelEvent extends ArtifactFrameEventBase {
+  type: "speech-cancel";
+  requestId?: string;
+}
+
 export interface ArtifactDynamicRegionSnapshot {
   regionId: string;
   html: string;
@@ -150,6 +168,8 @@ export type ArtifactFrameEvent =
   | ArtifactTitleChangeEvent
   | ArtifactDynamicActionEvent
   | ArtifactDynamicSnapshotEvent
+  | ArtifactSpeechRequestEvent
+  | ArtifactSpeechCancelEvent
   | ArtifactRuntimeErrorEvent;
 
 export type ArtifactHostCommand =
@@ -176,14 +196,16 @@ export type ArtifactHostCommand =
       bindings: Record<string, string>;
       snapshots: ArtifactDynamicRegionSnapshot[];
     })
-  | (ArtifactFrameEventBase & { type: "dynamic-snapshot-request"; requestId: string; regionIds: string[] });
+  | (ArtifactFrameEventBase & { type: "dynamic-snapshot-request"; requestId: string; regionIds: string[] })
+  | (ArtifactFrameEventBase & { type: "speech-state"; requestId: string; status: "completed" | "failed" | "cancelled"; message?: string });
 
 export type ArtifactHostDynamicCommandInput =
   | { type: "dynamic-pending"; requestId: string; regionIds: string[] }
   | { type: "dynamic-patch"; requestId: string; sessionRevision: number; patches: ArtifactDynamicRegionSnapshot[]; announcement?: string }
   | { type: "dynamic-error"; requestId: string; regionIds: string[]; message: string; retryable: boolean }
   | { type: "state-sync"; requestId?: string; sessionRevision: number; bindings: Record<string, string>; snapshots: ArtifactDynamicRegionSnapshot[] }
-  | { type: "dynamic-snapshot-request"; requestId: string; regionIds: string[] };
+  | { type: "dynamic-snapshot-request"; requestId: string; regionIds: string[] }
+  | { type: "speech-state"; requestId: string; status: "completed" | "failed" | "cancelled"; message?: string };
 
 export type ArtifactBridgeParseResult =
   | { ok: true; event: ArtifactFrameEvent }
@@ -226,12 +248,18 @@ export function createArtifactRenderCommand(
     type: "render",
     artifactId: identity.artifactId,
     nonce: identity.nonce,
+    revision: Math.max(0, Math.round(payload.revision)),
+    renderMode: payload.renderMode,
     pageUrl,
     title,
     html: payload.html,
     executeScripts: payload.executeScripts === true,
     ...(payload.dynamicManifest ? { dynamicManifest: validateDynamicManifest(payload.dynamicManifest) } : {}),
+    ...(payload.voiceSettings ? { voiceSettings: payload.voiceSettings } : {}),
   };
+  if (!Number.isFinite(payload.revision) || !["preview", "final"].includes(payload.renderMode)) {
+    throw new Error("Artifact render revision is invalid");
+  }
   if (estimateMessageBytes(command) > MAX_ARTIFACT_RENDER_BYTES) {
     throw new Error("Artifact render payload exceeds the size limit");
   }
@@ -347,6 +375,20 @@ export function parseArtifactFrameEvent(
       const regions = parseRegionSnapshots(value.regions);
       if (!requestId || !regions) return invalid("Invalid dynamic snapshot event");
       return valid({ ...base, type: "dynamic-snapshot", requestId, regions });
+    }
+    case "speech-request": {
+      const requestId = boundedIdentifier(value.requestId);
+      const text = boundedString(value.text, 4_000);
+      const lang = boundedString(value.lang, 40);
+      const voice = optionalBoundedString(value.voice, 120) ?? "af_heart";
+      const speed = typeof value.speed === "number" && value.speed >= 0.6 && value.speed <= 1.5 ? value.speed : undefined;
+      if (!requestId || !text || !lang || !speed || (value.engine !== "local" && value.engine !== "cloud")) return invalid("Invalid speech request");
+      return valid({ ...base, type: "speech-request", requestId, engine: value.engine, text, lang, voice, speed });
+    }
+    case "speech-cancel": {
+      const requestId = value.requestId === undefined ? undefined : boundedIdentifier(value.requestId);
+      if (value.requestId !== undefined && !requestId) return invalid("Invalid speech cancellation");
+      return valid({ ...base, type: "speech-cancel", ...(requestId ? { requestId } : {}) });
     }
     case "runtime-error": {
       const message = boundedString(value.message, MAX_CONTEXT_LENGTH);

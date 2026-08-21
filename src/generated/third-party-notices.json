@@ -4,7 +4,7 @@
   "generatedFrom": {
     "npmApp": {
       "path": "package-lock.json",
-      "sha256": "7991d0710e6cfa2402bbec3f97e8cbffba40b17fc7f4e533302fa79d0621890c"
+      "sha256": "de1ee4a04bc990ae9e20b84044436bd6c97846978bee021814690ac62fb9dce8"
     },
     "npmWorker": {
       "path": "generation-worker/package-lock.json",
@@ -12,7 +12,7 @@
     },
     "cargo": {
       "path": "src-tauri/Cargo.lock",
-      "sha256": "4e0a96d78480a13c8f84f392581c4c6cecc4e9125167d0483fe3aa3305ef0383"
+      "sha256": "5d4387dda8ec93eecf45b0933784df4b1d2331b7ecc777a91cd27bec7b2ee100"
     },
     "iconify": {
       "path": "generation-worker/src/iconify/iconify-packs.generated.json",
@@ -21,6 +21,10 @@
     "fonts": {
       "path": "docs/third-party-fonts.md",
       "sha256": "9d4f52d23044ac16663d629ffacd7d227dd833373f0730aec9e1a6cac0f50325"
+    },
+    "kokoro": {
+      "path": "docs/third-party-kokoro.md",
+      "sha256": "6bb548d91b50be44ca604940bcacd632bc9c589a42828022158be5e2eba20888"
     }
   },
   "notices": [
@@ -495,6 +499,16 @@
       ]
     },
     {
+      "id": "npm:@emnapi/runtime@1.11.1",
+      "name": "@emnapi/runtime",
+      "version": "1.11.1",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/@emnapi/runtime/v/1.11.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "npm:@floating-ui/core@1.7.5",
       "name": "@floating-ui/core",
       "version": "1.7.5",
@@ -735,11 +749,381 @@
       ]
     },
     {
+      "id": "npm:@huggingface/jinja@0.5.9",
+      "name": "@huggingface/jinja",
+      "version": "0.5.9",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/@huggingface/jinja/v/0.5.9",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@huggingface/transformers@3.8.1",
+      "name": "@huggingface/transformers",
+      "version": "3.8.1",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@huggingface/transformers/v/3.8.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/colour@1.1.0",
+      "name": "@img/colour",
+      "version": "1.1.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/@img/colour/v/1.1.0",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-darwin-arm64@0.34.5",
+      "name": "@img/sharp-darwin-arm64",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@img/sharp-darwin-arm64/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-darwin-x64@0.34.5",
+      "name": "@img/sharp-darwin-x64",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@img/sharp-darwin-x64/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-libvips-darwin-arm64@1.2.4",
+      "name": "@img/sharp-libvips-darwin-arm64",
+      "version": "1.2.4",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-libvips-darwin-arm64/v/1.2.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-libvips-darwin-x64@1.2.4",
+      "name": "@img/sharp-libvips-darwin-x64",
+      "version": "1.2.4",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-libvips-darwin-x64/v/1.2.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-libvips-linux-arm@1.2.4",
+      "name": "@img/sharp-libvips-linux-arm",
+      "version": "1.2.4",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-libvips-linux-arm/v/1.2.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-libvips-linux-arm64@1.2.4",
+      "name": "@img/sharp-libvips-linux-arm64",
+      "version": "1.2.4",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-libvips-linux-arm64/v/1.2.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-libvips-linux-ppc64@1.2.4",
+      "name": "@img/sharp-libvips-linux-ppc64",
+      "version": "1.2.4",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-libvips-linux-ppc64/v/1.2.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-libvips-linux-riscv64@1.2.4",
+      "name": "@img/sharp-libvips-linux-riscv64",
+      "version": "1.2.4",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-libvips-linux-riscv64/v/1.2.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-libvips-linux-s390x@1.2.4",
+      "name": "@img/sharp-libvips-linux-s390x",
+      "version": "1.2.4",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-libvips-linux-s390x/v/1.2.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-libvips-linux-x64@1.2.4",
+      "name": "@img/sharp-libvips-linux-x64",
+      "version": "1.2.4",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-libvips-linux-x64/v/1.2.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-libvips-linuxmusl-arm64@1.2.4",
+      "name": "@img/sharp-libvips-linuxmusl-arm64",
+      "version": "1.2.4",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-libvips-linuxmusl-arm64/v/1.2.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-libvips-linuxmusl-x64@1.2.4",
+      "name": "@img/sharp-libvips-linuxmusl-x64",
+      "version": "1.2.4",
+      "license": "LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-libvips-linuxmusl-x64/v/1.2.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-linux-arm@0.34.5",
+      "name": "@img/sharp-linux-arm",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@img/sharp-linux-arm/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-linux-arm64@0.34.5",
+      "name": "@img/sharp-linux-arm64",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@img/sharp-linux-arm64/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-linux-ppc64@0.34.5",
+      "name": "@img/sharp-linux-ppc64",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@img/sharp-linux-ppc64/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-linux-riscv64@0.34.5",
+      "name": "@img/sharp-linux-riscv64",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@img/sharp-linux-riscv64/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-linux-s390x@0.34.5",
+      "name": "@img/sharp-linux-s390x",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@img/sharp-linux-s390x/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-linux-x64@0.34.5",
+      "name": "@img/sharp-linux-x64",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@img/sharp-linux-x64/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-linuxmusl-arm64@0.34.5",
+      "name": "@img/sharp-linuxmusl-arm64",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@img/sharp-linuxmusl-arm64/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-linuxmusl-x64@0.34.5",
+      "name": "@img/sharp-linuxmusl-x64",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/@img/sharp-linuxmusl-x64/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-wasm32@0.34.5",
+      "name": "@img/sharp-wasm32",
+      "version": "0.34.5",
+      "license": "Apache-2.0 AND LGPL-3.0-or-later AND MIT",
+      "source": "https://www.npmjs.com/package/@img/sharp-wasm32/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-win32-arm64@0.34.5",
+      "name": "@img/sharp-win32-arm64",
+      "version": "0.34.5",
+      "license": "Apache-2.0 AND LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-win32-arm64/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-win32-ia32@0.34.5",
+      "name": "@img/sharp-win32-ia32",
+      "version": "0.34.5",
+      "license": "Apache-2.0 AND LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-win32-ia32/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@img/sharp-win32-x64@0.34.5",
+      "name": "@img/sharp-win32-x64",
+      "version": "0.34.5",
+      "license": "Apache-2.0 AND LGPL-3.0-or-later",
+      "source": "https://www.npmjs.com/package/@img/sharp-win32-x64/v/0.34.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@isaacs/fs-minipass@4.0.1",
+      "name": "@isaacs/fs-minipass",
+      "version": "4.0.1",
+      "license": "ISC",
+      "source": "https://www.npmjs.com/package/@isaacs/fs-minipass/v/4.0.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "npm:@preact/signals-core@1.14.4",
       "name": "@preact/signals-core",
       "version": "1.14.4",
       "license": "MIT",
       "source": "https://www.npmjs.com/package/@preact/signals-core/v/1.14.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@protobufjs/aspromise@1.1.2",
+      "name": "@protobufjs/aspromise",
+      "version": "1.1.2",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/@protobufjs/aspromise/v/1.1.2",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@protobufjs/base64@1.1.2",
+      "name": "@protobufjs/base64",
+      "version": "1.1.2",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/@protobufjs/base64/v/1.1.2",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@protobufjs/codegen@2.0.5",
+      "name": "@protobufjs/codegen",
+      "version": "2.0.5",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/@protobufjs/codegen/v/2.0.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@protobufjs/eventemitter@1.1.1",
+      "name": "@protobufjs/eventemitter",
+      "version": "1.1.1",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/@protobufjs/eventemitter/v/1.1.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@protobufjs/fetch@1.1.1",
+      "name": "@protobufjs/fetch",
+      "version": "1.1.1",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/@protobufjs/fetch/v/1.1.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@protobufjs/float@1.0.2",
+      "name": "@protobufjs/float",
+      "version": "1.0.2",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/@protobufjs/float/v/1.0.2",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@protobufjs/path@1.1.2",
+      "name": "@protobufjs/path",
+      "version": "1.1.2",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/@protobufjs/path/v/1.1.2",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@protobufjs/pool@1.1.0",
+      "name": "@protobufjs/pool",
+      "version": "1.1.0",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/@protobufjs/pool/v/1.1.0",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:@protobufjs/utf8@1.1.2",
+      "name": "@protobufjs/utf8",
+      "version": "1.1.2",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/@protobufjs/utf8/v/1.1.2",
       "surfaces": [
         "app"
       ]
@@ -1515,6 +1899,16 @@
       ]
     },
     {
+      "id": "npm:@types/node@24.13.3",
+      "name": "@types/node",
+      "version": "24.13.3",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/@types/node/v/24.13.3",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "npm:@types/react@19.2.17",
       "name": "@types/react",
       "version": "19.2.17",
@@ -1965,6 +2359,16 @@
       ]
     },
     {
+      "id": "npm:boolean@3.2.0",
+      "name": "boolean",
+      "version": "3.2.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/boolean/v/3.2.0",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "cargo:brotli@8.0.4",
       "name": "brotli",
       "version": "8.0.4",
@@ -2202,6 +2606,16 @@
       "source": "https://www.npmjs.com/package/character-entities-legacy/v/3.0.0",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "npm:chownr@3.0.0",
+      "name": "chownr",
+      "version": "3.0.0",
+      "license": "BlueOak-1.0.0",
+      "source": "https://www.npmjs.com/package/chownr/v/3.0.0",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -2765,6 +3179,26 @@
       ]
     },
     {
+      "id": "npm:define-data-property@1.1.4",
+      "name": "define-data-property",
+      "version": "1.1.4",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/define-data-property/v/1.1.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:define-properties@1.2.1",
+      "name": "define-properties",
+      "version": "1.2.1",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/define-properties/v/1.2.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "npm:delaunator@5.1.0",
       "name": "delaunator",
       "version": "5.1.0",
@@ -2812,6 +3246,26 @@
       "source": "https://github.com/JelteF/derive_more",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "npm:detect-libc@2.1.2",
+      "name": "detect-libc",
+      "version": "2.1.2",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/detect-libc/v/2.1.2",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:detect-node@2.1.0",
+      "name": "detect-node",
+      "version": "2.1.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/detect-node/v/2.1.0",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -3135,6 +3589,36 @@
       ]
     },
     {
+      "id": "npm:es-define-property@1.0.1",
+      "name": "es-define-property",
+      "version": "1.0.1",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/es-define-property/v/1.0.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:es-errors@1.3.0",
+      "name": "es-errors",
+      "version": "1.3.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/es-errors/v/1.3.0",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:es6-error@4.1.1",
+      "name": "es6-error",
+      "version": "4.1.1",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/es6-error/v/4.1.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "npm:escalade@3.2.0",
       "name": "escalade",
       "version": "3.2.0",
@@ -3142,6 +3626,16 @@
       "source": "https://www.npmjs.com/package/escalade/v/3.2.0",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "npm:escape-string-regexp@4.0.0",
+      "name": "escape-string-regexp",
+      "version": "4.0.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/escape-string-regexp/v/4.0.0",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -3252,6 +3746,16 @@
       "source": "https://api.iconify.design/collection",
       "surfaces": [
         "generated-artifacts"
+      ]
+    },
+    {
+      "id": "npm:flatbuffers@25.9.23",
+      "name": "flatbuffers",
+      "version": "25.9.23",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/flatbuffers/v/25.9.23",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -3645,6 +4149,26 @@
       ]
     },
     {
+      "id": "npm:global-agent@3.0.0",
+      "name": "global-agent",
+      "version": "3.0.0",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/global-agent/v/3.0.0",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:globalthis@1.0.4",
+      "name": "globalthis",
+      "version": "1.0.4",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/globalthis/v/1.0.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "cargo:gobject-sys@0.18.0",
       "name": "gobject-sys",
       "version": "0.18.0",
@@ -3652,6 +4176,16 @@
       "source": "https://github.com/gtk-rs/gtk-rs-core",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "npm:gopd@1.2.0",
+      "name": "gopd",
+      "version": "1.2.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/gopd/v/1.2.0",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -3682,6 +4216,26 @@
       "source": "https://github.com/gtk-rs/gtk3-rs",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "npm:guid-typescript@1.0.9",
+      "name": "guid-typescript",
+      "version": "1.0.9",
+      "license": "ISC",
+      "source": "https://www.npmjs.com/package/guid-typescript/v/1.0.9",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:has-property-descriptors@1.0.2",
+      "name": "has-property-descriptors",
+      "version": "1.0.2",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/has-property-descriptors/v/1.0.2",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -4235,6 +4789,16 @@
       ]
     },
     {
+      "id": "npm:json-stringify-safe@5.0.1",
+      "name": "json-stringify-safe",
+      "version": "5.0.1",
+      "license": "ISC",
+      "source": "https://www.npmjs.com/package/json-stringify-safe/v/5.0.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "cargo:jsonptr@0.6.3",
       "name": "jsonptr",
       "version": "0.6.3",
@@ -4282,6 +4846,26 @@
       "source": "https://github.com/open-source-cooperative/keyring-core.git",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "model:Kokoro-82M-v1.0-ONNX@468588286ebb2dd77c25b9771e5d165896538cce",
+      "name": "Kokoro-82M v1.0 ONNX model and voice assets",
+      "version": "468588286ebb2dd77c25b9771e5d165896538cce",
+      "license": "Apache-2.0",
+      "source": "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX",
+      "surfaces": [
+        "local-speech"
+      ]
+    },
+    {
+      "id": "npm:kokoro-js@1.2.1",
+      "name": "kokoro-js",
+      "version": "1.2.1",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/kokoro-js/v/1.2.1",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -4405,6 +4989,16 @@
       ]
     },
     {
+      "id": "npm:long@5.3.2",
+      "name": "long",
+      "version": "5.3.2",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/long/v/5.3.2",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "iconify:lucide",
       "name": "Lucide icons",
       "version": "2026-08-14",
@@ -4432,6 +5026,16 @@
       "source": "https://github.com/servo/html5ever",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "npm:matcher@3.0.0",
+      "name": "matcher",
+      "version": "3.0.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/matcher/v/3.0.0",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -4525,6 +5129,16 @@
       ]
     },
     {
+      "id": "npm:minipass@7.1.3",
+      "name": "minipass",
+      "version": "7.1.3",
+      "license": "BlueOak-1.0.0",
+      "source": "https://www.npmjs.com/package/minipass/v/7.1.3",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "cargo:miniz_oxide@0.8.9",
       "name": "miniz_oxide",
       "version": "0.8.9",
@@ -4532,6 +5146,16 @@
       "source": "https://github.com/Frommi/miniz_oxide/tree/master/miniz_oxide",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "npm:minizlib@3.1.0",
+      "name": "minizlib",
+      "version": "3.1.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/minizlib/v/3.1.0",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -4885,6 +5509,16 @@
       ]
     },
     {
+      "id": "npm:object-keys@1.1.1",
+      "name": "object-keys",
+      "version": "1.1.1",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/object-keys/v/1.1.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "cargo:once_cell@1.21.4",
       "name": "once_cell",
       "version": "1.21.4",
@@ -4912,6 +5546,46 @@
       "source": "https://www.npmjs.com/package/oniguruma-to-es/v/4.3.6",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "npm:onnxruntime-common@1.21.0",
+      "name": "onnxruntime-common",
+      "version": "1.21.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/onnxruntime-common/v/1.21.0",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:onnxruntime-common@1.22.0-dev.20250409-89f8206ba4",
+      "name": "onnxruntime-common",
+      "version": "1.22.0-dev.20250409-89f8206ba4",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/onnxruntime-common/v/1.22.0-dev.20250409-89f8206ba4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:onnxruntime-node@1.21.0",
+      "name": "onnxruntime-node",
+      "version": "1.21.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/onnxruntime-node/v/1.21.0",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:onnxruntime-web@1.22.0-dev.20250409-89f8206ba4",
+      "name": "onnxruntime-web",
+      "version": "1.22.0-dev.20250409-89f8206ba4",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/onnxruntime-web/v/1.22.0-dev.20250409-89f8206ba4",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -5125,6 +5799,16 @@
       ]
     },
     {
+      "id": "npm:phonemizer@1.2.1",
+      "name": "phonemizer",
+      "version": "1.2.1",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/phonemizer/v/1.2.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "iconify:ph",
       "name": "Phosphor Duotone icons",
       "version": "2026-08-14",
@@ -5172,6 +5856,16 @@
       "source": "https://github.com/rust-lang/pkg-config-rs",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "npm:platform@1.3.6",
+      "name": "platform",
+      "version": "1.3.6",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/platform/v/1.3.6",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -5322,6 +6016,16 @@
       "source": "https://www.npmjs.com/package/property-information/v/7.2.0",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "npm:protobufjs@7.6.5",
+      "name": "protobufjs",
+      "version": "7.6.5",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/protobufjs/v/7.6.5",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -5595,6 +6299,16 @@
       ]
     },
     {
+      "id": "npm:roarr@2.15.4",
+      "name": "roarr",
+      "version": "2.15.4",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/roarr/v/2.15.4",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "npm:robust-predicates@3.0.3",
       "name": "robust-predicates",
       "version": "3.0.3",
@@ -5815,6 +6529,26 @@
       ]
     },
     {
+      "id": "npm:semver@7.8.5",
+      "name": "semver",
+      "version": "7.8.5",
+      "license": "ISC",
+      "source": "https://www.npmjs.com/package/semver/v/7.8.5",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "npm:semver-compare@1.0.0",
+      "name": "semver-compare",
+      "version": "1.0.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/semver-compare/v/1.0.0",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "cargo:serde@1.0.228",
       "name": "serde",
       "version": "1.0.228",
@@ -5925,6 +6659,16 @@
       ]
     },
     {
+      "id": "npm:serialize-error@7.0.1",
+      "name": "serialize-error",
+      "version": "7.0.1",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/serialize-error/v/7.0.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "cargo:serialize-to-javascript@0.1.2",
       "name": "serialize-to-javascript",
       "version": "0.1.2",
@@ -5982,6 +6726,16 @@
       "source": "https://github.com/RustCrypto/hashes",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "npm:sharp@0.34.5",
+      "name": "sharp",
+      "version": "0.34.5",
+      "license": "Apache-2.0",
+      "source": "https://www.npmjs.com/package/sharp/v/0.34.5",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -6102,6 +6856,16 @@
       "source": "https://www.npmjs.com/package/space-separated-tokens/v/2.0.2",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "npm:sprintf-js@1.1.3",
+      "name": "sprintf-js",
+      "version": "1.1.3",
+      "license": "BSD-3-Clause",
+      "source": "https://www.npmjs.com/package/sprintf-js/v/1.1.3",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -6332,6 +7096,16 @@
       "source": "https://github.com/tauri-apps/tao",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "npm:tar@7.5.22",
+      "name": "tar",
+      "version": "7.5.22",
+      "license": "BlueOak-1.0.0",
+      "source": "https://www.npmjs.com/package/tar/v/7.5.22",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -6856,6 +7630,16 @@
       ]
     },
     {
+      "id": "npm:type-fest@0.13.1",
+      "name": "type-fest",
+      "version": "0.13.1",
+      "license": "(MIT OR CC0-1.0)",
+      "source": "https://www.npmjs.com/package/type-fest/v/0.13.1",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "cargo:typeid@1.0.3",
       "name": "typeid",
       "version": "1.0.3",
@@ -6893,6 +7677,16 @@
       "source": "https://www.npmjs.com/package/undici/v/7.29.0",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "npm:undici-types@7.18.2",
+      "name": "undici-types",
+      "version": "7.18.2",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/undici-types/v/7.18.2",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -8303,6 +9097,16 @@
       "source": "https://www.npmjs.com/package/y18n/v/5.0.8",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "npm:yallist@5.0.0",
+      "name": "yallist",
+      "version": "5.0.0",
+      "license": "BlueOak-1.0.0",
+      "source": "https://www.npmjs.com/package/yallist/v/5.0.0",
+      "surfaces": [
+        "app"
       ]
     },
     {

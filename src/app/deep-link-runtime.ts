@@ -1,7 +1,7 @@
 import { getCurrent, onOpenUrl } from "@tauri-apps/plugin-deep-link";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { isTauri } from "../lib/platform";
-import { useBrowserStore } from "../store/browser-store";
+import { openBlankTabAndFocus } from "./browser-actions";
 
 const MAX_DEEP_LINK_LENGTH = 4_096;
 const CUSTOM_SCHEME_PREFIX = /^vibes?:\/\//i;
@@ -142,7 +142,7 @@ const appDeepLinkRuntime = createDeepLinkRuntime({
   onOpenUrl,
   getCurrent,
   openBlankTab: () => {
-    useBrowserStore.getState().addTab();
+    openBlankTabAndFocus();
   },
 });
 

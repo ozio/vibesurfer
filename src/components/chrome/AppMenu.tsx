@@ -3,11 +3,11 @@ import { Check, Columns3, ExternalLink, History, MoreHorizontal, PanelLeft, Plus
 import { DropdownMenu } from "radix-ui";
 import { browserShortcutLabels, detectPlatform, externalHttpUrl, openExternal } from "../../lib/platform";
 import { useBrowserStore } from "../../store/browser-store";
+import { openBlankTabAndFocus } from "../../app/browser-actions";
 import type { TabLayout } from "../../types/browser";
 import { IconButton } from "../ui/IconButton";
 
 export function AppMenu() {
-  const addTab = useBrowserStore((state) => state.addTab);
   const activeTabId = useBrowserStore((state) => state.activeTabId);
   const activeTab = useBrowserStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
   const regenerate = useBrowserStore((state) => state.regenerate);
@@ -41,7 +41,7 @@ export function AppMenu() {
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="menu app-menu" align="end" sideOffset={8} collisionPadding={10}>
-          <DropdownMenu.Item className="menu__item" onSelect={() => addTab()}>
+          <DropdownMenu.Item className="menu__item" onSelect={() => openBlankTabAndFocus()}>
             <Plus aria-hidden="true" /><span>New tab</span><kbd>{shortcuts.newTab}</kbd>
           </DropdownMenu.Item>
           {activeTab?.kind === "generated" && (

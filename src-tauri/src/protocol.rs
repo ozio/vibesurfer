@@ -87,3 +87,46 @@ pub struct RuntimeStatus {
     pub active_jobs: usize,
     pub storage_ready: bool,
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationJobRecord {
+    pub id: String,
+    pub profile_id: String,
+    pub status: String,
+    pub request_payload: Value,
+    pub result_artifact_id: Option<String>,
+    pub error_payload: Option<Value>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationJobEventRecord {
+    pub id: i64,
+    pub job_id: String,
+    pub event_type: String,
+    pub sequence: Option<i64>,
+    pub timestamp: String,
+    pub payload: Value,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationStageRecord {
+    pub job_id: String,
+    pub stage: String,
+    pub status: String,
+    pub started_at: String,
+    pub completed_at: Option<String>,
+    pub payload: Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationActivityDetail {
+    pub job: GenerationJobRecord,
+    pub events: Vec<GenerationJobEventRecord>,
+    pub stages: Vec<GenerationStageRecord>,
+}

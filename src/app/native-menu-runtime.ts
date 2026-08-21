@@ -2,6 +2,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { externalHttpUrl, isTauri, openExternal } from "../lib/platform";
 import { useBrowserStore, type BrowserState } from "../store/browser-store";
 import type { TabLayout } from "../types/browser";
+import { openBlankTabAndFocus } from "./browser-actions";
 
 const NATIVE_MENU_EVENT = "vibesurfer://native-menu";
 const GITHUB_URL = "https://github.com/ozio/vibesurfer";
@@ -123,7 +124,7 @@ function storeActions(): NativeMenuActions {
   };
 
   return {
-    newTab: () => useBrowserStore.getState().addTab(),
+    newTab: () => { openBlankTabAndFocus(); },
     closeTab: () => withActiveTab((state, tabId) => state.closeTab(tabId)),
     focusAddress: () => window.dispatchEvent(new Event("vibesurfer:focus-address")),
     reload: () => withActiveTab((state, tabId) => state.reload(tabId)),

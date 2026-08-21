@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CAPABILITY_REGISTRY, resolveCapabilities } from "../src/capabilities/registry.js";
+import { CAPABILITY_REGISTRY, compactCapabilityContracts, resolveCapabilities } from "../src/capabilities/registry.js";
 import type { CapabilityId } from "../src/capabilities/types.js";
 import { transformHtml, transformPreviewHtml } from "../src/html/transform.js";
 import { generationCommand } from "./helpers.js";
@@ -49,6 +49,28 @@ describe("capability compiler", () => {
     expect(() => resolveCapabilities(settings, "native", ["external-media"]))
       .toThrow("Director selected unavailable capability: external-media");
     expect(CAPABILITY_REGISTRY.get("data-chart")?.maxInstances).toBe(8);
+    expect(compactCapabilityContracts(settings, "native")).not.toHaveProperty("pattern-background");
+  });
+
+  it("deterministically reduces SCP-like pattern overload to one family and two uses", async () => {
+    const settings = { ...generationCommand().settings, images: { mode: "tag-placeholder" as const, fetchExternal: false, safeContent: true }, minInternalLinks: 4 };
+    const patterns = Array.from({ length: 12 }, (_, index) => `<section data-vibe-pattern="${index % 2 ? "dots" : "grid"}"><a href="/item-${index}">Item ${index}</a></section>`).join("");
+    const result = await transformHtml({ html: `<!doctype html><html><head><title>Patterns</title></head><body><main>${patterns}</main></body></html>`, url: "https://scp.example/report", title: "Patterns", settings, selectedCapabilities: ["pattern-background"], browserTheme: "ie-classic", artifactSeed: "patterns", signal: new AbortController().signal });
+    expect(result.html.match(/<section data-vibe-pattern=/g)).toHaveLength(2);
+    expect(new Set([...result.html.matchAll(/<section data-vibe-pattern="([^"]+)/g)].map((match) => match[1])).size).toBe(1);
+    expect(result.warnings).toContainEqual(expect.objectContaining({ code: "pattern-background-capped" }));
+  });
+
+  it("bounds pseudo-video scenes, duration and music contracts", async () => {
+    const settings = { ...generationCommand().settings, images: { mode: "tag-placeholder" as const, fetchExternal: false, safeContent: true }, minInternalLinks: 4 };
+    const scenes = Array.from({ length: 14 }, (_, index) => `<figure data-vibe-video-scene data-duration-ms="120000"><img data-vibe-image="tram night" alt="Scene ${index}"><figcaption>Scene ${index}</figcaption><span data-vibe-narration data-at-ms="999999" data-pause-after-ms="999999">Narration ${index}</span><i data-vibe-music data-preset="arbitrary-code" data-intensity="9"></i></figure>`).join("");
+    const result = await transformHtml({ html: `<!doctype html><html><head><title>Video</title></head><body><a href="/one">One</a><a href="/two">Two</a><a href="/three">Three</a><a href="/four">Four</a><section data-vibe-pseudo-video>${scenes}</section></body></html>`, url: "https://youtube.example/watch?v=tram", title: "Video", settings, selectedCapabilities: ["pseudo-video", "image-intents"], browserTheme: "native", artifactSeed: "video", signal: new AbortController().signal });
+    expect(result.html.match(/data-vibe-video-scene/g)?.length).toBeLessThanOrEqual(12);
+    expect(result.html).toContain('data-vibe-duration-ms="600000"');
+    expect(result.html).not.toContain("arbitrary-code");
+    expect(result.html).toContain('data-preset="silence"');
+    expect(result.html).toContain('data-intensity="1.00"');
+    expect(result.capabilityManifest).toContainEqual(expect.objectContaining({ id: "pseudo-video", instances: 1 }));
   });
 
   it("turns selected semantic markers into bounded offline artifacts and records actual usage", async () => {

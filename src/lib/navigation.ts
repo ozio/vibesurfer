@@ -1,3 +1,4 @@
+import { systemFavicon } from "./favicon";
 import type { HistoryEntry, TabKind, VirtualLocation } from "../types/browser";
 
 export type NavigationTarget = Omit<HistoryEntry, "id" | "artifactId" | "generationJobId"> & {
@@ -102,7 +103,7 @@ export function resolveNavigation(
       location: "vibe://new-tab",
       title: "New tab",
       kind: "new-tab",
-      favicon: "✦",
+      favicon: systemFavicon("new-tab"),
       requiresGeneration: false,
     };
   }
@@ -112,7 +113,7 @@ export function resolveNavigation(
       location: value,
       title: "Settings",
       kind: "settings",
-      favicon: "⚙",
+      favicon: systemFavicon("settings"),
       requiresGeneration: false,
     };
   }
@@ -122,7 +123,27 @@ export function resolveNavigation(
       location: value,
       title: "History",
       kind: "history",
-      favicon: "◷",
+      favicon: systemFavicon("history"),
+      requiresGeneration: false,
+    };
+  }
+
+  if (value.startsWith("vibe://activity")) {
+    return {
+      location: value,
+      title: "Generation activity",
+      kind: "activity",
+      favicon: systemFavicon("activity"),
+      requiresGeneration: false,
+    };
+  }
+
+  if (value === "vibe://capabilities") {
+    return {
+      location: value,
+      title: "Capability lab",
+      kind: "capabilities",
+      favicon: systemFavicon("capabilities"),
       requiresGeneration: false,
     };
   }

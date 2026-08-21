@@ -89,6 +89,15 @@ for (const pack of Object.values(iconify.packs ?? {})) {
   });
 }
 
+add({
+  id: "model:Kokoro-82M-v1.0-ONNX@468588286ebb2dd77c25b9771e5d165896538cce",
+  name: "Kokoro-82M v1.0 ONNX model and voice assets",
+  version: "468588286ebb2dd77c25b9771e5d165896538cce",
+  license: "Apache-2.0",
+  source: "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX",
+  surfaces: ["local-speech"],
+});
+
 const manifest = {
   schemaVersion: 1,
   appVersion: appPackage.version,
@@ -98,6 +107,7 @@ const manifest = {
     cargo: sourceRecord("src-tauri/Cargo.lock"),
     iconify: sourceRecord("generation-worker/src/iconify/iconify-packs.generated.json"),
     fonts: sourceRecord("docs/third-party-fonts.md"),
+    kokoro: sourceRecord("docs/third-party-kokoro.md"),
   },
   notices: [...entries.values()].sort((left, right) => left.name.localeCompare(right.name) || left.version.localeCompare(right.version)),
 };

@@ -7,9 +7,9 @@ describe("new-tab themed search", () => {
     expect(searchPortal("native", true).url("три байта")).toBe("https://yandex.ru/search/?text=%D1%82%D1%80%D0%B8%20%D0%B1%D0%B0%D0%B9%D1%82%D0%B0");
   });
 
-  it("uses MSN or Rambler for the classic browser", () => {
+  it("keeps MSN Search in the classic browser", () => {
     expect(searchPortal("ie-classic", false).url("metacode")).toContain("https://www.msn.com/search?q=");
-    expect(searchPortal("ie-classic", true).url("метакод")).toContain("https://www.rambler.ru/search?query=");
+    expect(searchPortal("ie-classic", true).url("метакод")).toContain("https://www.msn.com/search?q=");
   });
 
   it("keeps the cyberpunk query inside its fictional network", () => {

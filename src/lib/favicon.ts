@@ -1,10 +1,13 @@
-import type { FaviconSource, GlyphFavicon } from "../types/browser";
+import type { FaviconSource, GlyphFavicon, SystemFaviconName } from "../types/browser";
 
 const HEX_COLOR = /^#[0-9a-f]{6}$/i;
 
 export function faviconSourceValue(value: unknown): FaviconSource | undefined {
   if (typeof value === "string") return value.trim() || undefined;
   if (!isRecord(value)) return undefined;
+  if (value.kind === "system" && isSystemFaviconName(value.icon)) {
+    return { kind: "system", icon: value.icon };
+  }
   if (value.kind === "image" && typeof value.src === "string" && value.src) {
     return {
       kind: "image",
@@ -20,6 +23,15 @@ export function faviconSourceValue(value: unknown): FaviconSource | undefined {
     background: colorValue(value.background) ?? "#2563eb",
     shape: value.shape === "circle" || value.shape === "square" ? value.shape : "rounded-square",
   };
+}
+
+export function systemFavicon(icon: SystemFaviconName): FaviconSource {
+  return { kind: "system", icon };
+}
+
+function isSystemFaviconName(value: unknown): value is SystemFaviconName {
+  return value === "new-tab" || value === "settings" || value === "history"
+    || value === "activity" || value === "capabilities";
 }
 
 export function deterministicGlyphFavicon(seed: string, glyph: string): GlyphFavicon {

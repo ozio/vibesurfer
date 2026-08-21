@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Globe2, Sparkles } from "lucide-react";
+import { Activity, FlaskConical, Globe2, History, Settings, Sparkles } from "lucide-react";
 import { deterministicGlyphFavicon, isHostOwnedFaviconImage } from "../../lib/favicon";
 import type { FaviconSource, GlyphFavicon } from "../../types/browser";
 
@@ -17,6 +17,18 @@ export function Favicon({ source, title, generated, seed }: FaviconProps) {
 
   if (typeof source === "object" && source.kind === "glyph") {
     return <GlyphTile descriptor={source} />;
+  }
+
+
+  if (typeof source === "object" && source.kind === "system") {
+    const Icon = {
+      "new-tab": Sparkles,
+      settings: Settings,
+      history: History,
+      activity: Activity,
+      capabilities: FlaskConical,
+    }[source.icon];
+    return <Icon className="favicon favicon--icon favicon--system" aria-hidden="true" />;
   }
 
   const imageSource = typeof source === "object" && source.kind === "image" ? source.src : source;

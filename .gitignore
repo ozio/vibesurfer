@@ -9,6 +9,8 @@ target
 output/playwright/
 .playwright-cli/
 coverage/
+public/models/
+public/ort/
 generation-worker/sidecars/
 generation-worker/.*.bun-build
 .*.bun-build

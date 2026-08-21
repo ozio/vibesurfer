@@ -23,6 +23,41 @@ export interface RuntimeStatus {
   storageReady: boolean;
 }
 
+export interface GenerationJobRecord {
+  id: string;
+  profileId: string;
+  status: string;
+  requestPayload: Record<string, unknown>;
+  resultArtifactId?: string;
+  errorPayload?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GenerationJobEventRecord {
+  id: number;
+  jobId: string;
+  eventType: string;
+  sequence?: number;
+  timestamp: string;
+  payload: Record<string, unknown>;
+}
+
+export interface GenerationStageRecord {
+  jobId: string;
+  stage: string;
+  status: string;
+  startedAt: string;
+  completedAt?: string;
+  payload: Record<string, unknown>;
+}
+
+export interface GenerationActivityDetail {
+  job: GenerationJobRecord;
+  events: GenerationJobEventRecord[];
+  stages: GenerationStageRecord[];
+}
+
 interface ProviderConnectionRecord {
   id: string;
   profileId: string;
@@ -97,6 +132,23 @@ export async function listPersistedArtifacts(profileId: string, limit = 32): Pro
     const artifact = fromArtifactRecord(record);
     return artifact ? [artifact] : [];
   });
+}
+
+export async function listPersistedGenerationJobs(
+  profileId: string,
+  limit = 50,
+  offset = 0,
+): Promise<GenerationJobRecord[]> {
+  if (!isTauri()) return [];
+  return invoke<GenerationJobRecord[]>("list_generation_jobs", { profileId, limit, offset });
+}
+
+export async function getPersistedGenerationActivity(
+  profileId: string,
+  jobId: string,
+): Promise<GenerationActivityDetail | undefined> {
+  if (!isTauri()) return undefined;
+  return (await invoke<GenerationActivityDetail | null>("get_generation_activity", { profileId, jobId })) ?? undefined;
 }
 
 export async function getPersistedArtifact(profileId: string, id: string): Promise<PageArtifact | undefined> {

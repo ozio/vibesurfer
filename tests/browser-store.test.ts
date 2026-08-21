@@ -3,6 +3,7 @@ import { beforeEach, test } from "vitest";
 import { createJSONStorage } from "zustand/middleware";
 import {
   DEFAULT_BROWSER_PREFERENCES,
+  DEFAULT_GENERATION_SETTINGS,
   migrateBrowserState,
   useBrowserStore,
 } from "../src/store/browser-store";
@@ -362,6 +363,26 @@ test("migration preserves explicit dynamic modes and defaults legacy profiles to
   assert.equal(migrateBrowserState({ generationSettings: {} }, 10).generationSettings?.dynamicMode, "active");
   assert.equal(migrateBrowserState({ generationSettings: { dynamicMode: "off" } }, 11).generationSettings?.dynamicMode, "off");
   assert.equal(migrateBrowserState({ generationSettings: { dynamicMode: "always" } }, 11).generationSettings?.dynamicMode, "always");
+});
+
+test("version-eleven sessions hydrate new voice defaults and typed system favicons", () => {
+  const migrated = migrateBrowserState({
+    tabs: [{
+      id: "legacy-settings",
+      title: "Settings",
+      location: "vibe://settings/generation",
+      kind: "settings",
+      favicon: "⚙",
+      history: [],
+      historyIndex: 0,
+    }],
+    activeTabId: "legacy-settings",
+    generationSettings: { capabilities: { experimentalEnabled: true } },
+  }, 11);
+
+  assert.deepEqual(migrated.tabs?.[0].favicon, { kind: "system", icon: "settings" });
+  assert.deepEqual(migrated.generationSettings?.voice, DEFAULT_GENERATION_SETTINGS.voice);
+  assert.equal(migrated.generationSettings?.capabilities.experimentalEnabled, true);
 });
 
 test("migration preserves an explicit generated JavaScript opt-in", () => {

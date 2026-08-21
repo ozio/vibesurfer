@@ -1,11 +1,15 @@
 use std::{path::Path, sync::Mutex};
 
 use chrono::Utc;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, types::Type, Connection, OptionalExtension, Row};
 use serde_json::Value;
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-use crate::protocol::{ArtifactRecord, ProviderConnectionRecord, SiteSessionRecord, SiteWorldRecord};
+use crate::protocol::{
+    ArtifactRecord, GenerationActivityDetail, GenerationJobEventRecord, GenerationJobRecord,
+    GenerationStageRecord, ProviderConnectionRecord, SiteSessionRecord, SiteWorldRecord,
+};
 
 const MAX_ARTIFACT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_SITE_WORLD_BYTES: usize = 1024 * 1024;
@@ -397,6 +401,8 @@ impl Storage {
         let transaction = connection.transaction()?;
         let tables = [
             "artifacts",
+            "generation_job_events",
+            "generation_stage_records",
             "generation_jobs",
             "site_worlds",
             "site_sessions",
@@ -455,6 +461,117 @@ impl Storage {
             ],
         )?;
         Ok(())
+    }
+
+    pub fn record_job_event(
+        &self,
+        job_id: &str,
+        profile_id: &str,
+        event_type: &str,
+        sequence: Option<i64>,
+        timestamp: &str,
+        payload: &Value,
+    ) -> Result<(), StorageError> {
+        let serialized = bounded_json(&bounded_activity_payload(payload), 2 * 1024 * 1024);
+        self.connection_guard()?.execute(
+            "INSERT INTO generation_job_events
+               (job_id, profile_id, event_type, sequence, timestamp, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![job_id, profile_id, event_type, sequence, timestamp, serialized],
+        )?;
+        Ok(())
+    }
+
+    pub fn upsert_generation_stage(
+        &self,
+        job_id: &str,
+        profile_id: &str,
+        stage: &str,
+        status: &str,
+        started_at: &str,
+        completed_at: Option<&str>,
+        payload: &Value,
+    ) -> Result<(), StorageError> {
+        let serialized = bounded_json(&bounded_activity_payload(payload), 2 * 1024 * 1024);
+        self.connection_guard()?.execute(
+            "INSERT INTO generation_stage_records
+               (job_id, profile_id, stage, status, started_at, completed_at, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(job_id, stage) DO UPDATE SET
+               status=excluded.status, completed_at=excluded.completed_at, payload=excluded.payload",
+            params![job_id, profile_id, stage, status, started_at, completed_at, serialized],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_generation_jobs(
+        &self,
+        profile_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<GenerationJobRecord>, StorageError> {
+        let connection = self.connection_guard()?;
+        let mut statement = connection.prepare(
+            "SELECT id, profile_id, status, request_payload, result_artifact_id,
+                    error_payload, created_at, updated_at
+             FROM generation_jobs WHERE profile_id=?1
+             ORDER BY created_at DESC, id DESC LIMIT ?2 OFFSET ?3",
+        )?;
+        let rows = statement.query_map(
+            params![profile_id, limit.clamp(1, 50) as i64, offset.min(1_000_000) as i64],
+            generation_job_from_row,
+        )?;
+        rows.map(|row| row.map_err(StorageError::from)).collect()
+    }
+
+    pub fn generation_activity(
+        &self,
+        profile_id: &str,
+        job_id: &str,
+    ) -> Result<Option<GenerationActivityDetail>, StorageError> {
+        let connection = self.connection_guard()?;
+        let job = connection.query_row(
+            "SELECT id, profile_id, status, request_payload, result_artifact_id,
+                    error_payload, created_at, updated_at
+             FROM generation_jobs WHERE profile_id=?1 AND id=?2",
+            params![profile_id, job_id],
+            generation_job_from_row,
+        ).optional()?;
+        let Some(job) = job else { return Ok(None); };
+
+        let mut event_statement = connection.prepare(
+            "SELECT id, job_id, event_type, sequence, timestamp, payload
+             FROM generation_job_events WHERE profile_id=?1 AND job_id=?2
+             ORDER BY id ASC",
+        )?;
+        let events = event_statement.query_map(params![profile_id, job_id], |row| {
+            Ok(GenerationJobEventRecord {
+                id: row.get(0)?,
+                job_id: row.get(1)?,
+                event_type: row.get(2)?,
+                sequence: row.get(3)?,
+                timestamp: row.get(4)?,
+                payload: parse_json_column(row.get::<_, String>(5)?, 5)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        let mut stage_statement = connection.prepare(
+            "SELECT job_id, stage, status, started_at, completed_at, payload
+             FROM generation_stage_records WHERE profile_id=?1 AND job_id=?2
+             ORDER BY started_at ASC, stage ASC",
+        )?;
+        let stages = stage_statement.query_map(params![profile_id, job_id], |row| {
+            Ok(GenerationStageRecord {
+                job_id: row.get(0)?,
+                stage: row.get(1)?,
+                status: row.get(2)?,
+                started_at: row.get(3)?,
+                completed_at: row.get(4)?,
+                payload: parse_json_column(row.get::<_, String>(5)?, 5)?,
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(Some(GenerationActivityDetail { job, events, stages }))
     }
 
     pub fn upsert_provider(&self, provider: &ProviderConnectionRecord) -> Result<(), StorageError> {
@@ -575,6 +692,68 @@ fn tuple_to_artifact(row: ArtifactTuple) -> Result<ArtifactRecord, StorageError>
     })
 }
 
+fn bounded_json(value: &Value, max_bytes: usize) -> String {
+    let serialized = serde_json::to_string(value).unwrap_or_else(|_| "null".into());
+    if serialized.len() <= max_bytes {
+        return serialized;
+    }
+    let preview_limit = max_bytes.saturating_sub(256).min(64 * 1024);
+    let preview: String = serialized.chars().take(preview_limit).collect();
+    serde_json::to_string(&serde_json::json!({
+        "truncated": true,
+        "originalBytes": serialized.len(),
+        "sha256": format!("{:x}", Sha256::digest(serialized.as_bytes())),
+        "preview": preview,
+    })).unwrap_or_else(|_| "{\"truncated\":true}".into())
+}
+
+fn bounded_activity_payload(value: &Value) -> Value {
+    match value {
+        Value::Object(object) => Value::Object(object.iter().map(|(key, value)| {
+            let limit = match key.as_str() {
+                "prompt" | "systemPrompt" => Some(256 * 1024),
+                "response" => Some(2 * 1024 * 1024),
+                _ => None,
+            };
+            let bounded = match (limit, value) {
+                (Some(limit), Value::String(text)) if text.len() > limit => Value::Object(serde_json::Map::from_iter([
+                    ("truncated".into(), Value::Bool(true)),
+                    ("originalBytes".into(), Value::Number(text.len().into())),
+                    ("sha256".into(), Value::String(format!("{:x}", Sha256::digest(text.as_bytes())))),
+                    ("preview".into(), Value::String(text.chars().take(limit.min(64 * 1024)).collect())),
+                ])),
+                _ => bounded_activity_payload(value),
+            };
+            (key.clone(), bounded)
+        }).collect()),
+        Value::Array(values) => Value::Array(values.iter().map(bounded_activity_payload).collect()),
+        _ => value.clone(),
+    }
+}
+
+fn parse_json_column(value: String, column: usize) -> Result<Value, rusqlite::Error> {
+    serde_json::from_str(&value).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(column, Type::Text, Box::new(error))
+    })
+}
+
+fn generation_job_from_row(row: &Row<'_>) -> Result<GenerationJobRecord, rusqlite::Error> {
+    let request_payload = parse_json_column(row.get::<_, String>(3)?, 3)?;
+    let error_payload = row.get::<_, Option<String>>(5)?
+        .map(|value| parse_json_column(value, 5))
+        .transpose()?;
+    Ok(GenerationJobRecord {
+        id: row.get(0)?,
+        profile_id: row.get(1)?,
+        status: row.get(2)?,
+        request_payload,
+        result_artifact_id: row.get(4)?,
+        error_payload,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
+}
+
 type SiteWorldTuple = (
     String,
     String,
@@ -681,6 +860,33 @@ CREATE TABLE IF NOT EXISTS generation_jobs (
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS generation_jobs_profile_created
+  ON generation_jobs(profile_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS generation_job_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  sequence INTEGER,
+  timestamp TEXT NOT NULL,
+  payload TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS generation_events_profile_job
+  ON generation_job_events(profile_id, job_id, id);
+
+CREATE TABLE IF NOT EXISTS generation_stage_records (
+  job_id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  status TEXT NOT NULL,
+  started_at TEXT NOT NULL,
+  completed_at TEXT,
+  payload TEXT NOT NULL,
+  PRIMARY KEY(job_id, stage)
+);
+CREATE INDEX IF NOT EXISTS generation_stages_profile_job
+  ON generation_stage_records(profile_id, job_id, started_at);
 
 CREATE TABLE IF NOT EXISTS site_worlds (
   id TEXT PRIMARY KEY,
@@ -826,6 +1032,27 @@ mod tests {
                 .id,
             artifact.id
         );
+    }
+
+    #[test]
+    fn generation_activity_is_profile_scoped_paged_and_hashes_truncation() {
+        let storage = Storage::open(std::path::Path::new(":memory:")).unwrap();
+        let request = json!({"url":"https://example.com/report","provider":{"modelId":"gpt-test"}});
+        storage.mark_job_started("job-1", "personal", &request).unwrap();
+        storage.mark_job_started("job-other", "work", &request).unwrap();
+        storage.record_job_event("job-1", "personal", "generation.started", Some(1), "2026-08-12T00:00:00Z", &json!({"type":"generation.started"})).unwrap();
+        let large_prompt = "x".repeat(300 * 1024);
+        storage.upsert_generation_stage("job-1", "personal", "page-director", "running", "2026-08-12T00:00:00Z", None, &json!({"prompt":large_prompt,"response":"{}"})).unwrap();
+
+        let jobs = storage.list_generation_jobs("personal", 50, 0).unwrap();
+        assert_eq!(jobs.len(), 1);
+        assert_eq!(jobs[0].id, "job-1");
+        let detail = storage.generation_activity("personal", "job-1").unwrap().unwrap();
+        assert_eq!(detail.events.len(), 1);
+        assert_eq!(detail.stages.len(), 1);
+        assert_eq!(detail.stages[0].payload["prompt"]["truncated"], true);
+        assert_eq!(detail.stages[0].payload["prompt"]["sha256"].as_str().unwrap().len(), 64);
+        assert!(storage.generation_activity("work", "job-1").unwrap().is_none());
     }
 
     #[test]

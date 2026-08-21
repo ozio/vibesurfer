@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { MODELS, PROFILE_PRESETS, PROFILES } from "../data/catalog";
-import { deterministicGlyphFavicon, faviconSourceValue } from "../lib/favicon";
+import { deterministicGlyphFavicon, faviconSourceValue, systemFavicon } from "../lib/favicon";
 import {
   isExplicitRelativeReference,
   normalizeVirtualUrl,
@@ -23,6 +23,7 @@ import type {
   GenerationError,
   GenerationJob,
   GenerationPhase,
+  GenerationProgress,
   GenerationSettings,
   HistoryEntry,
   ImageGenerationSettings,
@@ -43,6 +44,7 @@ import type {
 
 export interface AddTabOptions {
   disposition?: Exclude<NavigationDisposition, "current">;
+  placement?: "end" | "after-opener";
   opener?: TabOpenerContext;
   baseUrl?: string;
   intent?: Partial<NavigationIntent>;
@@ -97,6 +99,8 @@ export interface BrowserState {
   ) => boolean;
   beginGeneration: (jobId: string) => boolean;
   setGenerationPhase: (jobId: string, phase: GenerationPhase, patch?: GenerationProgressPatch) => boolean;
+  setGenerationProgress: (jobId: string, progress: GenerationProgress) => boolean;
+  addGenerationWarning: (jobId: string, warning: { code: string; message: string }) => boolean;
   setGenerationMetadata: (jobId: string, patch: GenerationMetadataPatch) => boolean;
   setGenerationPreview: (jobId: string, html: string, revision?: number) => boolean;
   commitArtifact: (jobId: string, artifact: PageArtifact) => boolean;
@@ -115,9 +119,12 @@ export interface BrowserState {
   patchStyleSettings: (patch: Partial<GenerationSettings["style"]>) => void;
   patchImageSettings: (patch: Partial<ImageGenerationSettings>) => void;
   patchCapabilitySettings: (patch: Partial<GenerationSettings["capabilities"]>) => void;
+  patchVoiceSettings: (patch: Partial<GenerationSettings["voice"]>) => void;
   patchPrivacySettings: (patch: Partial<GenerationSettings["privacy"]>) => void;
   openSettings: (section?: string) => string;
   openHistory: () => string;
+  openActivity: (jobId?: string) => string;
+  openCapabilities: () => string;
   removeBrowsingHistoryEntry: (id: string) => void;
   clearBrowsingHistory: (profileId?: string) => void;
   setSettingsSection: (section: string) => void;
@@ -181,6 +188,14 @@ export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
     externalMediaEnabled: false,
     experimentalEnabled: false,
   },
+  voice: {
+    engine: "local",
+    provider: "openai",
+    model: "kokoro-82m-q8",
+    voice: "af_heart",
+    speed: 1,
+    musicEnabled: true,
+  },
   privacy: {
     includeNavigationHistory: true,
     sameSiteSummariesOnly: true,
@@ -196,7 +211,7 @@ const initialTabs: BrowserTab[] = [
     title: "New tab",
     location: "vibe://new-tab",
     kind: "new-tab",
-    favicon: "✦",
+    favicon: systemFavicon("new-tab"),
   }),
   makeTab({
     id: "quiet-interface",
@@ -204,7 +219,7 @@ const initialTabs: BrowserTab[] = [
     location: "vibe://generated/quiet-interface",
     kind: "generated",
     prompt: "A quiet interface for ideas that are still taking shape",
-    favicon: "✦",
+    favicon: systemFavicon("new-tab"),
     generatedWith: "mock:preview",
   }),
 ];
@@ -263,9 +278,11 @@ export const useBrowserStore = create<BrowserState>()(
             : undefined,
           loadState: loadStateForTarget(target, navigation.job),
         });
-        const openerId = options.opener?.tabId ?? state.activeTabId;
-        const openerIndex = state.tabs.findIndex((item) => item.id === openerId);
-        const insertAt = openerIndex < 0 ? state.tabs.length : openerIndex + 1;
+        const placement = options.placement ?? (options.opener ? "after-opener" : "end");
+        const openerIndex = options.opener
+          ? state.tabs.findIndex((item) => item.id === options.opener?.tabId)
+          : -1;
+        const insertAt = placement === "after-opener" && openerIndex >= 0 ? openerIndex + 1 : state.tabs.length;
         const tabs = [...state.tabs];
         tabs.splice(insertAt, 0, tab);
         set({
@@ -296,7 +313,7 @@ export const useBrowserStore = create<BrowserState>()(
             title: "New tab",
             location: "vibe://new-tab",
             kind: "new-tab",
-            favicon: "✦",
+            favicon: systemFavicon("new-tab"),
           });
           set({
             tabs: [replacement],
@@ -642,6 +659,26 @@ export const useBrowserStore = create<BrowserState>()(
         });
         return true;
       },
+      setGenerationProgress: (jobId, progress) => {
+        const state = get();
+        const job = state.generationJobs[jobId];
+        if (!job || !isActiveJob(job)) return false;
+        set({
+          generationJobs: {
+            ...state.generationJobs,
+            [jobId]: { ...job, progress, updatedAt: progress.emittedAt },
+          },
+        });
+        return true;
+      },
+      addGenerationWarning: (jobId, warning) => {
+        const state = get();
+        const job = state.generationJobs[jobId];
+        if (!job) return false;
+        const warnings = [...(job.warnings ?? []), warning].slice(-100);
+        set({ generationJobs: { ...state.generationJobs, [jobId]: { ...job, warnings } } });
+        return true;
+      },
       setGenerationMetadata: (jobId, patch) => {
         const state = get();
         const job = activeCurrentJob(state, jobId);
@@ -703,7 +740,6 @@ export const useBrowserStore = create<BrowserState>()(
             ...job,
             artifactId: artifact.id,
             previewHtml: undefined,
-            previewRevision: undefined,
             usage: artifact.usage,
             status: "completed" as const,
             phase: "completed" as const,
@@ -825,16 +861,11 @@ export const useBrowserStore = create<BrowserState>()(
         if (!job || job.purpose !== "lucky-urls") return undefined;
         const urls = luckyUrlsFromArtifact(artifact);
         const now = new Date().toISOString();
-        const jobTabs = tabsForWorkspace(state, job.profileId);
-        const nextTabs = jobTabs.map((tab) => tab.id === job.tabId && tab.luckyJobId === jobId
-          ? { ...tab, luckyJobId: undefined }
-          : tab);
         set({
           generationJobs: {
             ...state.generationJobs,
             [jobId]: { ...job, status: "completed", phase: "completed", updatedAt: now },
           },
-          ...workspaceTabsPatch(state, job.profileId, nextTabs),
         });
         if (urls.length === 0) return undefined;
         return urls[Math.floor(Math.random() * urls.length)];
@@ -846,7 +877,7 @@ export const useBrowserStore = create<BrowserState>()(
         const jobTabs = tabsForWorkspace(state, job.profileId);
         const nextTabs = jobTabs.map((tab) => {
           if (job.purpose === "lucky-urls") {
-            return tab.id === job.tabId && tab.luckyJobId === jobId ? { ...tab, luckyJobId: undefined } : tab;
+            return tab;
           }
           return tab.id === job.tabId && tab.generationJobId === jobId
             ? { ...tab, fallbackArtifactId: undefined, loadState: "error" as const }
@@ -1006,6 +1037,13 @@ export const useBrowserStore = create<BrowserState>()(
             capabilities: { ...state.generationSettings.capabilities, ...patch },
           },
         })),
+      patchVoiceSettings: (patch) =>
+        set((state) => ({
+          generationSettings: {
+            ...state.generationSettings,
+            voice: { ...state.generationSettings.voice, ...patch },
+          },
+        })),
       patchPrivacySettings: (patch) =>
         set((state) => ({
           generationSettings: {
@@ -1023,7 +1061,7 @@ export const useBrowserStore = create<BrowserState>()(
         }
         const id = createId("tab");
         const location = `vibe://settings/${section}`;
-        const tab = makeTab({ id, title: "Settings", location, kind: "settings", favicon: "⚙" });
+        const tab = makeTab({ id, title: "Settings", location, kind: "settings", favicon: systemFavicon("settings") });
         set({ tabs: [...state.tabs, tab], activeTabId: id });
         return id;
       },
@@ -1035,7 +1073,38 @@ export const useBrowserStore = create<BrowserState>()(
           return existing.id;
         }
         const id = createId("tab");
-        const tab = makeTab({ id, title: "History", location: "vibe://history", kind: "history", favicon: "◷" });
+        const tab = makeTab({ id, title: "History", location: "vibe://history", kind: "history", favicon: systemFavicon("history") });
+        set({ tabs: [...state.tabs, tab], activeTabId: id });
+        return id;
+      },
+      openActivity: (jobId) => {
+        const state = get();
+        const location = jobId ? `vibe://activity?job=${encodeURIComponent(jobId)}` : "vibe://activity";
+        const existing = state.tabs.find((tab) => tab.kind === "activity");
+        if (existing) {
+          const patch = { location, title: "Generation activity" };
+          set({
+            activeTabId: existing.id,
+            tabs: state.tabs.map((tab) => tab.id === existing.id
+              ? { ...tab, ...patch, history: patchCurrentHistory(tab, patch) }
+              : tab),
+          });
+          return existing.id;
+        }
+        const id = createId("tab");
+        const tab = makeTab({ id, title: "Generation activity", location, kind: "activity", favicon: systemFavicon("activity") });
+        set({ tabs: [...state.tabs, tab], activeTabId: id });
+        return id;
+      },
+      openCapabilities: () => {
+        const state = get();
+        const existing = state.tabs.find((tab) => tab.kind === "capabilities");
+        if (existing) {
+          set({ activeTabId: existing.id });
+          return existing.id;
+        }
+        const id = createId("tab");
+        const tab = makeTab({ id, title: "Capability lab", location: "vibe://capabilities", kind: "capabilities", favicon: systemFavicon("capabilities") });
         set({ tabs: [...state.tabs, tab], activeTabId: id });
         return id;
       },
@@ -1293,7 +1362,7 @@ export const useBrowserStore = create<BrowserState>()(
     }),
     {
       name: "vibesurfer-browser-state",
-      version: 11,
+      version: 12,
       migrate: (persistedState, version) => migrateBrowserState(persistedState, version) as BrowserState,
       partialize: (state) => ({
         tabs: state.preferences.reopenSession ? state.tabs : initialTabs,
@@ -1985,7 +2054,7 @@ function migrateProfileWorkspace(value: unknown, profile: BrowserProfile): Profi
       theme: profile.chromeSkin,
     } as BrowserPreferences,
     codexSelection: migrateCodexSelection(value.codexSelection),
-    generationSettings: migrateGenerationSettings(value.generationSettings, 11),
+    generationSettings: migrateGenerationSettings(value.generationSettings, 12),
   };
 }
 
@@ -2120,7 +2189,7 @@ function migrateTab(value: unknown, index: number, generationJobs: Record<string
     id,
     title,
     location,
-    favicon: faviconSourceValue(source.favicon),
+    favicon: migrateSystemFavicon(kind, faviconSourceValue(source.favicon)),
     kind,
     prompt: optionalString(source.prompt),
     virtualLocation,
@@ -2213,6 +2282,7 @@ function migrateGenerationSettings(value: unknown, version: number): GenerationS
   const style = isRecord(source.style) ? source.style : {};
   const images = isRecord(source.images) ? source.images : {};
   const capabilities = isRecord(source.capabilities) ? source.capabilities : {};
+  const voice = isRecord(source.voice) ? source.voice : {};
   const privacy = isRecord(source.privacy) ? source.privacy : {};
   const imageProvider = images.provider === "off" ? "off" : "tag-placeholder";
   const imagesEnabled = (booleanValue(images.enabled) ?? DEFAULT_GENERATION_SETTINGS.images.enabled)
@@ -2252,6 +2322,14 @@ function migrateGenerationSettings(value: unknown, version: number): GenerationS
         ?? DEFAULT_GENERATION_SETTINGS.capabilities.externalMediaEnabled,
       experimentalEnabled: booleanValue(capabilities.experimentalEnabled)
         ?? DEFAULT_GENERATION_SETTINGS.capabilities.experimentalEnabled,
+    },
+    voice: {
+      engine: voice.engine === "system" || voice.engine === "cloud" ? voice.engine : "local",
+      provider: voice.provider === "elevenlabs" || voice.provider === "deepgram" ? voice.provider : "openai",
+      model: optionalString(voice.model) ?? DEFAULT_GENERATION_SETTINGS.voice.model,
+      voice: optionalString(voice.voice) ?? DEFAULT_GENERATION_SETTINGS.voice.voice,
+      speed: Math.min(1.5, Math.max(0.6, numberValue(voice.speed) ?? DEFAULT_GENERATION_SETTINGS.voice.speed)),
+      musicEnabled: booleanValue(voice.musicEnabled) ?? DEFAULT_GENERATION_SETTINGS.voice.musicEnabled,
     },
     privacy: {
       includeNavigationHistory: booleanValue(privacy.includeNavigationHistory)
@@ -2323,12 +2401,23 @@ function openerValue(value: unknown): TabOpenerContext | undefined {
 }
 
 function tabKind(value: unknown, location: string): TabKind {
-  if (value === "new-tab" || value === "remote" || value === "generated" || value === "settings" || value === "history") return value;
+  if (value === "new-tab" || value === "remote" || value === "generated" || value === "settings" || value === "history" || value === "activity" || value === "capabilities") return value;
   if (location === "vibe://new-tab") return "new-tab";
   if (location === "vibe://history") return "history";
   if (location.startsWith("vibe://settings")) return "settings";
+  if (location.startsWith("vibe://activity")) return "activity";
+  if (location === "vibe://capabilities") return "capabilities";
   if (location.startsWith("vibe://generated")) return "generated";
   return normalizeVirtualUrl(location) ? "remote" : "generated";
+}
+
+function migrateSystemFavicon(kind: TabKind, favicon: FaviconSource | undefined): FaviconSource | undefined {
+  if (kind === "new-tab" && (!favicon || favicon === "✦")) return systemFavicon("new-tab");
+  if (kind === "settings" && (!favicon || favicon === "⚙")) return systemFavicon("settings");
+  if (kind === "history" && (!favicon || favicon === "◷")) return systemFavicon("history");
+  if (kind === "activity") return systemFavicon("activity");
+  if (kind === "capabilities") return systemFavicon("capabilities");
+  return favicon;
 }
 
 function loadStateValue(value: unknown): BrowserTab["loadState"] {

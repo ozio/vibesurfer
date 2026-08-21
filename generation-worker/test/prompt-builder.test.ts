@@ -116,6 +116,8 @@ describe("two-stage prompt layering", () => {
     expect(bundle.prompt).toContain("local-dom-scripts");
     expect(bundle.prompt).toContain("unknown hostname");
     expect(bundle.prompt).toContain("unusual, concrete entity");
+    expect(bundle.prompt).toContain("Select data-chart whenever");
+    expect(bundle.prompt).toContain("Select pseudo-video for the primary player on YouTube");
     for (const iconSet of ICON_SET_IDS) expect(bundle.prompt).toContain(`\"${iconSet}\"`);
     expect(bundle.prompt).not.toContain("Allowed semantic map:");
     expect(bundle.prompt).not.toContain("account-group-1");

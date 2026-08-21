@@ -7,6 +7,7 @@ import { motion } from "motion/react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { ContextMenu } from "radix-ui";
 import { useBrowserStore } from "../../store/browser-store";
+import { openBlankTabAndFocus } from "../../app/browser-actions";
 import type { BrowserTab, TabLayout } from "../../types/browser";
 import { Favicon } from "../ui/Favicon";
 import { IconButton } from "../ui/IconButton";
@@ -14,7 +15,6 @@ import { IconButton } from "../ui/IconButton";
 export function TabStrip({ orientation }: { orientation: TabLayout }) {
   const tabs = useBrowserStore((state) => state.tabs);
   const activeTabId = useBrowserStore((state) => state.activeTabId);
-  const addTab = useBrowserStore((state) => state.addTab);
   const animations = useBrowserStore((state) => state.preferences.animations);
   const theme = useBrowserStore((state) => state.preferences.theme);
   const itemsRef = useRef<HTMLDivElement>(null);
@@ -145,7 +145,7 @@ export function TabStrip({ orientation }: { orientation: TabLayout }) {
           <ChevronRight aria-hidden="true" />
         </IconButton>
       )}
-      <IconButton className="new-tab-button" label="New tab" onClick={() => addTab()}>
+      <IconButton className="new-tab-button" label="New tab" onClick={() => openBlankTabAndFocus()}>
         <Plus aria-hidden="true" />
         {orientation === "vertical" && <span>New tab</span>}
       </IconButton>
@@ -170,7 +170,6 @@ function SortableTab({
 }) {
   const activeTabId = useBrowserStore((state) => state.activeTabId);
   const activateTab = useBrowserStore((state) => state.activateTab);
-  const addTab = useBrowserStore((state) => state.addTab);
   const closeTab = useBrowserStore((state) => state.closeTab);
   const reload = useBrowserStore((state) => state.reload);
   const canCloseOtherTabs = useBrowserStore((state) => state.tabs.length > 1);
@@ -238,7 +237,7 @@ function SortableTab({
           </ContextMenu.Item>
           <ContextMenu.Item
             className="menu__item"
-            onSelect={() => addTab(undefined, { opener: { tabId: tab.id, artifactId: tab.artifactId } })}
+            onSelect={() => openBlankTabAndFocus({ placement: "after-opener", opener: { tabId: tab.id, artifactId: tab.artifactId } })}
           >
             <Plus aria-hidden="true" /><span>New tab to the right</span>
           </ContextMenu.Item>

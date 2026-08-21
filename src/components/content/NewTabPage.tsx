@@ -96,14 +96,14 @@ const portals: Record<ThemeId, PortalCopy> = {
     ],
   },
   "ie-classic": {
-    eyebrow: "VIBESURFER INTERNET DIRECTORY",
-    title: ["Explore the World", "Wide Elseweb"],
-    lede: "Type a Web address, search for something nobody has found, or select a channel below.",
-    placeholder: "Search the Elseweb",
-    inputLabel: "Search the Elseweb or enter an address",
-    signal: "Internet zone",
-    status: "Directory last updated 08/14/2001",
-    footer: "Best experienced at 800 × 600 with imagination enabled.",
+    eyebrow: "",
+    title: ["Explore", "Hallunet"],
+    lede: "",
+    placeholder: "Search Hallunet",
+    inputLabel: "Search Hallunet or enter an address",
+    signal: "",
+    status: "",
+    footer: "",
     routesLabel: "Featured channels",
     icon: Search,
     routes: [
@@ -161,6 +161,7 @@ export function NewTabPage() {
   const animations = useBrowserStore((state) => state.preferences.animations);
   const navigate = useBrowserStore((state) => state.navigate);
   const discoverLucky = useBrowserStore((state) => state.discoverLucky);
+  const openActivity = useBrowserStore((state) => state.openActivity);
   const luckyJob = useBrowserStore((state) => {
     const tab = state.tabs.find((item) => item.id === state.activeTabId);
     return tab?.luckyJobId ? state.generationJobs[tab.luckyJobId] : undefined;
@@ -171,6 +172,8 @@ export function NewTabPage() {
   const isRussian = useMemo(() => typeof navigator !== "undefined" && /^ru(?:-|$)/i.test(navigator.language), []);
   const search = searchPortal(theme, isRussian);
   const luckyBusy = luckyJob?.status === "queued" || luckyJob?.status === "running";
+  const luckyFailed = luckyJob?.status === "failed";
+  const luckyEmpty = luckyJob?.status === "completed";
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault();
@@ -193,13 +196,13 @@ export function NewTabPage() {
           <motion.div className="new-tab-page__mark" initial={animations ? { opacity: 0, y: -8 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: animations ? 0.28 : 0 }}>
             <img src="/brand/vibesurfer-logo.png" alt="vibesurfer" />
           </motion.div>
-          <span className="new-tab-page__signal"><Radio aria-hidden="true" />{portal.signal}</span>
+          {portal.signal && <span className="new-tab-page__signal"><Radio aria-hidden="true" />{portal.signal}</span>}
         </header>
 
         <div className="new-tab-page__hero">
-          <p className="new-tab-page__eyebrow">{portal.eyebrow}</p>
+          {portal.eyebrow && <p className="new-tab-page__eyebrow">{portal.eyebrow}</p>}
           <h1>{portal.title[0]}<span>{portal.title[1]}</span></h1>
-          <p className="new-tab-page__lede">{portal.lede}</p>
+          {portal.lede && <p className="new-tab-page__lede">{portal.lede}</p>}
         </div>
 
         <form className="generation-composer" onSubmit={submit}>
@@ -220,12 +223,27 @@ export function NewTabPage() {
             disabled={luckyBusy}
           >
             <Sparkles aria-hidden="true" />
-            <span>{luckyBusy ? (isRussian ? "Ищем путь…" : "Finding a route…") : (isRussian ? "Мне повезёт" : "I’m Feeling Lucky")}</span>
+            <span>{luckyBusy
+              ? (isRussian ? "Ищем путь…" : "Finding a route…")
+              : luckyFailed || luckyEmpty
+                ? (isRussian ? "Попробовать снова" : "Try again")
+                : (isRussian ? "Мне повезёт" : "I’m Feeling Lucky")}</span>
           </button>
           <button className="generation-composer__submit" type="submit" aria-label="Open address" disabled={!address.trim()}>
             <ArrowRight aria-hidden="true" />
           </button>
         </form>
+
+        {(luckyFailed || luckyEmpty) && luckyJob && (
+          <div className="lucky-outcome" role="status">
+            <span>{luckyFailed
+              ? luckyJob.error?.message ?? (isRussian ? "Не удалось найти путь." : "A route could not be found.")
+              : (isRussian ? "В этот раз подходящих адресов не нашлось." : "No safe destinations were returned this time.")}</span>
+            <button type="button" onClick={() => openActivity(luckyJob.id)}>
+              {isRussian ? "Открыть журнал" : "Open activity"}
+            </button>
+          </div>
+        )}
 
         <section className="hallunet-routes" aria-label={portal.routesLabel}>
           <div className="hallunet-routes__heading">
@@ -248,10 +266,12 @@ export function NewTabPage() {
         </section>
       </div>
 
-      <footer className="new-tab-page__principles">
-        <span><CircleDot aria-hidden="true" />{portal.status}</span>
-        <span>{portal.footer}</span>
-      </footer>
+      {(portal.status || portal.footer) && (
+        <footer className="new-tab-page__principles">
+          {portal.status && <span><CircleDot aria-hidden="true" />{portal.status}</span>}
+          {portal.footer && <span>{portal.footer}</span>}
+        </footer>
+      )}
     </motion.section>
   );
 }
@@ -259,9 +279,7 @@ export function NewTabPage() {
 export function searchPortal(theme: ThemeId, russian: boolean): { name: string; url: (query: string) => string } {
   const encoded = (query: string) => encodeURIComponent(query);
   if (theme === "ie-classic") {
-    return russian
-      ? { name: "Rambler", url: (query) => `https://www.rambler.ru/search?query=${encoded(query)}` }
-      : { name: "MSN Search", url: (query) => `https://www.msn.com/search?q=${encoded(query)}` };
+    return { name: "MSN Search", url: (query) => `https://www.msn.com/search?q=${encoded(query)}` };
   }
   if (theme === "cyberpunk") {
     return { name: "NEXUS FIND", url: (query) => `https://search.nexus.city/query?q=${encoded(query)}` };
