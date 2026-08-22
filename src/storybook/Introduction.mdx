@@ -93,3 +93,9 @@ Right-side controls use the same component boundary. `ModelPicker` and `ModelOpt
 `NewTabSurface` is controlled and composes `NewTabComposer`, `NewTabLuckyOutcome`, `NewTabRouteCard`, and `NewTabFooter`. `HistorySurface` and `ActivitySurface` use the common primitive layer for actions, rows, filters, progress, empty states, JSON, status, and confirmation. Their connected page wrappers translate Zustand and host records into props.
 
 The security and runtime boundary is intentional: document compilation, iframe identity, the private `MessageChannel`, incremental render payloads, dynamic-region actions, local media, SQLite activity pagination, and persistence hydration remain in application controllers. Do not move them into a storyable surface component or the generic UI entry point.
+
+## Settings pattern layer
+
+`src/components/settings/index.ts` exports the reusable settings presentation boundary. `SettingsShell` and `SettingsSidebar` own the fixed navigation and independently scrolling content regions; their controlled search filters labels, IDs, and explicit keywords, supports Escape and first-result Enter, and documents empty results. `SettingsHeading`, `SettingsGroup`, `SettingRow`, and `SettingSwitchRow` provide the common content grammar, while `SettingsLayoutOptions` supplies radio-group keyboard behavior.
+
+Provider, model, profile, runtime, privacy, architecture, danger, and license components accept data and callbacks only. The connected settings sections continue to own Zustand selectors, browser commands, profile revision semantics, Rust host calls, Keychain-backed credentials, persistence deletion, and external navigation. Stories must use the pure patterns and injected spies; they must never verify a real credential, delete a profile, or open a source URL.

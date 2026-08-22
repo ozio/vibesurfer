@@ -1368,13 +1368,19 @@
   border: 1px solid #aca899;
 }
 
-:root[data-theme="ie-classic"] .settings-group > h2 {
+:root[data-theme="ie-classic"] .settings-group > h2,
+:root[data-theme="ie-classic"] .settings-group__heading {
   position: absolute;
   top: -8px;
   left: 8px;
   margin: 0;
   padding: 0 5px;
   background: #f5f4ec;
+  font-size: 10.5px;
+  font-weight: 400;
+}
+
+:root[data-theme="ie-classic"] .settings-group__heading h2 {
   font-size: 10.5px;
   font-weight: 400;
 }
@@ -1472,7 +1478,8 @@
   border-radius: 0;
 }
 
-:root[data-theme="ie-classic"] .segmented-control button.is-active {
+:root[data-theme="ie-classic"] .segmented-control button.is-active,
+:root[data-theme="ie-classic"] .segmented-control button[data-state="checked"] {
   border-color: #ffffff #716f64 #716f64 #ffffff;
   background: #ece9d8;
   box-shadow: inset 1px 1px #ffffff, inset -1px -1px #aca899;

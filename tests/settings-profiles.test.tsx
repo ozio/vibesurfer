@@ -96,7 +96,7 @@ describe("generation settings", () => {
     expect(useBrowserStore.getState().generationSettings.style).toMatchObject({ tailwindEnabled: false, allowGeneratedScripts: true });
 
     const dynamicControl = screen.getByLabelText("Dynamic update mode");
-    fireEvent.click(within(dynamicControl).getByRole("button", { name: "Off" }));
+    fireEvent.click(within(dynamicControl).getByRole("radio", { name: "Off" }));
     expect(useBrowserStore.getState().generationSettings.dynamicMode).toBe("off");
   });
 });

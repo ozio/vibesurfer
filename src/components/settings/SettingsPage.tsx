@@ -1,10 +1,9 @@
-import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   BadgeInfo,
   Bot,
   Bug,
   Check,
-  ChevronRight,
   CircleUserRound,
   Columns3,
   Globe2,
@@ -14,17 +13,14 @@ import {
   MonitorCog,
   RefreshCw,
   Play,
-  Search,
   Settings2,
   ShieldCheck,
   Sparkles,
   TriangleAlert,
-  Trash2,
   WandSparkles,
   Zap,
 } from "lucide-react";
-import { Switch } from "radix-ui";
-import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useBrowserCommand } from "../../browser/browser-command-registry";
 import { useBrowserServices } from "../../browser/browser-services";
 import { MODELS, PROFILE_PRESETS, THEME_LABELS } from "../../data/catalog";
@@ -50,17 +46,35 @@ import {
 } from "../../media/media-host-api";
 import { useBrowserStore } from "../../store/browser-store";
 import type { Density, DynamicMode, ProviderConnection, ProviderKind, TabLayout, ThemeId } from "../../types/browser";
-import { ConfirmDialog } from "../ui/Dialog";
+import {
+  SettingSwitchRow,
+  SettingsArchitectureCard,
+  SettingsConnectionCard,
+  SettingsDangerAction,
+  SettingsGroup,
+  SettingsHeading,
+  SettingsLayoutOptions,
+  SettingsLicenses,
+  SettingsModelCard,
+  SettingsPrivacyCard,
+  SettingsProfileCard,
+  SettingsProviderCard,
+  SettingsProviderEmpty,
+  SettingsRuntimeCard,
+  SettingsShell,
+  type SettingsLicenseNotice,
+} from "./SettingsPatterns";
+import { Button, ConfirmDialog, SegmentedControl } from "../ui";
 
-const sections = [
-  { id: "general", label: "General", icon: Settings2 },
-  { id: "tabs", label: "Tabs", icon: Columns3 },
-  { id: "generation", label: "Generation", icon: WandSparkles },
-  { id: "models", label: "Models & Codex", icon: Bot },
-  { id: "profiles", label: "Profiles", icon: CircleUserRound },
-  { id: "browser", label: "Web content", icon: Globe2 },
-  { id: "privacy", label: "Privacy", icon: ShieldCheck },
-  { id: "about", label: "About & Licenses", icon: BadgeInfo },
+export const SETTINGS_SECTIONS = [
+  { id: "general", label: "General", icon: Settings2, keywords: ["startup", "home", "session"] },
+  { id: "tabs", label: "Tabs", icon: Columns3, keywords: ["horizontal", "vertical", "layout"] },
+  { id: "generation", label: "Generation", icon: WandSparkles, keywords: ["capabilities", "images", "voice", "dynamic"] },
+  { id: "models", label: "Models & Codex", icon: Bot, keywords: ["provider", "credentials", "runtime", "key"] },
+  { id: "profiles", label: "Profiles", icon: CircleUserRound, keywords: ["identity", "theme", "density", "vibe"] },
+  { id: "browser", label: "Web content", icon: Globe2, keywords: ["sandbox", "iframe", "rendering"] },
+  { id: "privacy", label: "Privacy", icon: ShieldCheck, keywords: ["security", "credentials", "isolation"] },
+  { id: "about", label: "About & Licenses", icon: BadgeInfo, keywords: ["open source", "notices", "version"] },
 ] as const;
 
 export function SettingsPage() {
@@ -68,10 +82,7 @@ export function SettingsPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState("");
   const setSettingsSection = useBrowserStore((state) => state.setSettingsSection);
-  const section = sections.some((item) => item.id === params.section) ? params.section! : "general";
-  const visibleSections = searchQuery.trim()
-    ? sections.filter((item) => `${item.label} ${item.id}`.toLowerCase().includes(searchQuery.trim().toLowerCase()))
-    : sections;
+  const section = SETTINGS_SECTIONS.some((item) => item.id === params.section) ? params.section! : "general";
 
   const openSection = (id: string) => {
     setSettingsSection(id);
@@ -79,56 +90,15 @@ export function SettingsPage() {
   };
 
   return (
-    <div className="settings-page">
-      <aside className="settings-sidebar">
-        <div className="settings-sidebar__title"><MonitorCog aria-hidden="true" /><strong>Settings</strong></div>
-        <label className="settings-search">
-          <Search aria-hidden="true" />
-          <input
-            value={searchQuery}
-            placeholder="Search settings"
-            aria-label="Search settings"
-            aria-controls="settings-section-results"
-            onChange={(event) => setSearchQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") setSearchQuery("");
-              if (event.key === "Enter" && visibleSections[0]) {
-                event.preventDefault();
-                openSection(visibleSections[0].id);
-                setSearchQuery("");
-              }
-            }}
-          />
-        </label>
-        <nav aria-label="Settings sections">
-          <div id="settings-section-results" className="settings-section-results" aria-live="polite">
-            {visibleSections.map((item) => {
-              const Icon = item.icon;
-              return (
-                <NavLink
-                  key={item.id}
-                  to={`/settings/${item.id}`}
-                  className={section === item.id ? "is-active" : undefined}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    openSection(item.id);
-                    setSearchQuery("");
-                  }}
-                >
-                  <Icon aria-hidden="true" /><span>{item.label}</span><ChevronRight aria-hidden="true" />
-                </NavLink>
-              );
-            })}
-            {visibleSections.length === 0 && (
-              <p className="settings-search__empty">No matching settings</p>
-            )}
-          </div>
-        </nav>
-      </aside>
-      <main className="settings-content">
-        <SettingsSection section={section} />
-      </main>
-    </div>
+    <SettingsShell
+      sections={SETTINGS_SECTIONS}
+      activeSectionId={section}
+      query={searchQuery}
+      onQueryChange={setSearchQuery}
+      onSectionChange={openSection}
+    >
+      <SettingsSection section={section} />
+    </SettingsShell>
   );
 }
 
@@ -143,10 +113,6 @@ function SettingsSection({ section }: { section: string }) {
   return <GeneralSettings />;
 }
 
-function SettingsHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description?: string }) {
-  return <header className="settings-heading"><span>{eyebrow}</span><h1>{title}</h1>{description && <p>{description}</p>}</header>;
-}
-
 function TabSettings() {
   const preferences = useBrowserStore((state) => state.preferences);
   const horizontalTabs = useBrowserCommand("horizontal-tabs");
@@ -154,19 +120,20 @@ function TabSettings() {
   return (
     <>
       <SettingsHeading eyebrow="Workspace" title="Tabs" description="Use a Chrome-like strip or an Arc-like sidebar. Your order and active page stay intact." />
-      <section className="settings-group">
-        <h2>Tab layout</h2>
-        <div className="layout-options">
-          {(["horizontal", "vertical"] as TabLayout[]).map((layout) => (
-            <button key={layout} type="button" className={preferences.tabLayout === layout ? "is-active" : ""} onClick={(layout === "horizontal" ? horizontalTabs : verticalTabs).execute}>
-              <span className={`layout-preview layout-preview--${layout}`}><i /><i /><i /></span>
-              <span><strong>{layout === "horizontal" ? "Horizontal tabs" : "Vertical tabs"}</strong><small>{layout === "horizontal" ? "Familiar and space-efficient" : "Readable titles and quick scanning"}</small></span>
-              {preferences.tabLayout === layout && <Check aria-hidden="true" />}
-            </button>
-          ))}
-        </div>
-      </section>
-      <ToggleRow title="Restore the previous session" description="Reopen tabs and their order when vibesurfer starts." preference="reopenSession" />
+      <SettingsGroup title="Tab layout">
+        <SettingsLayoutOptions
+          label="Tab layout"
+          value={preferences.tabLayout}
+          options={(["horizontal", "vertical"] as TabLayout[]).map((layout) => ({
+            value: layout,
+            title: layout === "horizontal" ? "Horizontal tabs" : "Vertical tabs",
+            description: layout === "horizontal" ? "Familiar and space-efficient" : "Readable titles and quick scanning",
+            preview: <span className={`layout-preview layout-preview--${layout}`}><i /><i /><i /></span>,
+          }))}
+          onValueChange={(layout) => (layout === "horizontal" ? horizontalTabs : verticalTabs).execute()}
+        />
+      </SettingsGroup>
+      <PreferenceSwitchRow title="Restore the previous session" description="Reopen tabs and their order when vibesurfer starts." preference="reopenSession" />
     </>
   );
 }
@@ -265,18 +232,12 @@ function GenerationSettings() {
       />
       <section className="settings-group">
         <h2>Generation mode</h2>
-        <div className="segmented-control" aria-label="Page generation mode">
-          {(["full", "turbo"] as const).map((strategy) => (
-            <button
-              key={strategy}
-              className={settings.strategy === strategy ? "is-active" : ""}
-              type="button"
-              onClick={() => patchGenerationSettings({ strategy })}
-            >
-              {strategy === "full" ? "Full" : "Turbo"}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          label="Page generation mode"
+          value={settings.strategy}
+          options={[{ value: "full", label: "Full" }, { value: "turbo", label: "Turbo" }]}
+          onValueChange={(strategy) => patchGenerationSettings({ strategy: strategy as "full" | "turbo" })}
+        />
         <div className={`settings-callout settings-callout--compact${settings.strategy === "turbo" ? " is-turbo" : ""}`} role="note">
           {settings.strategy === "turbo" ? <Zap aria-hidden="true" /> : <WandSparkles aria-hidden="true" />}
           <span>
@@ -289,24 +250,20 @@ function GenerationSettings() {
       </section>
       <section className="settings-group">
         <h2>Live regions</h2>
-        <div className="segmented-control" aria-label="Dynamic update mode">
-          {(["off", "active", "always"] as DynamicMode[]).map((mode) => (
-            <button
-              key={mode}
-              className={settings.dynamicMode === mode ? "is-active" : ""}
-              type="button"
-              onClick={() => {
-                if (mode === "always" && settings.dynamicMode !== "always") {
-                  setConfirmAlwaysOpen(true);
-                } else {
-                  patchGenerationSettings({ dynamicMode: mode });
-                }
-              }}
-            >
-              {mode === "off" ? "Off" : mode === "active" ? "Active tab" : "Always"}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          label="Dynamic update mode"
+          value={settings.dynamicMode}
+          options={[
+            { value: "off", label: "Off" },
+            { value: "active", label: "Active tab" },
+            { value: "always", label: "Always" },
+          ]}
+          onValueChange={(value) => {
+            const mode = value as DynamicMode;
+            if (mode === "always" && settings.dynamicMode !== "always") setConfirmAlwaysOpen(true);
+            else patchGenerationSettings({ dynamicMode: mode });
+          }}
+        />
         <div className="settings-callout settings-callout--compact" role="note">
           <RefreshCw aria-hidden="true" />
           <span><strong>Host-mediated updates</strong><small>Manual cart, wishlist, chat, and refresh actions stay inside the private page bridge. Active tab pauses timers when VibeSurfer loses focus; Always keeps generated tabs current while the app runs.</small></span>
@@ -322,13 +279,13 @@ function GenerationSettings() {
       />
       <section className="settings-group">
         <h2>Artifact styling</h2>
-        <GenerationToggle
+        <SettingSwitchRow
           title="Compile Tailwind utilities"
           description="Require utility-first styling with the stock Tailwind set, then compile only classes used by the page. Exact inline CSS remains available for exceptional selectors and effects."
           checked={settings.style.tailwindEnabled}
           onCheckedChange={(tailwindEnabled) => patchStyleSettings({ tailwindEnabled })}
         />
-        <GenerationToggle
+        <SettingSwitchRow
           title="Allow generated JavaScript"
           description="Let calculators, converters, menus, tabs, filters, and dialogs work locally without generating another page. Applies only to newly generated pages."
           checked={settings.style.allowGeneratedScripts}
@@ -349,7 +306,7 @@ function GenerationSettings() {
           <p>Generated pages request small semantic features. VibeSurfer validates them and compiles trusted local implementations for charts, diagrams, slideshows, pseudo-video, speech and restrained patterns.</p>
           <p>The page itself cannot contact an origin, load scripts from a CDN, read credentials or call native APIs. These choices affect newly generated pages; existing artifacts remain unchanged until regenerated.</p>
         </details>
-        <GenerationToggle
+        <SettingSwitchRow
           title="Icon library"
           description="Let the Director choose one allowlisted local Iconify set. Selected icons are compiled to inline SVG before display."
           checked={settings.capabilities.iconsEnabled}
@@ -360,7 +317,7 @@ function GenerationSettings() {
           const checked = settings.capabilities.enabled[option.id] !== false
             && (!needsAudio || settings.capabilities.audioSpeechEnabled);
           return (
-            <GenerationToggle
+            <SettingSwitchRow
               key={option.id}
               title={option.title}
               description={`${option.description} ${option.execution === "compiler" ? "Compiled locally." : "Runs in the trusted page runtime."}`}
@@ -372,13 +329,13 @@ function GenerationSettings() {
             />
           );
         })}
-        <GenerationToggle
+        <SettingSwitchRow
           title="Allow configured external media providers"
           description="Permit licensed stock media only after a provider and credential are configured. Built-in capabilities remain fully offline."
           checked={settings.capabilities.externalMediaEnabled}
           onCheckedChange={(externalMediaEnabled) => patchCapabilitySettings({ externalMediaEnabled })}
         />
-        <GenerationToggle
+        <SettingSwitchRow
           title="Allow experimental capabilities"
           description="Permit explicitly configured experiments such as copyright-sensitive archives or real maps. No provider is enabled automatically."
           checked={settings.capabilities.experimentalEnabled}
@@ -393,7 +350,7 @@ function GenerationSettings() {
       </section>
       <section className="settings-group">
         <h2>Images</h2>
-        <GenerationToggle
+        <SettingSwitchRow
           title="Use LoremFlickr images"
           description="Resolve generated image intents into relevant LoremFlickr photos that load after the HTML."
           checked={settings.images.enabled
@@ -409,7 +366,7 @@ function GenerationSettings() {
       </section>
       <section className="settings-group voice-audio-settings">
         <h2>Voice &amp; Audio</h2>
-        <GenerationToggle title="Narration" description="Allow pseudo-video scenes to turn their visible narration text into seekable speech, captions, and transcript." checked={settings.capabilities.audioSpeechEnabled} onCheckedChange={(audioSpeechEnabled) => patchCapabilitySettings({ audioSpeechEnabled })} />
+        <SettingSwitchRow title="Narration" description="Allow pseudo-video scenes to turn their visible narration text into seekable speech, captions, and transcript." checked={settings.capabilities.audioSpeechEnabled} onCheckedChange={(audioSpeechEnabled) => patchCapabilitySettings({ audioSpeechEnabled })} />
         <label className="settings-field">
           <span><strong>Speech engine</strong><small>Russian automatically uses the macOS system voice because Kokoro has no Russian voice.</small></span>
           <select value={settings.voice.engine} onChange={(event) => {
@@ -447,7 +404,17 @@ function GenerationSettings() {
         <details className="settings-details">
           <summary>ElevenLabs media connections</summary>
           <div className="provider-list">
-            {mediaConnections.map((connection) => <article key={connection.id} className="provider-row"><span className={`provider-row__status provider-row__status--${connection.status}`} /><span><strong>{connection.displayName}</strong><small>{connection.voices.length} voices · profile scoped</small></span><button className="button" type="button" disabled={Boolean(mediaBusy)} onClick={() => void verifyMedia(connection)}><RefreshCw aria-hidden="true" /> Verify</button><button className="icon-danger" type="button" aria-label={`Remove ${connection.displayName}`} disabled={Boolean(mediaBusy)} onClick={() => void deleteMedia(connection)}><Trash2 aria-hidden="true" /></button></article>)}
+            {mediaConnections.map((connection) => (
+              <SettingsProviderCard
+                key={connection.id}
+                name={connection.displayName}
+                description={`${connection.voices.length} voices · profile scoped`}
+                status={connection.status}
+                busy={Boolean(mediaBusy)}
+                onVerify={() => void verifyMedia(connection)}
+                onRemove={() => void deleteMedia(connection)}
+              />
+            ))}
           </div>
           <form className="provider-form" onSubmit={(event) => void connectMedia(event)}>
             <div className="provider-form__grid"><label><span>Connection name</span><input value={mediaName} maxLength={120} onChange={(event) => setMediaName(event.target.value)} /></label><label><span>ElevenLabs API key</span><input type="password" value={mediaKey} autoComplete="off" onChange={(event) => setMediaKey(event.target.value)} /></label></div>
@@ -457,7 +424,7 @@ function GenerationSettings() {
       </section>
       <section className="settings-group">
         <h2>Continuity</h2>
-        <GenerationToggle
+        <SettingSwitchRow
           title="Include same-site navigation history"
           description="Give the model bounded summaries of previously generated pages so the imagined site stays coherent."
           checked={settings.privacy.includeNavigationHistory}
@@ -541,46 +508,43 @@ function ModelSettings() {
   return (
     <>
       <SettingsHeading eyebrow="Inference" title="Models & credentials" description="Choose a generation source, use your system ChatGPT session, or keep your own provider key in the operating-system credential vault." />
-      <section className="connection-card">
-        <span className="connection-card__mark"><Sparkles aria-hidden="true" /></span>
-        <span><strong>Codex (ChatGPT)</strong><small>{codex.state === "signed-in" ? `System ChatGPT session · ${codexSummary}` : "Use the ChatGPT session already available on this Mac."}</small></span>
-        <button className="button" type="button" onClick={() => window.dispatchEvent(new Event("vibesurfer:open-codex"))}>{codex.state === "signed-in" ? "Configure" : "Check sign-in"}</button>
-      </section>
-      <div className="runtime-strip" aria-label="Generation runtime status">
-        <span className={runtime?.workerAvailable || !isDesktop ? "is-ready" : undefined} />
-        <strong>{isDesktop ? (runtime?.workerAvailable ? "Worker ready" : loadingProviders ? "Checking worker…" : "Worker unavailable") : "Browser preview runtime"}</strong>
-        <small>{runtime?.workerDescription ?? (isDesktop ? "Build the generation worker to enable providers." : "Uses a deterministic, network-free mock provider.")}</small>
-      </div>
-      <section className="settings-group">
-        <h2>Default model</h2>
+      <SettingsConnectionCard
+        icon={<Sparkles />}
+        title="Codex (ChatGPT)"
+        description={codex.state === "signed-in" ? `System ChatGPT session · ${codexSummary}` : "Use the ChatGPT session already available on this Mac."}
+        action={<Button size="small" onClick={() => window.dispatchEvent(new Event("vibesurfer:open-codex"))}>{codex.state === "signed-in" ? "Configure" : "Check sign-in"}</Button>}
+      />
+      <SettingsRuntimeCard
+        state={!isDesktop ? "preview" : runtime?.workerAvailable ? "ready" : loadingProviders ? "checking" : "unavailable"}
+        title={isDesktop ? (runtime?.workerAvailable ? "Worker ready" : loadingProviders ? "Checking worker…" : "Worker unavailable") : "Browser preview runtime"}
+        description={runtime?.workerDescription ?? (isDesktop ? "Build the generation worker to enable providers." : "Uses a deterministic, network-free mock provider.")}
+      />
+      <SettingsGroup title="Default model">
         <div className="settings-model-list">
           {MODELS.map((model) => (
-            <button
+            <SettingsModelCard
               key={model.id}
-              type="button"
+              icon={model.group === "local" ? <MonitorCog aria-hidden="true" /> : <Sparkles aria-hidden="true" />}
+              title={model.name}
+              description={`${model.provider} · ${model.description}`}
               disabled={!model.available}
-              className={activeModelId === model.id ? "is-active" : ""}
-              onClick={() => model.requiresCodex ? window.dispatchEvent(new Event("vibesurfer:open-codex")) : setModel(model.id)}
-            >
-              <span className="settings-model-list__icon">{model.group === "local" ? <MonitorCog aria-hidden="true" /> : <Sparkles aria-hidden="true" />}</span>
-              <span><strong>{model.name}</strong><small>{model.provider} · {model.description}</small></span>
-              {!model.available ? <em>Not configured</em> : activeModelId === model.id ? <Check aria-hidden="true" /> : model.requiresCodex ? <em>Configure</em> : null}
-            </button>
+              selected={activeModelId === model.id}
+              trailing={!model.available ? <em>Not configured</em> : activeModelId === model.id ? undefined : model.requiresCodex ? <em>Configure</em> : null}
+              onSelect={() => model.requiresCodex ? window.dispatchEvent(new Event("vibesurfer:open-codex")) : setModel(model.id)}
+            />
           ))}
           {customModels.map(({ id, connection }) => (
-            <button
+            <SettingsModelCard
               key={`${connection.id}:${id}`}
-              type="button"
-              className={activeModelId === id ? "is-active" : ""}
-              onClick={() => setModel(id)}
-            >
-              <span className="settings-model-list__icon"><KeyRound aria-hidden="true" /></span>
-              <span><strong>{displayModelId(id)}</strong><small>{connection.displayName} · bring your own key</small></span>
-              {activeModelId === id ? <Check aria-hidden="true" /> : null}
-            </button>
+              icon={<KeyRound aria-hidden="true" />}
+              title={displayModelId(id)}
+              description={`${connection.displayName} · bring your own key`}
+              selected={activeModelId === id}
+              onSelect={() => setModel(id)}
+            />
           ))}
         </div>
-      </section>
+      </SettingsGroup>
       <ProviderConnections
         profileId={activeProfileId}
         connections={providerConnections}
@@ -707,27 +671,18 @@ function ProviderConnections({
     <section className="settings-group provider-settings">
       <h2>Bring your own key</h2>
       <div className="provider-list">
-        {connections.length === 0 ? (
-          <div className="provider-list__empty"><KeyRound aria-hidden="true" /><span><strong>No provider keys in this profile</strong><small>Keys are stored in Keychain, Credential Manager, or the platform secret service—not localStorage.</small></span></div>
-        ) : connections.map((connection) => (
-          <article key={connection.id} className="provider-row">
-            <span className={`provider-row__status provider-row__status--${connection.status}`} />
-            <span><strong>{connection.displayName}</strong><small>{connection.kind} · {connection.modelIds.map(displayModelId).join(", ") || "No models"}</small></span>
-            {connection.kind === "openai-compatible" && (
-              <select
-                className="provider-row__mode"
-                aria-label={`Compatibility check for ${connection.displayName}`}
-                value={connection.generationMode ?? "compact"}
-                disabled={Boolean(busyId)}
-                onChange={(event) => void changeGenerationMode(connection, event.target.value as "compact" | "directed")}
-              >
-                <option value="compact">Plain text verify</option>
-                <option value="directed">Structured verify</option>
-              </select>
-            )}
-            <button className="button" type="button" disabled={Boolean(busyId)} onClick={() => void verify(connection)}><RefreshCw aria-hidden="true" /> Verify</button>
-            <button className="icon-danger" type="button" aria-label={`Remove ${connection.displayName}`} disabled={Boolean(busyId)} onClick={() => void remove(connection)}><Trash2 aria-hidden="true" /></button>
-          </article>
+        {connections.length === 0 ? <SettingsProviderEmpty /> : connections.map((connection) => (
+          <SettingsProviderCard
+            key={connection.id}
+            name={connection.displayName}
+            description={`${connection.kind} · ${connection.modelIds.map(displayModelId).join(", ") || "No models"}`}
+            status={connection.status}
+            busy={Boolean(busyId)}
+            mode={connection.kind === "openai-compatible" ? connection.generationMode ?? "compact" : undefined}
+            onModeChange={connection.kind === "openai-compatible" ? (nextMode) => void changeGenerationMode(connection, nextMode) : undefined}
+            onVerify={() => void verify(connection)}
+            onRemove={() => void remove(connection)}
+          />
         ))}
       </div>
       <form className="provider-form" onSubmit={(event) => void submit(event)}>
@@ -803,13 +758,17 @@ function ProfileSettings() {
       <SettingsHeading eyebrow="Identity" title="Profiles" description="Each profile is a complete browser workspace with its own appearance, vibe, tabs, model settings, history, sites, and connections." />
       <div className="profile-settings-list">
         {profiles.map((item) => (
-          <button key={item.id} type="button" className={item.id === activeProfileId ? "is-active" : ""} onClick={() => {
-            setProfile(item.id);
-            useBrowserStore.getState().openSettings("profiles");
-          }}>
-            <span className="avatar avatar--large">{item.avatar}</span><span><strong>{item.name}</strong><small>{THEME_LABELS[item.chromeSkin].name} · prompt r{item.worldPrompt.revision}</small></span>
-            {item.id === activeProfileId && <Check aria-hidden="true" />}
-          </button>
+          <SettingsProfileCard
+            key={item.id}
+            avatar={item.avatar}
+            title={item.name}
+            description={`${THEME_LABELS[item.chromeSkin].name} · prompt r${item.worldPrompt.revision}`}
+            selected={item.id === activeProfileId}
+            onSelect={() => {
+              setProfile(item.id);
+              useBrowserStore.getState().openSettings("profiles");
+            }}
+          />
         ))}
       </div>
       <section className="settings-group">
@@ -822,12 +781,13 @@ function ProfileSettings() {
       </section>
       <section className="settings-group">
         <h2>Appearance</h2>
-        <div className="segmented-control" aria-label="Interface density">
-          {(["comfortable", "compact"] as Density[]).map((density) => (
-            <button key={density} className={preferences.density === density ? "is-active" : ""} type="button" onClick={() => setDensity(density)}>{density}</button>
-          ))}
-        </div>
-        <ToggleRow title="Interface animations" description="Animate browser chrome and allow suitable motion in newly generated pages." preference="animations" />
+        <SegmentedControl
+          label="Interface density"
+          value={preferences.density}
+          options={(["comfortable", "compact"] as Density[]).map((density) => ({ value: density, label: density }))}
+          onValueChange={(density) => setDensity(density as Density)}
+        />
+        <PreferenceSwitchRow title="Interface animations" description="Animate browser chrome and allow suitable motion in newly generated pages." preference="animations" />
       </section>
       <section className="settings-group">
         <h2>Vibe</h2>
@@ -878,29 +838,24 @@ function ProfileSettings() {
             <TriangleAlert aria-hidden="true" /><span><strong>Profile action failed</strong><small>{profileActionError}</small></span>
           </div>
         )}
-        <div className="setting-row">
-          <span><strong>Start profile from scratch</strong><small>Closes all tabs and archives every active SiteWorld. History and static artifacts are preserved.</small></span>
-          <ConfirmDialog
-            trigger={<button className="button icon-danger" type="button">Start from scratch</button>}
-            title="Start this profile from scratch?"
-            description="Every active SiteWorld will be archived and all tabs will close. History and static artifacts are preserved."
-            confirmLabel="Archive and restart"
-            destructive
-            onConfirm={() => void resetCurrentProfile()}
-          />
-        </div>
-        <div className="setting-row">
-          <span><strong>Delete profile</strong><small>Removes its workspace, sites, artifacts, jobs, provider and media connections, and cached media. The last profile cannot be deleted.</small></span>
-          <ConfirmDialog
-            trigger={<button className="button icon-danger" type="button" disabled={profiles.length <= 1}>Delete profile</button>}
-            title={`Delete ${profile.name}?`}
-            description="This removes the profile workspace, sites, artifacts, jobs, connections, and cached media. This action cannot be undone."
-            confirmLabel="Delete profile"
-            destructive
-            disabled={profiles.length <= 1}
-            onConfirm={() => void removeCurrentProfile()}
-          />
-        </div>
+        <SettingsDangerAction
+          title="Start profile from scratch"
+          description="Closes all tabs and archives every active SiteWorld. History and static artifacts are preserved."
+          actionLabel="Start from scratch"
+          dialogTitle="Start this profile from scratch?"
+          dialogDescription="Every active SiteWorld will be archived and all tabs will close. History and static artifacts are preserved."
+          confirmLabel="Archive and restart"
+          onConfirm={() => void resetCurrentProfile()}
+        />
+        <SettingsDangerAction
+          title="Delete profile"
+          description="Removes its workspace, sites, artifacts, jobs, provider and media connections, and cached media. The last profile cannot be deleted."
+          actionLabel="Delete profile"
+          dialogTitle={`Delete ${profile.name}?`}
+          dialogDescription="This removes the profile workspace, sites, artifacts, jobs, connections, and cached media. This action cannot be undone."
+          disabled={profiles.length <= 1}
+          onConfirm={() => void removeCurrentProfile()}
+        />
       </section>
     </>
   );
@@ -910,11 +865,10 @@ function WebContentSettings() {
   return (
     <>
       <SettingsHeading eyebrow="Rendering" title="Web content" description="Pages and arbitrary web content use separate rendering boundaries." />
-      <section className="architecture-card">
-        <div><span>React chrome</span><strong>Tabs, omnibox, menus</strong></div>
-        <ChevronRight aria-hidden="true" />
-        <div><span>Page surface</span><strong>Opaque sandboxed iframe</strong></div>
-      </section>
+      <SettingsArchitectureCard nodes={[
+        { label: "React chrome", title: "Tabs, omnibox, menus" },
+        { label: "Page surface", title: "Opaque sandboxed iframe" },
+      ]} />
       <div className="settings-callout"><LockKeyhole aria-hidden="true" /><span><strong>Isolated page runtime</strong><small>Links and forms navigate through the browser while page content stays separate from application data and native APIs.</small></span></div>
       <div className="settings-callout"><Globe2 aria-hidden="true" /><span><strong>Live web is explicit</strong><small>Addresses generate artifacts without contacting their origin. The live site opens only when you choose the external-browser command.</small></span></div>
     </>
@@ -926,8 +880,8 @@ function PrivacySettings() {
     <>
       <SettingsHeading eyebrow="Boundaries" title="Privacy" description="Page content never receives browser capabilities or model credentials." />
       <div className="privacy-grid">
-        <article><ShieldCheck aria-hidden="true" /><h2>Sandboxed artifacts</h2><p>Generated pages run without Tauri IPC and cannot reach provider tokens.</p></article>
-        <article><LockKeyhole aria-hidden="true" /><h2>Profile-scoped identity</h2><p>Codex and provider connections belong to a browser profile, not an individual tab.</p></article>
+        <SettingsPrivacyCard icon={<ShieldCheck aria-hidden="true" />} title="Sandboxed artifacts" description="Generated pages run without Tauri IPC and cannot reach provider tokens." />
+        <SettingsPrivacyCard icon={<LockKeyhole aria-hidden="true" />} title="Profile-scoped identity" description="Codex and provider connections belong to a browser profile, not an individual tab." />
       </div>
     </>
   );
@@ -936,30 +890,18 @@ function PrivacySettings() {
 function AboutSettings() {
   const services = useBrowserServices();
   const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  const notices = normalizedQuery
-    ? thirdPartyNotices.notices.filter((notice) => `${notice.name} ${notice.version} ${notice.license} ${notice.surfaces.join(" ")}`.toLowerCase().includes(normalizedQuery))
-    : thirdPartyNotices.notices;
   return (
     <>
       <SettingsHeading eyebrow={`VibeSurfer ${thirdPartyNotices.appVersion}`} title="About & Licenses" description="The browser, generation sidecar, packaged fonts, icon collections, and built-in capability renderers are distributed with the notices below." />
-      <section className="settings-group">
-        <h2>Open-source software</h2>
-        <label className="license-search">
-          <Search aria-hidden="true" />
-          <input value={query} placeholder={`Search ${thirdPartyNotices.notices.length.toLocaleString()} notices`} aria-label="Search open-source notices" onChange={(event) => setQuery(event.target.value)} />
-        </label>
-        <p className="license-summary">Showing {notices.length.toLocaleString()} of {thirdPartyNotices.notices.length.toLocaleString()} packaged notices. Font files are distributed under the SIL Open Font License 1.1.</p>
-        <div className="license-list">
-          {notices.map((notice) => (
-            <article key={notice.id} className="license-row">
-              <span><strong>{notice.name}</strong><small>{notice.version} · {notice.surfaces.join(" · ")}</small></span>
-              <span className="license-row__meta"><code>{notice.license}</code><button type="button" onClick={() => void services.external.open(notice.source)}>Source</button></span>
-            </article>
-          ))}
-          {notices.length === 0 && <p className="settings-search__empty">No matching library or license</p>}
-        </div>
-      </section>
+      <SettingsGroup title="Open-source software">
+        <SettingsLicenses
+          notices={thirdPartyNotices.notices}
+          query={query}
+          onQueryChange={setQuery}
+          summary={(visibleCount, totalCount) => `Showing ${visibleCount.toLocaleString()} of ${totalCount.toLocaleString()} packaged notices. Font files are distributed under the SIL Open Font License 1.1.`}
+          onOpenSource={(notice: SettingsLicenseNotice) => void services.external.open(notice.source)}
+        />
+      </SettingsGroup>
     </>
   );
 }
@@ -968,32 +910,9 @@ function GeneralSettings() {
   return (
     <>
       <SettingsHeading eyebrow="vibesurfer" title="General" description="Startup and everyday browser behavior." />
-      <ToggleRow title="Restore the previous session" description="Continue with the same tabs after restart." preference="reopenSession" />
-      <section className="settings-group"><h2>Home page</h2><div className="readonly-field">vibe://new-tab</div></section>
+      <PreferenceSwitchRow title="Restore the previous session" description="Continue with the same tabs after restart." preference="reopenSession" />
+      <SettingsGroup title="Home page"><div className="readonly-field">vibe://new-tab</div></SettingsGroup>
     </>
-  );
-}
-
-function GenerationToggle({
-  title,
-  description,
-  checked,
-  onCheckedChange,
-}: {
-  title: string;
-  description: string;
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-}) {
-  const id = useId();
-  return (
-    <div className="setting-row">
-      <label htmlFor={id}><strong>{title}</strong><small>{description}</small></label>
-      <span className="setting-row__state" aria-hidden="true">{checked ? "On" : "Off"}</span>
-      <Switch.Root id={id} className="switch" checked={checked} onCheckedChange={onCheckedChange} aria-label={title}>
-        <Switch.Thumb className="switch__thumb" />
-      </Switch.Root>
-    </div>
   );
 }
 
@@ -1033,15 +952,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : typeof error === "string" ? error : "The operation failed.";
 }
 
-function ToggleRow({ title, description, preference }: { title: string; description: string; preference: "animations" | "reopenSession" }) {
+function PreferenceSwitchRow({ title, description, preference }: { title: string; description: string; preference: "animations" | "reopenSession" }) {
   const value = useBrowserStore((state) => state.preferences[preference]);
   const patchPreferences = useBrowserStore((state) => state.patchPreferences);
   return (
-    <div className="setting-row">
-      <span><strong>{title}</strong><small>{description}</small></span>
-      <Switch.Root className="switch" checked={value} onCheckedChange={(checked) => patchPreferences({ [preference]: checked })} aria-label={title}>
-        <Switch.Thumb className="switch__thumb" />
-      </Switch.Root>
-    </div>
+    <SettingSwitchRow
+      title={title}
+      description={description}
+      checked={value}
+      onCheckedChange={(checked) => patchPreferences({ [preference]: checked })}
+    />
   );
 }

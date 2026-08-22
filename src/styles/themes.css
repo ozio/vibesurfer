@@ -603,7 +603,8 @@
   background: var(--surface-3);
 }
 
-:root[data-theme="sedative"] .segmented-control button.is-active {
+:root[data-theme="sedative"] .segmented-control button.is-active,
+:root[data-theme="sedative"] .segmented-control button[data-state="checked"] {
   box-shadow: none;
 }
 
