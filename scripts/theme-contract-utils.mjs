@@ -33,24 +33,29 @@ export function readThemeTokenNames(exportName) {
 }
 
 export function readRuleCustomProperties(css, selector) {
-  const selectorIndex = css.indexOf(`${selector} {`);
+  const source = stripCssComments(css);
+  const selectorIndex = source.indexOf(`${selector} {`);
   if (selectorIndex < 0) return new Map();
-  const openingBrace = css.indexOf("{", selectorIndex);
+  const openingBrace = source.indexOf("{", selectorIndex);
   let depth = 0;
   let closingBrace = -1;
-  for (let index = openingBrace; index < css.length; index += 1) {
-    if (css[index] === "{") depth += 1;
-    if (css[index] === "}") depth -= 1;
+  for (let index = openingBrace; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
     if (depth === 0) {
       closingBrace = index;
       break;
     }
   }
   if (closingBrace < 0) throw new Error(`Unclosed CSS rule for ${selector}`);
-  const body = css.slice(openingBrace + 1, closingBrace);
+  const body = source.slice(openingBrace + 1, closingBrace);
   return new Map(
     [...body.matchAll(/^\s*(--[a-z0-9-]+)\s*:\s*(.+?);\s*$/gm)].map((match) => [match[1], match[2].trim()]),
   );
+}
+
+export function stripCssComments(css) {
+  return css.replace(/\/\*[\s\S]*?\*\//g, "");
 }
 
 export function listCssFiles(directory = STYLES_ROOT) {

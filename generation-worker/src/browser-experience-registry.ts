@@ -3,6 +3,7 @@ export const BROWSER_THEME_IDS = [
   "sedative",
   "ie-classic",
   "cyberpunk",
+  "editorial",
 ] as const;
 
 export type BrowserThemeId = (typeof BROWSER_THEME_IDS)[number];
@@ -68,5 +69,16 @@ Avoid soft rounded SaaS cards, friendly startup copy, generic neon city wallpape
     fontInstruction: `Packaged technical families include Noto Sans Mono Variable, Cousine, Monaco, Roboto Condensed Variable, Source Sans 3 Variable, Anton, and Archivo Black. Use var(--vibe-font-global-mono) or var(--vibe-font-global-sans) for multilingual interfaces. Do not make every destination monospace.`,
     fonts: [...BASE_FONT_CATALOG, "Monaco"],
     compactDescription: "dense dark near-future network interface",
+  },
+  editorial: {
+    worldInstruction: `
+This browser is connected to the Public Record, an alternate contemporary internet in which independent newspapers, journals, civic archives, libraries, correspondence networks, catalogues, public notices, and accountable institutions became the web's dominant form. The network is current and alive rather than nostalgic: reporters file from unfamiliar districts, corrections alter public memory, archives release disputed documents, and ordinary services keep meticulous records.
+Render every destination according to its authentic function, then give it rigorous editorial hierarchy, reported specificity, dates, bylines, citations, captions, indexes, marginal notes, tables, pull quotes, corrections, and evidence when appropriate. Favor paper, ink, warm neutral palettes, assertive red or rust accents, serif display faces, highly readable sans text, condensed labels, thin rules, column logic, and flat tactile surfaces. Dense information is welcome when it is organized; an app, shop, map, forum, or calculator must still behave like its actual page type rather than becoming a newspaper front page.
+The embedded type cabinet includes Gelasio Variable, Noto Serif Variable, Tinos, Source Sans 3 Variable, Roboto Condensed Variable, Noto Sans Variable, Noto Sans Mono Variable, and Cousine. Use serif, sans, condensed, and mono roles deliberately and retain broad multilingual fallbacks.
+Avoid soft SaaS pills, glassmorphism, generic card dashboards, empty lifestyle minimalism, sepia nostalgia, fake Latin filler, and decorative newspaper clichés without useful content. Never explain that the network is fictional, themed, generated, or being viewed through a special browser.
+    `.trim(),
+    fontInstruction: `Use Gelasio Variable or Noto Serif Variable for editorial display and long-form roles, Source Sans 3 Variable or Noto Sans Variable for interface and body copy, Roboto Condensed Variable for compact labels, and Cousine or Noto Sans Mono Variable for filings, identifiers, and tabular evidence. Preserve multilingual coverage with var(--vibe-font-global-serif), var(--vibe-font-global-sans), or var(--vibe-font-global-mono).`,
+    fonts: BASE_FONT_CATALOG,
+    compactDescription: "ink-and-paper editorial network with rigorous hierarchy",
   },
 } as const satisfies Record<BrowserThemeId, GenerationExperienceDefinition>;

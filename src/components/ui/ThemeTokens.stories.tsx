@@ -66,21 +66,31 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
-export const Reference: Story = {
-  play: async ({ canvasElement }) => {
-    const tokens = [...UI_THEME_TOKENS, ...UI_COMPONENT_THEME_TOKENS];
-    const rows = within(canvasElement).getAllByRole("listitem");
-    await expect(rows).toHaveLength(tokens.length);
-    const styles = getComputedStyle(canvasElement.ownerDocument.documentElement);
-    for (const token of tokens) {
-      await expect(styles.getPropertyValue(token.name).trim(), `${token.name} must resolve in the active theme`).not.toBe("");
-    }
-  },
-};
+async function assertTokenContract(canvasElement: HTMLElement) {
+  const tokens = [...UI_THEME_TOKENS, ...UI_COMPONENT_THEME_TOKENS];
+  const rows = within(canvasElement).getAllByRole("listitem");
+  await expect(rows).toHaveLength(tokens.length);
+  const styles = getComputedStyle(canvasElement.ownerDocument.documentElement);
+  for (const token of tokens) {
+    await expect(styles.getPropertyValue(token.name).trim(), `${token.name} must resolve in the active theme`).not.toBe("");
+  }
+}
+
+export const Reference: Story = { play: async ({ canvasElement }) => assertTokenContract(canvasElement) };
 
 export const CompactReference: Story = {
   globals: { density: "compact" },
   render: () => <ThemeTokenReference />,
+};
+
+export const EditorialLightReference: Story = {
+  globals: { theme: "editorial", scheme: "light" },
+  play: async ({ canvasElement }) => assertTokenContract(canvasElement),
+};
+
+export const EditorialDarkReference: Story = {
+  globals: { theme: "editorial", scheme: "dark" },
+  play: async ({ canvasElement }) => assertTokenContract(canvasElement),
 };
 
 export const TokenContract: Story = {

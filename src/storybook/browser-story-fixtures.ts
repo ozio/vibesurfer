@@ -7,6 +7,7 @@ export const BROWSER_SHELL_CANONICAL_THEMES = [
   "sedative",
   "ie-classic",
   "cyberpunk",
+  "editorial",
 ] as const satisfies readonly ThemeId[];
 
 export const WELCOME_BROWSER_FIXTURE: BrowserStoryFixture = {

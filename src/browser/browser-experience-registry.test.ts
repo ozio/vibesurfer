@@ -46,11 +46,12 @@ describe("browser experience registry", () => {
       expect(GENERATION_EXPERIENCE_REGISTRY[theme].compactDescription).not.toBe("");
     }
     expect(BROWSER_THEME_IDS.map((theme) => BROWSER_EXPERIENCE_REGISTRY[theme].nativeWindow.cornerRadius))
-      .toEqual([12, 28, 0, 4]);
+      .toEqual([12, 28, 0, 4, 6]);
   });
 
   it("validates IDs and resolves locale-aware search providers", () => {
     expect(isThemeId("cyberpunk")).toBe(true);
+    expect(isThemeId("editorial")).toBe(true);
     expect(isThemeId("quiet")).toBe(false);
     expect(browserSearchProvider("native", false).name).toBe("Google");
     expect(browserSearchProvider("native", true).name).toBe("Яндекс");

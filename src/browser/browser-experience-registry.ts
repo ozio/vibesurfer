@@ -3,6 +3,7 @@ export const BROWSER_THEME_IDS = [
   "sedative",
   "ie-classic",
   "cyberpunk",
+  "editorial",
 ] as const;
 
 export type ThemeId = (typeof BROWSER_THEME_IDS)[number];
@@ -358,6 +359,75 @@ export const BROWSER_EXPERIENCE_REGISTRY = {
       },
     },
     nativeWindow: { cornerRadius: 4 },
+  },
+  editorial: {
+    chrome: {
+      toolbarLabel: "Editorial",
+      settingsLabel: "Editorial",
+      caption: "Ink, paper, and sharp hierarchy",
+      variant: "standard",
+      smoothTabScrolling: true,
+      address: {
+        network: "the Public Record",
+        placeholder: "Search the Public Record or enter an address",
+        queryDetail: "Search the current and archived editions",
+        addressDetail: "Open this filing in the Public Record",
+        starterLabel: "Open the late edition",
+        starterDetail: "Filed tonight by the city desk",
+        starterAddress: "ledger.city/late-edition",
+      },
+    },
+    portal: {
+      eyebrow: "THE PUBLIC RECORD / LATE EDITION",
+      title: ["Every address has", "a paper trail."],
+      lede: "Search the edition, follow a citation, or open a filing from a city that history forgot.",
+      placeholder: "Search the record or enter an address…",
+      inputLabel: "Search the Public Record or enter an address",
+      signal: "Late edition in circulation",
+      status: "Press network online",
+      footer: "Filed, printed, and linked before midnight.",
+      routesLabel: "From today's index",
+      icon: "search",
+      routes: [
+        { label: "The City Ledger", address: "ledger.city/late-edition", note: "Night desk · corrections · public notices" },
+        { label: "Northern dispatch", address: "dispatch.world/field/aurora-district", note: "A correspondent files from the moving border" },
+        { label: "Public archive", address: "archive.public/casefiles/zero", note: "Released documents with one page still missing" },
+      ],
+      search: {
+        default: { name: "Record Index", baseUrl: "https://index.public-record/search", queryParameter: "q" },
+      },
+    },
+    generation: {
+      profilePreset: {
+        name: "Editorial",
+        avatar: "R",
+        vibe: "An independent public internet shaped by newspapers, journals, civic archives, correspondence, and accountable institutions.",
+        prompt: "This is the Public Record: an independent network of newspapers, journals, civic archives, correspondence, catalogues, and accountable institutions. Preserve each destination's real function while expressing this world through rigorous hierarchy, reported detail, citations, dates, marginalia, corrections, and confident editorial composition.",
+      },
+      mockLuckyRoutes: [
+        ["https://ledger.city/late-edition", "Late Edition"],
+        ["https://dispatch.world/field/aurora-district", "Aurora Dispatch"],
+        ["https://archive.public/casefiles/zero", "Casefile Zero"],
+        ["https://review.quarterly/objects/borrowed-time", "Borrowed Time Review"],
+        ["https://gazette.harbor/shipping/midnight", "Midnight Shipping Gazette"],
+        ["https://letters.common/undelivered/volume-7", "Undelivered Letters"],
+        ["https://index.civic/ordinances/unbuilt-streets", "Unbuilt Streets Index"],
+        ["https://observer.weather/pressure/anomaly", "Pressure Anomaly"],
+        ["https://catalogue.museum/exhibitions/blank-space", "Blank Space Catalogue"],
+        ["https://corrections.news/tomorrows-edition", "Tomorrow's Corrections"],
+      ],
+      legacyArtifact: {
+        palette: { bg: "#e7e0d2", surface: "#fbf7ed", text: "#26211b", muted: "#70675b", accent: "#a44324" },
+        cardRadius: "4px",
+        cardBorder: "1px solid rgba(67, 53, 38, .2)",
+        cardShadow: "0 10px 30px rgba(52, 42, 30, .09)",
+        sparkShadow: "0 0 16px rgba(164, 67, 36, .36)",
+        footerBorder: "1px solid rgba(67, 53, 38, .22)",
+        eyebrowSpacing: ".12em",
+        eyebrowTransform: "uppercase",
+      },
+    },
+    nativeWindow: { cornerRadius: 6 },
   },
 } as const satisfies Record<ThemeId, BrowserExperienceDefinition>;
 

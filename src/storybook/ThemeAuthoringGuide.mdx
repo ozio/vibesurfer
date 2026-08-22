@@ -6,7 +6,9 @@ import { Meta } from "@storybook/addon-docs/blocks";
 
 A browser theme is a complete CSS implementation of the shared React component system. It may change chrome geometry, typography, density, surface treatment, or select a structural browser recipe, but it must not fork component behavior just to achieve a different look.
 
-Use **Foundation / Theme matrix** while authoring. It renders the same deterministic full-browser fixture in Native, Sedative, IE Classic, and Cyberpunk at once. Use the toolbar on an individual story for scheme, platform, density, tab placement, and motion checks.
+Use **Foundation / Theme matrix** while authoring. It renders the same deterministic full-browser fixture in Native, Sedative, IE Classic, Cyberpunk, and Editorial at once. Use **Browser / BrowserShell / Playground** to switch theme, scheme, platform, density, tab placement, and motion on one full browser; canonical theme stories stay fixed for deterministic matrix embedding.
+
+Read **Foundation / Theme contract trial** for the Editorial acceptance test, the scaffold/validator inconsistency it exposed, and the exact boundary a future authoring skill must preserve.
 
 ## Files and ownership
 
@@ -18,6 +20,7 @@ src/styles/themes/
   sedative/theme.css
   ie-classic/theme.css
   cyberpunk/theme.css
+  editorial/theme.css
 ```
 
 The remaining layers have deliberately narrower jobs:
@@ -74,10 +77,11 @@ If `system` is supported, repeat those overrides inside `@media (prefers-color-s
 
 ## Prefer component tokens
 
-`UI_COMPONENT_THEME_TOKENS` is the stable customization layer for reusable UI. Override these before copying selectors:
+`UI_COMPONENT_THEME_TOKENS` is the stable customization layer for reusable UI. Add overrides to the same complete root rule before copying selectors:
 
 ```css
 :root[data-theme="moonlight"] {
+  /* Foundation tokens are defined here too. */
   --ui-control-radius: 999px;
   --ui-overlay-shadow-high: 0 24px 80px rgb(0 0 0 / 0.34);
   --ui-selection-soft-background: color-mix(in srgb, var(--accent) 18%, transparent);
@@ -86,6 +90,8 @@ If `system` is supported, repeat those overrides inside `@media (prefers-color-s
 ```
 
 The complete live reference is under **Foundation / Theme tokens**. Foundation tokens describe the design language; component tokens describe where that language is applied. Add a new component token only when several components share the same semantic decision.
+
+Keep one unqualified `:root[data-theme="<id>"]` rule per theme file. Scheme, platform, density, and motion variants use additional attributes. This makes completeness mechanically checkable and prevents partial root blocks from hiding a missing foundation value.
 
 ## Selectors and explicit slots
 

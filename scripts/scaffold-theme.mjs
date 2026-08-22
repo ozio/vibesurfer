@@ -31,7 +31,7 @@ const missing = foundationTokens.filter((token) => !neutralProperties.has(token)
 if (missing.length > 0) fail(`Neutral token template is incomplete: ${missing.join(", ")}`);
 
 const declarations = foundationTokens.map((token) => `  ${token}: ${neutralProperties.get(token)};`).join("\n");
-const stylesheet = `/**\n * ${label}\n *\n * Keep the complete foundation contract in this first rule. Prefer component-token\n * overrides next; add narrow component selectors only when tokens cannot express the recipe.\n */\n:root[data-theme="${themeId}"] {\n  color-scheme: light;\n${declarations}\n}\n\n/* Optional component contract overrides.\n:root[data-theme="${themeId}"] {\n  --ui-control-radius: var(--radius-sm);\n  --browser-omnibox-background: var(--chrome-raised);\n}\n*/\n`;
+const stylesheet = `/**\n * ${label}\n *\n * Keep the complete foundation and optional component-token overrides in this one\n * unqualified root rule. Add narrow component selectors only when tokens cannot\n * express the visual recipe.\n */\n:root[data-theme="${themeId}"] {\n  color-scheme: light;\n${declarations}\n\n  /* Optional component contract overrides belong in this same root rule.\n  --ui-control-radius: var(--radius-sm);\n  --browser-omnibox-background: var(--chrome-raised);\n  */\n}\n`;
 
 if (args.includes("--dry-run")) {
   process.stdout.write(stylesheet);

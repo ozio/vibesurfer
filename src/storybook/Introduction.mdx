@@ -15,7 +15,7 @@ Browser themes are CSS implementations of a shared component structure. The prev
     <tr><th>Toolbar</th><th>Root contract</th><th>Values</th></tr>
   </thead>
   <tbody>
-    <tr><td>Theme</td><td><code>data-theme</code></td><td><code>native</code>, <code>sedative</code>, <code>ie-classic</code>, <code>cyberpunk</code></td></tr>
+    <tr><td>Theme</td><td><code>data-theme</code></td><td><code>native</code>, <code>sedative</code>, <code>ie-classic</code>, <code>cyberpunk</code>, <code>editorial</code></td></tr>
     <tr><td>Scheme</td><td><code>data-color-scheme</code></td><td><code>light</code>, <code>dark</code>, <code>system</code></td></tr>
     <tr><td>Platform</td><td><code>data-platform</code></td><td><code>macos</code>, <code>windows</code>, <code>linux</code></td></tr>
     <tr><td>Density</td><td><code>data-density</code></td><td><code>comfortable</code>, <code>compact</code></td></tr>
@@ -72,7 +72,7 @@ Pure components receive all behavior through props and can be rendered directly.
 - Surfaces and data: `Card`, `ListRow`, `CodeBlock`, and `JsonViewer`.
 - Utilities: `ResizeHandle` and `Shortcut`.
 
-The complete supported CSS API is rendered under **Foundation / Theme tokens** and exported as `UI_THEME_TOKENS` plus `UI_COMPONENT_THEME_TOKENS`. **Foundation / Theme matrix** shows all canonical full-browser baselines together, and **Foundation / Theme authoring** documents the scaffold, file ownership, explicit-slot rule, validator, and cross-runtime checklist. Primitive CSS must not branch on a theme ID; real structural differences belong to a higher-level browser component.
+The complete supported CSS API is rendered under **Foundation / Theme tokens** and exported as `UI_THEME_TOKENS` plus `UI_COMPONENT_THEME_TOKENS`. **Foundation / Theme matrix** shows all canonical full-browser baselines together, **Foundation / Theme authoring** documents the workflow, and **Foundation / Theme contract trial** records what happened when Editorial was built without changing shared components. Primitive CSS must not branch on a theme ID; real structural differences belong to a higher-level browser component.
 
 ## Browser chrome layer
 

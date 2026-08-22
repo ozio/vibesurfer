@@ -29,6 +29,8 @@ const meta = {
 export default meta;
 type Story = StoryObj<typeof meta>;
 
+export const Playground: Story = {};
+
 export const Native: Story = {
   globals: { theme: BROWSER_SHELL_CANONICAL_THEMES[0] },
 };
@@ -43,4 +45,8 @@ export const IEClassic: Story = {
 
 export const Cyberpunk: Story = {
   globals: { theme: BROWSER_SHELL_CANONICAL_THEMES[3] },
+};
+
+export const Editorial: Story = {
+  globals: { theme: BROWSER_SHELL_CANONICAL_THEMES[4] },
 };

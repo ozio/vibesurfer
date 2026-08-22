@@ -8,6 +8,7 @@
 @import "./themes/sedative/theme.css" layer(themes);
 @import "./themes/ie-classic/theme.css" layer(themes);
 @import "./themes/cyberpunk/theme.css" layer(themes);
+@import "./themes/editorial/theme.css" layer(themes);
 @import "./responsive.css" layer(utilities);
 
 @layer reset {

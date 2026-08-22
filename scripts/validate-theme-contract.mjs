@@ -10,6 +10,7 @@ import {
   readRegisteredThemeIds,
   readRuleCustomProperties,
   readThemeTokenNames,
+  stripCssComments,
   themeStylesheetPath,
 } from "./theme-contract-utils.mjs";
 
@@ -18,7 +19,7 @@ const themeIds = readRegisteredThemeIds();
 const foundationTokens = readThemeTokenNames("UI_THEME_TOKENS");
 const componentTokens = readThemeTokenNames("UI_COMPONENT_THEME_TOKENS");
 const cssFiles = listCssFiles();
-const appCss = readFileSync(projectPath("src/styles/app.css"), "utf8");
+const appCss = stripCssComments(readFileSync(projectPath("src/styles/app.css"), "utf8"));
 
 if (new Set(themeIds).size !== themeIds.length) errors.push("BROWSER_THEME_IDS contains duplicate IDs");
 if (new Set(foundationTokens).size !== foundationTokens.length) errors.push("UI_THEME_TOKENS contains duplicate tokens");
@@ -38,7 +39,7 @@ for (const themeId of themeIds) {
     continue;
   }
   if (!appCss.includes(expectedImport)) errors.push(`src/styles/app.css must import ${expectedImport}`);
-  const css = readFileSync(filename, "utf8");
+  const css = stripCssComments(readFileSync(filename, "utf8"));
   const selector = `:root[data-theme="${themeId}"]`;
   const selectorCount = [...css.matchAll(new RegExp(`${escapeRegExp(selector)}\\s*\\{`, "g"))].length;
   if (selectorCount !== 1) errors.push(`${displayPath(filename)} must contain exactly one complete ${selector} rule; found ${selectorCount}`);
@@ -46,7 +47,7 @@ for (const themeId of themeIds) {
 
   for (const candidate of cssFiles) {
     if (candidate === filename) continue;
-    const candidateCss = readFileSync(candidate, "utf8");
+    const candidateCss = stripCssComments(readFileSync(candidate, "utf8"));
     if (candidateCss.includes(`data-theme="${themeId}"`)) {
       errors.push(`Theme ${themeId} leaks into ${displayPath(candidate)}; keep its selectors in ${displayPath(filename)}`);
     }
@@ -60,7 +61,7 @@ for (const directory of themeDirectories) {
   if (!themeIds.includes(directory)) errors.push(`Unregistered theme stylesheet: src/styles/themes/${directory}/theme.css`);
 }
 
-const cssByFile = new Map(cssFiles.map((filename) => [filename, readFileSync(filename, "utf8")]));
+const cssByFile = new Map(cssFiles.map((filename) => [filename, stripCssComments(readFileSync(filename, "utf8"))]));
 const declaredVariables = new Set([...cssByFile.values()].flatMap(cssCustomPropertyNames));
 for (const [filename, css] of cssByFile) {
   for (const variable of cssVariableUsages(css)) {

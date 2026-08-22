@@ -60,6 +60,7 @@ export const PROFILE_PRESET_THEMES = {
   quiet: "sedative",
   explorer: "ie-classic",
   cyberpunk: "cyberpunk",
+  editorial: "editorial",
 } as const satisfies Record<string, ThemeId>;
 
 export const PROFILE_PRESETS = Object.fromEntries(

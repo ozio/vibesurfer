@@ -1,0 +1,355 @@
+/**
+ * Editorial
+ *
+ * The first external consumer of the theme-authoring contract. This file uses the
+ * standard chrome and navigation recipes without changing shared component markup.
+ */
+:root[data-theme="editorial"] {
+  color-scheme: light;
+  --font-ui: "Source Sans 3 Variable", "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Gelasio Variable", Georgia, "Times New Roman", serif;
+  --font-mono: Cousine, "SFMono-Regular", Consolas, monospace;
+  --app-bg: #d8d1c3;
+  --chrome-bg: #eee8dc;
+  --chrome-raised: #faf6ec;
+  --surface: #fbf7ed;
+  --surface-2: #f3ede1;
+  --surface-3: #e6dece;
+  --surface-hover: rgba(72, 57, 39, 0.07);
+  --surface-active: rgba(72, 57, 39, 0.12);
+  --overlay: #fffaf0;
+  --text: #2b261f;
+  --text-strong: #15120e;
+  --muted: #665e52;
+  --subtle: #7d7365;
+  --border: rgba(69, 55, 39, 0.2);
+  --border-strong: rgba(55, 43, 29, 0.38);
+  --accent: #a44324;
+  --accent-hover: #84331b;
+  --accent-soft: rgba(164, 67, 36, 0.13);
+  --accent-contrast: #fffaf0;
+  --action-primary: #8e3b22;
+  --action-primary-hover: #75301c;
+  --action-primary-contrast: #fffaf0;
+  --danger: #b42c38;
+  --danger-contrast: #fffaf0;
+  --success: #4c7255;
+  --warning: #a46a1d;
+  --focus-ring: color-mix(in srgb, var(--accent) 72%, white);
+  --shadow-sm: 1px 2px 0 rgba(57, 45, 31, 0.09);
+  --shadow-md: 4px 7px 0 rgba(57, 45, 31, 0.12), 0 18px 44px rgba(57, 45, 31, 0.1);
+  --shadow-lg: 7px 11px 0 rgba(57, 45, 31, 0.13), 0 28px 80px rgba(57, 45, 31, 0.16);
+  --radius-xs: 1px;
+  --radius-sm: 2px;
+  --radius-md: 4px;
+  --radius-lg: 7px;
+  --radius-xl: 10px;
+  --titlebar-height: 41px;
+  --toolbar-height: 53px;
+  --statusbar-height: 23px;
+  --tab-height: 35px;
+  --control-height: 35px;
+  --icon-button-size: 32px;
+  --motion-fast: 110ms;
+  --motion-medium: 170ms;
+  --ease: cubic-bezier(0.22, 0.72, 0.2, 1);
+
+  --ui-control-background: var(--surface);
+  --ui-control-background-hover: var(--surface-hover);
+  --ui-control-background-active: var(--surface-active);
+  --ui-control-border: var(--border);
+  --ui-control-border-strong: var(--border-strong);
+  --ui-control-radius: var(--radius-sm);
+  --ui-control-shadow: var(--shadow-sm);
+  --ui-field-background: var(--surface);
+  --ui-overlay-background: var(--overlay);
+  --ui-overlay-border: var(--border-strong);
+  --ui-overlay-radius: var(--radius-md);
+  --ui-overlay-shadow: var(--shadow-md);
+  --ui-overlay-shadow-high: var(--shadow-lg);
+  --ui-card-background: var(--surface);
+  --ui-card-border: var(--border);
+  --ui-card-radius: var(--radius-sm);
+  --ui-selection-background: var(--accent);
+  --ui-selection-foreground: var(--accent-contrast);
+  --ui-selection-soft-background: var(--accent-soft);
+  --ui-disabled-opacity: 0.54;
+  --browser-chrome-background: var(--chrome-bg);
+  --browser-content-background: var(--surface);
+  --browser-tab-background-active: var(--surface);
+  --browser-omnibox-background: var(--chrome-raised);
+}
+
+:root[data-theme="editorial"][data-density="compact"] {
+  --titlebar-height: 35px;
+  --toolbar-height: 45px;
+  --statusbar-height: 20px;
+  --tab-height: 30px;
+  --control-height: 30px;
+  --icon-button-size: 28px;
+}
+
+:root[data-theme="editorial"][data-color-scheme="dark"] {
+  color-scheme: dark;
+  --app-bg: #14120f;
+  --chrome-bg: #242019;
+  --chrome-raised: #302a21;
+  --surface: #1c1914;
+  --surface-2: #211d17;
+  --surface-3: #342d23;
+  --surface-hover: rgba(255, 243, 220, 0.075);
+  --surface-active: rgba(255, 243, 220, 0.12);
+  --overlay: #29241c;
+  --text: #e6dece;
+  --text-strong: #fff8e9;
+  --muted: #b3a999;
+  --subtle: #968b7c;
+  --border: rgba(255, 239, 213, 0.15);
+  --border-strong: rgba(255, 239, 213, 0.29);
+  --accent: #df7a52;
+  --accent-hover: #ef916b;
+  --accent-soft: rgba(223, 122, 82, 0.16);
+  --accent-contrast: #1a100b;
+  --action-primary: #c76542;
+  --action-primary-hover: #df7a52;
+  --action-primary-contrast: #160d09;
+  --danger: #ef6b73;
+  --danger-contrast: #19090b;
+  --success: #79a582;
+  --warning: #d7a250;
+  --focus-ring: #df7a52;
+  --shadow-sm: 1px 2px 0 rgba(0, 0, 0, 0.24);
+  --shadow-md: 4px 7px 0 rgba(0, 0, 0, 0.28), 0 18px 44px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 7px 11px 0 rgba(0, 0, 0, 0.32), 0 28px 80px rgba(0, 0, 0, 0.42);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="editorial"][data-color-scheme="system"] {
+    color-scheme: dark;
+    --app-bg: #14120f;
+    --chrome-bg: #242019;
+    --chrome-raised: #302a21;
+    --surface: #1c1914;
+    --surface-2: #211d17;
+    --surface-3: #342d23;
+    --surface-hover: rgba(255, 243, 220, 0.075);
+    --surface-active: rgba(255, 243, 220, 0.12);
+    --overlay: #29241c;
+    --text: #e6dece;
+    --text-strong: #fff8e9;
+    --muted: #b3a999;
+    --subtle: #968b7c;
+    --border: rgba(255, 239, 213, 0.15);
+    --border-strong: rgba(255, 239, 213, 0.29);
+    --accent: #df7a52;
+    --accent-hover: #ef916b;
+    --accent-soft: rgba(223, 122, 82, 0.16);
+    --accent-contrast: #1a100b;
+    --action-primary: #c76542;
+    --action-primary-hover: #df7a52;
+    --action-primary-contrast: #160d09;
+    --danger: #ef6b73;
+    --danger-contrast: #19090b;
+    --success: #79a582;
+    --warning: #d7a250;
+    --focus-ring: #df7a52;
+    --shadow-sm: 1px 2px 0 rgba(0, 0, 0, 0.24);
+    --shadow-md: 4px 7px 0 rgba(0, 0, 0, 0.28), 0 18px 44px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 7px 11px 0 rgba(0, 0, 0, 0.32), 0 28px 80px rgba(0, 0, 0, 0.42);
+  }
+}
+
+:root[data-theme="editorial"] .titlebar,
+:root[data-theme="editorial"] .navigation-toolbar,
+:root[data-theme="editorial"] .vertical-sidebar,
+:root[data-theme="editorial"] .browser-statusbar,
+:root[data-theme="editorial"] .settings-sidebar {
+  backdrop-filter: none;
+}
+
+:root[data-theme="editorial"] .titlebar { border-bottom: 2px solid var(--text-strong); }
+:root[data-theme="editorial"] .navigation-toolbar { border-bottom-style: double; border-bottom-width: 3px; }
+:root[data-theme="editorial"] .browser-statusbar { border-top-style: double; border-top-width: 3px; }
+
+:root[data-theme="editorial"] .titlebar__brand,
+:root[data-theme="editorial"] .settings-heading h1,
+:root[data-theme="editorial"] .settings-group > h2,
+:root[data-theme="editorial"] .settings-group__heading h2,
+:root[data-theme="editorial"] .dialog h2,
+:root[data-theme="editorial"] .popover__header strong {
+  font-family: var(--font-display);
+}
+
+:root[data-theme="editorial"] .titlebar__brand {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+:root[data-theme="editorial"] .browser-tab,
+:root[data-theme="editorial"] .profile-trigger,
+:root[data-theme="editorial"] .model-pill,
+:root[data-theme="editorial"] .generation-mode-pill,
+:root[data-theme="editorial"] .omnibox,
+:root[data-theme="editorial"] .avatar {
+  border-radius: var(--radius-sm);
+}
+
+:root[data-theme="editorial"] .browser-tab--horizontal.is-active::after {
+  height: 3px;
+  background: var(--accent);
+}
+
+:root[data-theme="editorial"] .browser-tab--vertical.is-active {
+  box-shadow: inset 4px 0 var(--accent);
+}
+
+:root[data-theme="editorial"] .menu__label,
+:root[data-theme="editorial"] .settings-heading > span,
+:root[data-theme="editorial"] .new-tab-page__signal,
+:root[data-theme="editorial"] .new-tab-page__eyebrow,
+:root[data-theme="editorial"] .hallunet-routes__heading {
+  font-family: "Roboto Condensed Variable", var(--font-ui);
+  letter-spacing: .13em;
+}
+
+:root[data-theme="editorial"] .new-tab-page {
+  --portal-accent: var(--accent);
+  --portal-accent-2: var(--text-strong);
+  --portal-text: var(--text-strong);
+  --portal-muted: var(--muted);
+  --portal-line: var(--border-strong);
+  --portal-panel: color-mix(in srgb, var(--surface) 94%, transparent);
+  background:
+    linear-gradient(90deg, transparent 0 63%, color-mix(in srgb, var(--text) 4%, transparent) 63% calc(63% + 1px), transparent calc(63% + 1px)),
+    repeating-linear-gradient(0deg, color-mix(in srgb, var(--text) 2.8%, transparent) 0 1px, transparent 1px 5px),
+    var(--surface-2);
+}
+
+:root[data-theme="editorial"] .new-tab-page::before {
+  opacity: .56;
+  background-image: linear-gradient(90deg, transparent 0 8%, var(--accent-soft) 8% 8.35%, transparent 8.35%);
+  background-size: 100% 100%;
+  mask-image: none;
+}
+
+:root[data-theme="editorial"] .new-tab-page__aura {
+  top: 48%;
+  width: min(88vw, 1180px);
+  aspect-ratio: 1.8;
+  border-color: var(--border);
+  border-radius: 0;
+  background: linear-gradient(135deg, var(--accent-soft), transparent 42%);
+  box-shadow: none;
+  transform: translate(-50%, -50%) rotate(-1deg);
+}
+
+:root[data-theme="editorial"] .new-tab-page__field::before,
+:root[data-theme="editorial"] .new-tab-page__field::after {
+  border-radius: 0;
+  background: var(--accent);
+  box-shadow: none;
+}
+
+:root[data-theme="editorial"] .new-tab-page__field-orb--far,
+:root[data-theme="editorial"] .new-tab-page__field-orb--near,
+:root[data-theme="editorial"] .new-tab-page__field-orb--orbit {
+  border-radius: 0;
+  border-color: color-mix(in srgb, var(--text) 9%, transparent);
+}
+
+:root[data-theme="editorial"] .new-tab-page__field-orb--far { transform: rotate(7deg); }
+:root[data-theme="editorial"] .new-tab-page__field-orb--near { border-style: dashed; transform: rotate(-4deg); }
+:root[data-theme="editorial"] .new-tab-page__field-orb--orbit { transform: rotate(-2deg); }
+
+:root[data-theme="editorial"] .new-tab-page__masthead {
+  padding-bottom: 12px;
+  border-bottom: 3px double var(--border-strong);
+}
+
+:root[data-theme="editorial"] .new-tab-page__mark {
+  width: 145px;
+  filter: grayscale(1) contrast(1.35) sepia(.18);
+}
+
+:root[data-theme="editorial"] .new-tab-page__signal svg { color: var(--accent); filter: none; }
+
+:root[data-theme="editorial"] .new-tab-page h1 {
+  max-width: 920px;
+  font-size: clamp(58px, 8vw, 106px);
+  font-weight: 540;
+  line-height: .82;
+  letter-spacing: -.055em;
+}
+
+:root[data-theme="editorial"] .new-tab-page h1 span {
+  color: var(--accent);
+  background: none;
+  background-clip: border-box;
+  -webkit-background-clip: border-box;
+  font-style: italic;
+}
+
+:root[data-theme="editorial"] .new-tab-page__lede {
+  max-width: 670px;
+  font-family: var(--font-display);
+  font-size: clamp(15px, 1.6vw, 18px);
+}
+
+:root[data-theme="editorial"] .generation-composer {
+  border: 2px solid var(--text-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: 5px 6px 0 var(--accent-soft);
+  backdrop-filter: none;
+}
+
+:root[data-theme="editorial"] .generation-composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 5px 6px 0 var(--accent-soft), 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+:root[data-theme="editorial"] .generation-composer__lucky,
+:root[data-theme="editorial"] .generation-composer__submit {
+  border-radius: var(--radius-xs);
+}
+
+:root[data-theme="editorial"] .generation-composer__submit {
+  color: var(--accent-contrast);
+  background: var(--accent);
+  box-shadow: none;
+}
+
+:root[data-theme="editorial"] .hallunet-routes__heading i {
+  height: 3px;
+  background: var(--border-strong);
+}
+
+:root[data-theme="editorial"] .hallunet-routes__grid { gap: 8px; }
+
+:root[data-theme="editorial"] .hallunet-routes__grid button {
+  min-height: 132px;
+  border-radius: var(--radius-sm);
+  background: var(--portal-panel);
+  box-shadow: none;
+}
+
+:root[data-theme="editorial"] .hallunet-routes__grid button:hover {
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 3px 4px 0 var(--accent-soft);
+  transform: translateY(-2px);
+}
+
+:root[data-theme="editorial"] .hallunet-route__copy strong {
+  font-family: var(--font-display);
+  font-size: 15px;
+}
+
+:root[data-theme="editorial"] .hallunet-route__copy code { color: var(--accent); }
+
+:root[data-theme="editorial"] .new-tab-page__principles {
+  border-top: 3px double var(--border-strong);
+  color: var(--muted);
+}

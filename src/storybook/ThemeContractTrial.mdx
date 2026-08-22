@@ -1,0 +1,81 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Foundation/Theme contract trial" />
+
+# Theme Contract Trial
+
+`editorial` is the first theme implemented as a consumer of the documented authoring API. The trial deliberately changed no React component, shared component stylesheet, chrome recipe, navigation recipe, store, or runtime adapter.
+
+Open **Browser / BrowserShell / Playground** and select Editorial to exercise every toolbar axis. **Browser / BrowserShell / Editorial** is the fixed canonical baseline used by **Foundation / Theme matrix**, where the same fixture stays visible beside every established implementation.
+
+## Scope
+
+The theme exercises a visual direction not represented by the original set:
+
+- serif display typography with sans UI and monospace evidence roles;
+- light and dark ink-and-paper palettes;
+- almost-square controls and flat tactile surfaces;
+- double-rule chrome dividers and an explicit active-tab rule;
+- editorial portal composition using the existing named decorative slots;
+- the standard chrome and navigation recipes in both horizontal and vertical tab layouts.
+
+All visual implementation lives in `src/styles/themes/editorial/theme.css`. Content, generation instructions, preset copy, search behavior, native window radius, and canonical stories are registry data.
+
+## What the trial found
+
+<table>
+  <thead>
+    <tr>
+      <th>Question</th>
+      <th>Result</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Are foundation tokens sufficient?</td>
+      <td>Yes. All 47 tokens cover typography, palette, elevation, radii, sizing, and motion for both schemes.</td>
+    </tr>
+    <tr>
+      <td>Are component tokens sufficient?</td>
+      <td>Yes for shared controls, fields, overlays, cards, selection, and browser surfaces. No new stable token was justified by one implementation.</td>
+    </tr>
+    <tr>
+      <td>Is the DOM too rigid?</td>
+      <td>No blocker. The existing new-tab orb slots, chrome classes, state classes, and recipe attributes were enough; no positional selector or new markup was needed.</td>
+    </tr>
+    <tr>
+      <td>Is another recipe required?</td>
+      <td>No. Editorial uses the standard recipe. A new recipe should remain reserved for a real semantic or placement change, not typography or border treatment.</td>
+    </tr>
+    <tr>
+      <td>Were the tools self-consistent?</td>
+      <td>Two issues were found: the scaffold's commented second root looked like a duplicate to the validator, and canonical fixed-theme stories could not also serve as a toolbar playground. Comments are now ignored, the scaffold emits one root, and a dedicated unfixed BrowserShell story owns live toolbar switching.</td>
+    </tr>
+  </tbody>
+</table>
+
+Two ideas remain candidates rather than contract additions: a semantic chrome-divider token and an active-tab-indicator token. Editorial is the only implementation that needs their unusual width and style, so narrow selectors are clearer until another theme repeats the decision.
+
+## Authoring footprint
+
+The required edits for a complete theme are intentionally explicit:
+
+1. Generate `themes/<id>/theme.css` with `theme:scaffold` and keep one complete unqualified root.
+2. Register the ID and browser experience in the frontend registry.
+3. Add generation-world and font instructions to the worker registry.
+4. Add the profile preset mapping and the canonical stylesheet import.
+5. Add a canonical BrowserShell story and matrix story ID.
+6. Choose a native window radius and an existing structural recipe.
+7. Run the contract validator, typecheck, interaction/a11y tests, static build, and packaged-app smoke.
+
+This is the minimum safe workflow for a future browser-theme-authoring skill. The skill should stop and report a contract gap if a requested visual requires editing shared components, inventing positional selectors, or silently adding a new structural recipe.
+
+## Acceptance evidence
+
+The trial is successful only while these properties stay true:
+
+- `BROWSER_THEME_IDS`, toolbar items, presets, worker schema, worker registry, canonical stories, and CSS imports contain the same ordered set;
+- `theme:validate` reports five themes and a complete 47/24 token contract;
+- the scaffold regression test passes;
+- Editorial is present in the visual matrix and its light/dark token stories keep blocking a11y behavior;
+- `rg` finds no Editorial branch in shared component CSS or React components.

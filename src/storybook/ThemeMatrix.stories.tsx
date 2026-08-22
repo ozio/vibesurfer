@@ -7,6 +7,7 @@ const canonicalStoryIds = {
   sedative: "browser-browsershell--sedative",
   "ie-classic": "browser-browsershell--ie-classic",
   cyberpunk: "browser-browsershell--cyberpunk",
+  editorial: "browser-browsershell--editorial",
 } as const satisfies Record<ThemeId, string>;
 
 function canonicalStoryUrl(theme: ThemeId) {
@@ -26,7 +27,7 @@ function ThemeVisualMatrix() {
     <main className="story-theme-matrix">
       <header>
         <span>Canonical baseline</span>
-        <h1>One browser, four theme implementations</h1>
+        <h1>One browser, every theme implementation</h1>
         <p>Each viewport loads the same deterministic welcome fixture in an isolated Storybook preview. Component behavior and content stay fixed while the complete theme and chrome recipe change.</p>
       </header>
       <div className="story-theme-matrix__grid">
@@ -55,7 +56,7 @@ const meta = {
   parameters: {
     layout: "fullscreen",
     a11y: { test: "error" },
-    docs: { description: { component: "The four canonical BrowserShell baselines shown together against the same fixture. Open an individual BrowserShell story to inspect toolbar axes at full size." } },
+    docs: { description: { component: "Every canonical BrowserShell baseline shown against the same fixture. Open an individual BrowserShell story to inspect toolbar axes at full size." } },
   },
 } satisfies Meta<typeof ThemeVisualMatrix>;
 
