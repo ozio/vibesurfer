@@ -22,7 +22,11 @@
   --accent-hover: #4f4dce;
   --accent-soft: rgba(94, 92, 230, 0.13);
   --accent-contrast: #ffffff;
+  --action-primary: var(--accent);
+  --action-primary-hover: var(--accent-hover);
+  --action-primary-contrast: var(--accent-contrast);
   --danger: #e5484d;
+  --danger-contrast: #ffffff;
   --success: #2f9e6f;
   --warning: #e09b32;
   --focus-ring: color-mix(in srgb, var(--accent) 72%, white);

@@ -59,3 +59,17 @@ Pure components receive all behavior through props and can be rendered directly.
 4. Use toolbar globals for theme differences instead of duplicating stories solely for CSS.
 5. Use a serializable `browserFixture` and `withBrowserStoryState` only when the component genuinely depends on the browser store.
 6. Add a `play` assertion for keyboard, pointer, menu, or state-changing behavior and keep component a11y in `error` mode.
+
+## Reusable primitive layer
+
+`src/components/ui/index.ts` is the public entry point for browser primitives. Components stay theme-neutral: native HTML supplies form and button semantics, Radix supplies focus management and keyboard behavior for floating surfaces and choice controls, and CSS reads the shared semantic token contract.
+
+- Actions: `Button`, `IconButton`, and `CopyButton`.
+- Overlays: `Tooltip`, `Popover`, `Menu`, `ContextMenu`, `Dialog`, and `ConfirmDialog`.
+- Fields: `FormField`, `SearchField`, `Select`, `TextArea`, `NumberField`, and `RangeField`.
+- Choice controls: `Switch`, `SegmentedControl`, `RadioCard`, and `RadioCardGroup`.
+- Feedback: `Badge`, `Spinner`, `Progress`, `Callout`, and `EmptyState`.
+- Surfaces and data: `Card`, `ListRow`, `CodeBlock`, and `JsonViewer`.
+- Utilities: `ResizeHandle` and `Shortcut`.
+
+The complete supported CSS API is rendered under **Foundation / Theme tokens** and exported as `UI_THEME_TOKENS`. A theme should define the shared tokens before it adds narrow component overrides. Primitive CSS must not branch on a theme ID; real structural differences belong to a higher-level browser component.

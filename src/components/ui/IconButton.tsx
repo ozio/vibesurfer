@@ -1,24 +1,36 @@
-import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { forwardRef, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Tooltip } from "radix-ui";
+
+export type IconButtonVariant = "default" | "primary" | "danger" | "ghost";
+export type IconButtonSize = "small" | "medium" | "large";
 
 export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   label: string;
   children: ReactNode;
+  variant?: IconButtonVariant;
+  size?: IconButtonSize;
+  loading?: boolean;
+  tooltip?: ReactNode;
   tooltipSide?: "top" | "right" | "bottom" | "left";
 }
 
-export function IconButton({
+export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton({
   label,
   children,
+  variant = "default",
+  size = "medium",
+  loading = false,
+  tooltip = label,
   tooltipSide = "bottom",
   className = "",
+  disabled,
   onBlur,
   onKeyDown,
   onPointerDown,
   onPointerEnter,
   onPointerLeave,
   ...props
-}: IconButtonProps) {
+}, forwardedRef) {
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const suppressFocusTooltip = useRef(false);
 
@@ -33,9 +45,13 @@ export function IconButton({
     >
       <Tooltip.Trigger asChild>
         <button
-          className={`icon-button ${className}`}
+          className={`icon-button ui-icon-button ui-icon-button--${variant} ui-icon-button--${size} ${className}`.trim()}
+          {...props}
           type="button"
+          ref={forwardedRef}
           aria-label={label}
+          aria-busy={loading || undefined}
+          disabled={disabled || loading}
           onBlur={(event) => {
             setTooltipOpen(false);
             onBlur?.(event);
@@ -57,17 +73,16 @@ export function IconButton({
             setTooltipOpen(false);
             onPointerLeave?.(event);
           }}
-          {...props}
         >
-          {children}
+          {loading ? <span className="ui-button__spinner" aria-hidden="true" /> : children}
         </button>
       </Tooltip.Trigger>
       <Tooltip.Portal>
         <Tooltip.Content className="tooltip" side={tooltipSide} sideOffset={7}>
-          {label}
+          {tooltip}
           <Tooltip.Arrow className="tooltip__arrow" />
         </Tooltip.Content>
       </Tooltip.Portal>
     </Tooltip.Root>
   );
-}
+});

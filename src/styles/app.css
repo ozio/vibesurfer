@@ -2,6 +2,7 @@
 
 @import "./tokens.css" layer(tokens);
 @import "./components.css" layer(components);
+@import "./primitives.css" layer(components);
 @import "./themes.css" layer(themes);
 @import "./ie-classic.css" layer(themes);
 
@@ -20,10 +21,10 @@
     text-rendering: optimizeLegibility;
     user-select: none;
   }
-  button, input { color: inherit; font: inherit; }
+  button, input, select, textarea { color: inherit; font: inherit; }
   button { border: 0; cursor: default; }
   a { cursor: default; }
-  input { user-select: text; }
+  input, select, textarea { user-select: text; }
   svg { display: block; width: 16px; height: 16px; stroke-width: 1.8; }
   kbd { font: 500 11px/1 var(--font-ui); }
   :focus { outline: none; }

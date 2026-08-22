@@ -65,6 +65,26 @@ export const Disabled: Story = {
   },
 };
 
+export const VariantsAndSizes: Story = {
+  render: () => (
+    <div className="story-component-row">
+      <IconButton label="Small action" size="small"><Plus aria-hidden="true" /></IconButton>
+      <IconButton label="Primary action" variant="primary"><Plus aria-hidden="true" /></IconButton>
+      <IconButton label="Danger action" variant="danger"><Plus aria-hidden="true" /></IconButton>
+      <IconButton label="Large action" size="large"><Plus aria-hidden="true" /></IconButton>
+    </div>
+  ),
+};
+
+export const Loading: Story = {
+  args: { loading: true },
+  play: async ({ canvasElement }) => {
+    const button = within(canvasElement).getByRole("button", { name: "New tab" });
+    await expect(button).toBeDisabled();
+    await expect(button).toHaveAttribute("aria-busy", "true");
+  },
+};
+
 export const KeyboardFocus: Story = {
   play: async ({ canvasElement }) => {
     const button = within(canvasElement).getByRole("button", { name: "New tab" });
