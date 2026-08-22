@@ -1,6 +1,13 @@
 import { deterministicGlyphFavicon, systemFavicon } from "../lib/favicon";
-import type { BrowserTab } from "../types/browser";
+import type { BrowserTab, ThemeId } from "../types/browser";
 import type { BrowserStoryFixture } from "./BrowserStoryHarness";
+
+export const BROWSER_SHELL_CANONICAL_THEMES = [
+  "native",
+  "sedative",
+  "ie-classic",
+  "cyberpunk",
+] as const satisfies readonly ThemeId[];
 
 export const WELCOME_BROWSER_FIXTURE: BrowserStoryFixture = {
   tabs: [

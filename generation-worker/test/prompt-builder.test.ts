@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { IMMUTABLE_PROTOCOL_INSTRUCTION, THEME_WORLD_INSTRUCTIONS, approveCapabilitySelection, buildPrompt } from "../src/prompt-builder.js";
+import { GENERATION_EXPERIENCE_REGISTRY } from "../src/browser-experience-registry.js";
+import { IMMUTABLE_PROTOCOL_INSTRUCTION, approveCapabilitySelection, buildPrompt } from "../src/prompt-builder.js";
 import { PageDirectionSchema, type ApprovedPageBrief } from "../src/domain.js";
 import { ICON_SET_IDS, iconifyPack } from "../src/iconify/catalog.js";
 import { generationCommand } from "./helpers.js";
@@ -147,7 +148,7 @@ describe("two-stage prompt layering", () => {
     const fallback = buildPrompt({ stage: "page-director", url: request.url, browserTheme: "sedative", settings: request.settings, worldPromptSnapshot: { revision: 0, vibe: "", prompt: "" }, context: request.context });
     expect(custom.system).toContain(request.worldPromptSnapshot.prompt);
     expect(custom.system).not.toContain("attention economy collapsed");
-    expect(fallback.system).toContain(THEME_WORLD_INSTRUCTIONS.sedative);
+    expect(fallback.system).toContain(GENERATION_EXPERIENCE_REGISTRY.sedative.worldInstruction);
   });
 
   it("gives Builder only the approved brief and selected contracts, not alternative fonts or capabilities", () => {

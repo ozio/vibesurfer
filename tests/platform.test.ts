@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserShortcutLabels, externalHttpUrl, nativeWindowCornerRadius } from "../src/lib/platform";
+import { externalHttpUrl, openInNewTabShortcutLabel } from "../src/lib/platform";
 
 describe("external HTTP navigation", () => {
   it("accepts only credential-free HTTP(S) URLs", () => {
@@ -13,33 +13,9 @@ describe("external HTTP navigation", () => {
   });
 });
 
-describe("browser shortcut labels", () => {
-  it("keeps native macOS shortcuts even when the visual theme imitates IE", () => {
-    expect(browserShortcutLabels("macos", "ie-classic")).toMatchObject({
-      focusAddress: "⌘L",
-      newTab: "⌘T",
-      openInNewTab: "⌥↵",
-      settings: "⌘,",
-      usesMacSymbols: true,
-    });
-  });
-
-  it("keeps native macOS symbols in modern themes", () => {
-    expect(browserShortcutLabels("macos", "native")).toMatchObject({
-      focusAddress: "⌘L",
-      newTab: "⌘T",
-      openInNewTab: "⌥↵",
-      settings: "⌘,",
-      usesMacSymbols: true,
-    });
-  });
-});
-
-describe("native window theme shape", () => {
-  it("uses square IE corners and the softest Sedative corners", () => {
-    expect(nativeWindowCornerRadius("ie-classic")).toBe(0);
-    expect(nativeWindowCornerRadius("cyberpunk")).toBe(4);
-    expect(nativeWindowCornerRadius("native")).toBe(12);
-    expect(nativeWindowCornerRadius("sedative")).toBe(28);
+describe("address bar shortcut label", () => {
+  it("uses the host platform independently from browser theme", () => {
+    expect(openInNewTabShortcutLabel("macos")).toBe("⌥↵");
+    expect(openInNewTabShortcutLabel("windows")).toBe("Alt+Enter");
   });
 });

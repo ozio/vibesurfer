@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { BROWSER_THEME_IDS } from "./browser-experience-registry.js";
 import { ArtifactCapabilityUseSchema, CapabilityIdSchema } from "./capabilities/types.js";
 
 import { IconSetSchema } from "./iconify/catalog.js";
@@ -68,7 +69,7 @@ export const ProviderKindSchema = z.enum([
 ]);
 export type ProviderKind = z.infer<typeof ProviderKindSchema>;
 
-export const BrowserThemeSchema = z.enum(["native", "sedative", "ie-classic", "cyberpunk"]);
+export const BrowserThemeSchema = z.enum(BROWSER_THEME_IDS);
 export type BrowserTheme = z.infer<typeof BrowserThemeSchema>;
 
 export const FaviconDescriptorSchema = z

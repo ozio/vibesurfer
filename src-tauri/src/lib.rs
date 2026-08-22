@@ -1139,7 +1139,7 @@ mod tests {
         provider_connection_id, provider_for_worker, validated_window_corner_radius, CodexProbe,
         CodexProbeState, ProviderConnectionRecord,
     };
-    use crate::native_menu::native_menu_command;
+    use crate::native_menu::{native_menu_command, NATIVE_MENU_COMMANDS};
     use std::path::{Path, PathBuf};
 
     fn provider_record() -> ProviderConnectionRecord {
@@ -1178,6 +1178,31 @@ mod tests {
         assert_eq!(native_menu_command("open-models"), Some("open-models"));
         assert_eq!(native_menu_command("quit"), None);
         assert_eq!(native_menu_command("javascript:alert(1)"), None);
+    }
+
+    #[test]
+    fn native_menu_allowlist_matches_browser_command_manifest() {
+        use std::collections::BTreeSet;
+
+        let manifest: serde_json::Value = serde_json::from_str(include_str!(
+            "../../src/browser/browser-command-manifest.json"
+        ))
+        .expect("browser command manifest must be valid JSON");
+        let expected = manifest
+            .as_object()
+            .expect("browser command manifest must be an object")
+            .iter()
+            .filter_map(|(id, value)| {
+                value
+                    .get("nativeMenu")
+                    .and_then(serde_json::Value::as_bool)
+                    .filter(|native| *native)
+                    .map(|_| id.as_str())
+            })
+            .collect::<BTreeSet<_>>();
+        let actual = NATIVE_MENU_COMMANDS.iter().copied().collect::<BTreeSet<_>>();
+
+        assert_eq!(actual, expected);
     }
 
     #[test]

@@ -122,7 +122,7 @@ describe("TabStrip", () => {
 
     fireEvent.contextMenu(sourceTab);
     const newTabToRight = await screen.findByRole("menuitem", { name: "New tab to the right" });
-    expect(screen.getByRole("menuitem", { name: "Reload" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Regenerate page" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "Close" })).toBeVisible();
     expect(screen.getByRole("menuitem", { name: "Close other tabs" })).toBeVisible();
 

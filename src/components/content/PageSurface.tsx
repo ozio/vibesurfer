@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { ArrowLeft, ArrowRight, Code2, ExternalLink, Info, RefreshCw, TriangleAlert, X } from "lucide-react";
 import { Dialog } from "radix-ui";
+import { useBrowserCommand } from "../../browser/browser-command-registry";
 import { connectArtifactFrame, type ArtifactFrameConnection } from "../../artifacts/iframe-host";
 import type { ArtifactFrameEvent } from "../../artifacts/bridge-protocol";
 import { createBridgeNonce } from "../../artifacts/document";
@@ -9,7 +10,6 @@ import {
   buildLegacyGeneratedArtifactDocument,
   compileGeneratedArtifactDocument,
 } from "../../lib/generated-document";
-import { openExternal } from "../../lib/platform";
 import { activatePersistedSiteWorld } from "../../generation/host-api";
 import { attachDynamicFrame, handleDynamicAction } from "../../dynamic/runtime";
 import { LocalSpeechPlayer } from "../../audio/local-speech";
@@ -47,6 +47,7 @@ function openModelPicker() {
 }
 
 export function PageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHover?: (href?: string) => void }) {
+  const openLiveSite = useBrowserCommand("open-live-site", { tabId: tab.id });
   if (tab.kind === "new-tab") return <NewTabPage />;
   if (tab.kind === "history") return <HistoryPage />;
   if (tab.kind === "activity") return <ActivityPage tab={tab} />;
@@ -60,7 +61,7 @@ export function PageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHover
         <Info aria-hidden="true" />
         <h2>Live web stays outside vibesurfer</h2>
         <p>This legacy tab will not contact <strong>{safeHostname(tab.location)}</strong>. Generate an imagined version from the address bar, or explicitly open the live site in your system browser.</p>
-        <button className="button button--primary" type="button" onClick={() => void openExternal(tab.location)}><ExternalLink aria-hidden="true" /> Open live site externally</button>
+        <button className="button button--primary" type="button" onClick={openLiveSite.execute}><ExternalLink aria-hidden="true" /> Open live site externally</button>
       </div>
     </div>
   );
@@ -75,12 +76,13 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
   const job = useBrowserStore((state) => tab.generationJobId ? state.generationJobs[tab.generationJobId] : undefined);
   const navigate = useBrowserStore((state) => state.navigate);
   const addTab = useBrowserStore((state) => state.addTab);
-  const go = useBrowserStore((state) => state.go);
   const setLoadState = useBrowserStore((state) => state.setLoadState);
   const setTabMetadata = useBrowserStore((state) => state.setTabMetadata);
-  const regenerate = useBrowserStore((state) => state.regenerate);
-  const reload = useBrowserStore((state) => state.reload);
-  const openSettings = useBrowserStore((state) => state.openSettings);
+  const goBack = useBrowserCommand("back", { tabId: tab.id });
+  const goForward = useBrowserCommand("forward", { tabId: tab.id });
+  const regenerate = useBrowserCommand("regenerate", { tabId: tab.id });
+  const reload = useBrowserCommand("reload", { tabId: tab.id });
+  const openSettings = useBrowserCommand("open-settings");
   const markFrameReady = useBrowserStore((state) => state.markFrameReady);
   const restoreSiteWorld = useBrowserStore((state) => state.restoreSiteWorld);
   const activeProfileId = useBrowserStore((state) => state.activeProfileId);
@@ -296,7 +298,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
     }
 
     if (event.type === "browser-command") {
-      openSettings("general");
+      openSettings.execute();
       return;
     }
 
@@ -394,7 +396,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
         intent,
       });
     }
-  }, [addTab, archivedSiteWorld, artifact, markFrameReady, navigate, onLinkHover, openSettings, setLoadState, setTabMetadata, tab.generationJobId, tab.id]);
+  }, [addTab, archivedSiteWorld, artifact, markFrameReady, navigate, onLinkHover, openSettings.execute, setLoadState, setTabMetadata, tab.generationJobId, tab.id]);
 
   const continueArchivedDynamic = useCallback(() => {
     const pending = pendingArchivedDynamic;
@@ -498,7 +500,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       <ArtifactError
         title={cancelled ? "Generation stopped" : "This page could not be generated"}
         message={job?.error?.message ?? (cancelled ? "The generation was cancelled." : "The model did not return a usable artifact.")}
-        onRetry={job?.error?.retryable === false ? undefined : () => regenerate(tab.id)}
+        onRetry={job?.error?.retryable === false ? undefined : regenerate.execute}
         onChooseModel={job?.error?.code === "rate-limited" ? openModelPicker : undefined}
       />
     );
@@ -509,7 +511,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       <ArtifactError
         title="This artifact could not be opened"
         message={compiledResult?.message ?? "The artifact is unavailable."}
-        onRetry={() => regenerate(tab.id)}
+        onRetry={regenerate.execute}
       />
     );
   }
@@ -519,7 +521,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       <ArtifactError
         title="The safe page bridge did not start"
         message={currentBridgeFailure}
-        onRetry={() => reload(tab.id)}
+        onRetry={reload.execute}
       />
     );
   }
@@ -549,19 +551,19 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
           cancelled={job?.status === "cancelled"}
           partial={hasPreview}
           message={job?.error?.message ?? "The model did not return a usable artifact."}
-          onRetry={job?.error?.retryable === false ? undefined : () => regenerate(tab.id)}
+          onRetry={job?.error?.retryable === false ? undefined : regenerate.execute}
           onChooseModel={job?.error?.code === "rate-limited" ? openModelPicker : undefined}
         />
       )}
       {contextMenu && (
         <PageContextMenu
           menu={contextMenu}
-          canGoBack={tab.historyIndex > 0}
-          canGoForward={tab.historyIndex < tab.history.length - 1}
+          canGoBack={goBack.enabled}
+          canGoForward={goForward.enabled}
           onDismiss={() => setContextMenu(undefined)}
-          onBack={() => go(tab.id, -1)}
-          onForward={() => go(tab.id, 1)}
-          onReload={() => reload(tab.id)}
+          onBack={goBack.execute}
+          onForward={goForward.execute}
+          onReload={reload.execute}
           onViewSource={() => setSourceOpen(true)}
           onOpenLink={contextMenu.href ? () => {
             const { sourceUrl, sourceArtifactId } = frameContextRef.current;

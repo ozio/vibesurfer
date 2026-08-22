@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { BROWSER_EXPERIENCE_REGISTRY } from "../browser/browser-experience-registry";
 import { faviconSourceValue } from "../lib/favicon";
 import { isTauri } from "../lib/platform";
 import { useBrowserStore, type BrowserState } from "../store/browser-store";
@@ -649,7 +650,9 @@ function makeMockArtifact(state: BrowserState, job: GenerationJob, title: string
   const url = job.normalizedUrl
     ?? syntheticUrlForPrompt(job.requestedUrl, siteWorld?.origin, job.id);
   const hostname = safeUrl(url)?.hostname ?? "imagined.local";
-  const links = job.purpose === "lucky-urls" ? mockLuckyRoutes(job.browserTheme) : [
+  const links: readonly (readonly [string, string])[] = job.purpose === "lucky-urls"
+    ? BROWSER_EXPERIENCE_REGISTRY[job.browserTheme].generation.mockLuckyRoutes
+    : [
     ["/discover", "Discover"],
     ["/latest", "Latest"],
     ["/topics", "Topics"],
@@ -662,7 +665,7 @@ function makeMockArtifact(state: BrowserState, job: GenerationJob, title: string
     ["/about", "About"],
     ["/help", "Help"],
     ["/account", "Account"],
-  ];
+    ];
   const navigation = links.map(([href, label]) => `<a href="${href}">${label}</a>`).join("");
   const cards = links
     .slice(0, 6)
@@ -749,57 +752,6 @@ function makeMockArtifact(state: BrowserState, job: GenerationJob, title: string
     siteIdentity,
     worldPromptSnapshot: job.worldPromptSnapshot,
   };
-}
-
-function mockLuckyRoutes(theme: BrowserState["preferences"]["theme"]): string[][] {
-  if (theme === "ie-classic") return [
-    ["http://www.lunarcities.net/~nightshift/observatory.html", "Night Shift Observatory"],
-    ["http://directory.msn.com/Hallunet/Impossible_Museums/", "Impossible Museums"],
-    ["http://www.radiomars.gov/livecam/", "Mars Radio Livecam"],
-    ["http://geocities.com/Area51/Corridor/7714/", "Corridor 7714"],
-    ["http://www.angelfire.com/zine/tomorrowweather/", "Tomorrow's Weather"],
-    ["http://archive.web-ring.net/dreammachines/", "Dream Machines Web Ring"],
-    ["http://www.citylibrary.example/forbidden.htm", "Forbidden Stacks"],
-    ["http://www.oceanicrail.com/timetables/moon.htm", "Moon Timetable"],
-    ["http://members.tripod.com/~signalghost/", "Signal Ghost"],
-    ["http://www.rambler.ru/catalog/parallel/", "Parallel Rambler"],
-  ];
-  if (theme === "cyberpunk") return [
-    ["https://ghostmarket.net/auctions/memories", "Memory Auctions"],
-    ["https://nexus.city/transit/phantom-line", "Phantom Line"],
-    ["https://kuroda.corp/leaks/employee-000", "Employee Zero"],
-    ["https://orbital.weather/sector-9", "Orbital Weather"],
-    ["https://blackclinic.net/recall/menu", "Recall Menu"],
-    ["https://municipal.ai/petitions/synthetic-rights", "Synthetic Rights"],
-    ["https://relay.null/voices/last-night", "Null Relay"],
-    ["https://streetfood.city/no-license", "Unlicensed Kitchens"],
-    ["https://trace.gov/citizen/unknown", "Unknown Citizen"],
-    ["https://sleepbank.coop/dream-exchange", "Dream Exchange"],
-  ];
-  if (theme === "sedative") return [
-    ["https://stillroom.fm/rooms/rain-library", "Rain Library"],
-    ["https://nighttrain.travel/routes/no-arrival", "No-arrival Train"],
-    ["https://fieldnotes.today/borrowed-gardens", "Borrowed Gardens"],
-    ["https://repair.city/objects/forgotten", "Forgotten Objects"],
-    ["https://slowpost.world/letters/in-transit", "Letters in Transit"],
-    ["https://publictable.org/supper/tonight", "Public Supper"],
-    ["https://quietweather.net/fog-index", "Fog Index"],
-    ["https://afterhours.museum/one-light-on", "One Light On"],
-    ["https://tideclock.coop/calendar", "Tide Calendar"],
-    ["https://commons.radio/untranslated", "Untranslated Radio"],
-  ];
-  return [
-    ["https://library.atlas/rooms/door-zero", "Door Zero"],
-    ["https://weather.mars/olympus-mons", "Olympus Weather"],
-    ["https://archive.future/events/never-happened", "Events That Never Happened"],
-    ["https://maps.below/cities/under-london", "Cities Below"],
-    ["https://radio.elsewhere/frequency/0", "Frequency Zero"],
-    ["https://museum.impossible/exhibits/shadows", "Museum of Shadows"],
-    ["https://species.wiki/homo-lumen", "Homo Lumen"],
-    ["https://transit.dream/nightly", "Dream Transit"],
-    ["https://news.tomorrow/archive/yesterday", "Tomorrow's Yesterday"],
-    ["https://ocean.space/ports/pelagic", "Pelagic Spaceport"],
-  ];
 }
 
 function canReuseCachedPage(job: GenerationJob): boolean {

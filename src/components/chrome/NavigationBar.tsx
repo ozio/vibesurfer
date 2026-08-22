@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRight, Home, LoaderCircle, RotateCw, X } from "lucide-react";
+import { useBrowserCommand } from "../../browser/browser-command-registry";
 import { useBrowserStore } from "../../store/browser-store";
 import type { BrowserTab } from "../../types/browser";
 import { IconButton } from "../ui/IconButton";
@@ -10,30 +11,28 @@ import { DynamicBadge } from "./DynamicBadge";
 import { GenerationModeControl } from "./GenerationModeControl";
 
 export function NavigationBar({ tab }: { tab: BrowserTab }) {
-  const go = useBrowserStore((state) => state.go);
-  const navigate = useBrowserStore((state) => state.navigate);
-  const reload = useBrowserStore((state) => state.reload);
-  const setLoadState = useBrowserStore((state) => state.setLoadState);
+  const back = useBrowserCommand("back", { tabId: tab.id });
+  const forward = useBrowserCommand("forward", { tabId: tab.id });
+  const reload = useBrowserCommand("reload", { tabId: tab.id });
+  const stop = useBrowserCommand("stop", { tabId: tab.id });
+  const home = useBrowserCommand("home", { tabId: tab.id });
   const artifact = useBrowserStore((state) => {
     const id = tab.artifactId ?? tab.fallbackArtifactId;
     return id ? state.artifacts[id] : undefined;
   });
-  const canGoBack = tab.historyIndex > 0;
-  const canGoForward = tab.historyIndex < tab.history.length - 1;
-
   return (
     <nav className="navigation-bar" aria-label="Browser navigation">
       <div className="navigation-bar__cluster">
-        <IconButton label="Back" disabled={!canGoBack} onClick={() => go(tab.id, -1)}><ArrowLeft aria-hidden="true" /></IconButton>
-        <IconButton label="Forward" disabled={!canGoForward} onClick={() => go(tab.id, 1)}><ArrowRight aria-hidden="true" /></IconButton>
+        <IconButton label={back.label} disabled={!back.enabled} onClick={back.execute}><ArrowLeft aria-hidden="true" /></IconButton>
+        <IconButton label={forward.label} disabled={!forward.enabled} onClick={forward.execute}><ArrowRight aria-hidden="true" /></IconButton>
         {tab.loadState === "loading" ? (
-          <IconButton label="Stop" onClick={() => setLoadState(tab.id, "idle")}><X aria-hidden="true" /></IconButton>
+          <IconButton label={stop.label} disabled={!stop.enabled} onClick={stop.execute}><X aria-hidden="true" /></IconButton>
         ) : (
-          <IconButton label={tab.archivedSiteWorldId ? "Reload archived snapshot" : tab.kind === "generated" ? "Regenerate page" : "Reload"} onClick={() => reload(tab.id)}>
+          <IconButton label={reload.label} disabled={!reload.enabled} onClick={reload.execute}>
             <RotateCw aria-hidden="true" />
           </IconButton>
         )}
-        <IconButton label="Home" onClick={() => navigate(tab.id, "vibe://new-tab")}><Home aria-hidden="true" /></IconButton>
+        <IconButton label={home.label} disabled={!home.enabled} onClick={home.execute}><Home aria-hidden="true" /></IconButton>
       </div>
       <AddressBar tab={tab} />
       <DynamicBadge tab={tab} artifact={artifact} />

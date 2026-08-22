@@ -25,6 +25,8 @@ import {
 } from "lucide-react";
 import { Switch } from "radix-ui";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { useBrowserCommand } from "../../browser/browser-command-registry";
+import { useBrowserServices } from "../../browser/browser-services";
 import { MODELS, PROFILE_PRESETS, THEME_LABELS } from "../../data/catalog";
 import thirdPartyNotices from "../../generated/third-party-notices.json";
 import {
@@ -39,7 +41,6 @@ import {
   type RuntimeStatus,
 } from "../../generation/host-api";
 import { GENERATION_CAPABILITY_OPTIONS } from "../../generation/capability-settings";
-import { isTauri, openExternal } from "../../lib/platform";
 import {
   listMediaConnections,
   removeMediaConnection,
@@ -147,7 +148,8 @@ function SettingsHeading({ eyebrow, title, description }: { eyebrow: string; tit
 
 function TabSettings() {
   const preferences = useBrowserStore((state) => state.preferences);
-  const setTabLayout = useBrowserStore((state) => state.setTabLayout);
+  const horizontalTabs = useBrowserCommand("horizontal-tabs");
+  const verticalTabs = useBrowserCommand("vertical-tabs");
   return (
     <>
       <SettingsHeading eyebrow="Workspace" title="Tabs" description="Use a Chrome-like strip or an Arc-like sidebar. Your order and active page stay intact." />
@@ -155,7 +157,7 @@ function TabSettings() {
         <h2>Tab layout</h2>
         <div className="layout-options">
           {(["horizontal", "vertical"] as TabLayout[]).map((layout) => (
-            <button key={layout} type="button" className={preferences.tabLayout === layout ? "is-active" : ""} onClick={() => setTabLayout(layout)}>
+            <button key={layout} type="button" className={preferences.tabLayout === layout ? "is-active" : ""} onClick={(layout === "horizontal" ? horizontalTabs : verticalTabs).execute}>
               <span className={`layout-preview layout-preview--${layout}`}><i /><i /><i /></span>
               <span><strong>{layout === "horizontal" ? "Horizontal tabs" : "Vertical tabs"}</strong><small>{layout === "horizontal" ? "Familiar and space-efficient" : "Readable titles and quick scanning"}</small></span>
               {preferences.tabLayout === layout && <Check aria-hidden="true" />}
@@ -169,6 +171,8 @@ function TabSettings() {
 }
 
 function GenerationSettings() {
+  const services = useBrowserServices();
+  const isDesktop = services.runtime === "tauri";
   const settings = useBrowserStore((state) => state.generationSettings);
   const patchGenerationSettings = useBrowserStore((state) => state.patchGenerationSettings);
   const patchStyleSettings = useBrowserStore((state) => state.patchStyleSettings);
@@ -435,7 +439,7 @@ function GenerationSettings() {
           </div>
           <form className="provider-form" onSubmit={(event) => void connectMedia(event)}>
             <div className="provider-form__grid"><label><span>Connection name</span><input value={mediaName} maxLength={120} onChange={(event) => setMediaName(event.target.value)} /></label><label><span>ElevenLabs API key</span><input type="password" value={mediaKey} autoComplete="off" onChange={(event) => setMediaKey(event.target.value)} /></label></div>
-            <div className="provider-form__footer"><small>{mediaMessage || (isTauri() ? "The key is verified by Rust, then stored in Keychain." : "Connections are available in the packaged desktop app.")}</small><button className="button button--primary" type="submit" disabled={!isTauri() || !mediaKey.trim() || Boolean(mediaBusy)}><KeyRound aria-hidden="true" /> Verify &amp; save</button></div>
+            <div className="provider-form__footer"><small>{mediaMessage || (isDesktop ? "The key is verified by Rust, then stored in Keychain." : "Connections are available in the packaged desktop app.")}</small><button className="button button--primary" type="submit" disabled={!isDesktop || !mediaKey.trim() || Boolean(mediaBusy)}><KeyRound aria-hidden="true" /> Verify &amp; save</button></div>
           </form>
         </details>
       </section>
@@ -467,6 +471,8 @@ function GenerationSettings() {
 }
 
 function ModelSettings() {
+  const services = useBrowserServices();
+  const isDesktop = services.runtime === "tauri";
   const activeModelId = useBrowserStore((state) => state.activeModelId);
   const setModel = useBrowserStore((state) => state.setModel);
   const codex = useBrowserStore((state) => state.codex);
@@ -486,7 +492,7 @@ function ModelSettings() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!isTauri()) return;
+    if (!isDesktop) return;
     setLoadingProviders(true);
     void Promise.all([getRuntimeStatus(), listProviderConnections(activeProfileId)])
       .then(([nextRuntime, connections]) => {
@@ -503,7 +509,7 @@ function ModelSettings() {
     return () => {
       cancelled = true;
     };
-  }, [activeProfileId, upsertProviderConnection]);
+  }, [activeProfileId, isDesktop, upsertProviderConnection]);
 
   const customModels = useMemo(
     () => providerConnections.flatMap((connection) => connection.modelIds.map((id) => ({ id, connection }))),
@@ -529,9 +535,9 @@ function ModelSettings() {
         <button className="button" type="button" onClick={() => window.dispatchEvent(new Event("vibesurfer:open-codex"))}>{codex.state === "signed-in" ? "Configure" : "Check sign-in"}</button>
       </section>
       <div className="runtime-strip" aria-label="Generation runtime status">
-        <span className={runtime?.workerAvailable || !isTauri() ? "is-ready" : undefined} />
-        <strong>{isTauri() ? (runtime?.workerAvailable ? "Worker ready" : loadingProviders ? "Checking worker…" : "Worker unavailable") : "Browser preview runtime"}</strong>
-        <small>{runtime?.workerDescription ?? (isTauri() ? "Build the generation worker to enable providers." : "Uses a deterministic, network-free mock provider.")}</small>
+        <span className={runtime?.workerAvailable || !isDesktop ? "is-ready" : undefined} />
+        <strong>{isDesktop ? (runtime?.workerAvailable ? "Worker ready" : loadingProviders ? "Checking worker…" : "Worker unavailable") : "Browser preview runtime"}</strong>
+        <small>{runtime?.workerDescription ?? (isDesktop ? "Build the generation worker to enable providers." : "Uses a deterministic, network-free mock provider.")}</small>
       </div>
       <section className="settings-group">
         <h2>Default model</h2>
@@ -590,6 +596,7 @@ function ProviderConnections({
   message: string;
   setMessage: (message: string) => void;
 }) {
+  const isDesktop = useBrowserServices().runtime === "tauri";
   const [kind, setKind] = useState<Exclude<ProviderKind, "codex" | "local">>("openai");
   const [displayName, setDisplayName] = useState("OpenAI personal");
   const [modelId, setModelId] = useState("gpt-5.4");
@@ -601,7 +608,7 @@ function ProviderConnections({
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setMessage("");
-    if (!isTauri()) {
+    if (!isDesktop) {
       setMessage("Open the desktop app to store a provider key in the operating-system credential vault.");
       return;
     }
@@ -870,6 +877,7 @@ function PrivacySettings() {
 }
 
 function AboutSettings() {
+  const services = useBrowserServices();
   const [query, setQuery] = useState("");
   const normalizedQuery = query.trim().toLowerCase();
   const notices = normalizedQuery
@@ -889,7 +897,7 @@ function AboutSettings() {
           {notices.map((notice) => (
             <article key={notice.id} className="license-row">
               <span><strong>{notice.name}</strong><small>{notice.version} · {notice.surfaces.join(" · ")}</small></span>
-              <span className="license-row__meta"><code>{notice.license}</code><button type="button" onClick={() => void openExternal(notice.source)}>Source</button></span>
+              <span className="license-row__meta"><code>{notice.license}</code><button type="button" onClick={() => void services.external.open(notice.source)}>Source</button></span>
             </article>
           ))}
           {notices.length === 0 && <p className="settings-search__empty">No matching library or license</p>}

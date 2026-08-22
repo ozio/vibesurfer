@@ -1,26 +1,25 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Check, Columns3, ExternalLink, History, MoreHorizontal, PanelLeft, Plus, RefreshCw, Settings, WandSparkles } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
-import { browserShortcutLabels, detectPlatform, externalHttpUrl, openExternal } from "../../lib/platform";
+import { useBrowserCommand } from "../../browser/browser-command-registry";
 import { useBrowserStore } from "../../store/browser-store";
-import { openBlankTabAndFocus } from "../../app/browser-actions";
 import type { TabLayout } from "../../types/browser";
 import { IconButton } from "../ui/IconButton";
 
 export function AppMenu() {
   const activeTabId = useBrowserStore((state) => state.activeTabId);
   const activeTab = useBrowserStore((state) => state.tabs.find((tab) => tab.id === state.activeTabId));
-  const regenerate = useBrowserStore((state) => state.regenerate);
-  const reimagine = useBrowserStore((state) => state.reimagine);
-  const reload = useBrowserStore((state) => state.reload);
-  const openSettings = useBrowserStore((state) => state.openSettings);
-  const openHistory = useBrowserStore((state) => state.openHistory);
   const preferences = useBrowserStore((state) => state.preferences);
-  const setTabLayout = useBrowserStore((state) => state.setTabLayout);
+  const newTab = useBrowserCommand("new-tab");
+  const regenerate = useBrowserCommand("regenerate", { tabId: activeTabId });
+  const reimagine = useBrowserCommand("reimagine", { tabId: activeTabId });
+  const openLiveSite = useBrowserCommand("open-live-site", { tabId: activeTabId });
+  const history = useBrowserCommand("history");
+  const horizontalTabs = useBrowserCommand("horizontal-tabs");
+  const verticalTabs = useBrowserCommand("vertical-tabs");
+  const settings = useBrowserCommand("open-settings");
   const [menuOpen, setMenuOpen] = useState(false);
   const [layoutSubmenuOpen, setLayoutSubmenuOpen] = useState(false);
-  const platform = useMemo(detectPlatform, []);
-  const shortcuts = browserShortcutLabels(platform, preferences.theme);
 
   const setRootOpen = (open: boolean) => {
     setMenuOpen(open);
@@ -30,7 +29,7 @@ export function AppMenu() {
   };
 
   const chooseTabLayout = (layout: TabLayout) => {
-    setTabLayout(layout);
+    (layout === "horizontal" ? horizontalTabs : verticalTabs).execute();
     setRootOpen(false);
   };
 
@@ -41,27 +40,27 @@ export function AppMenu() {
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="menu app-menu" align="end" sideOffset={8} collisionPadding={10}>
-          <DropdownMenu.Item className="menu__item" onSelect={() => openBlankTabAndFocus()}>
-            <Plus aria-hidden="true" /><span>New tab</span><kbd>{shortcuts.newTab}</kbd>
+          <DropdownMenu.Item className="menu__item" onSelect={newTab.execute}>
+            <Plus aria-hidden="true" /><span>{newTab.label}</span><kbd>{newTab.shortcut}</kbd>
           </DropdownMenu.Item>
           {activeTab?.kind === "generated" && (
             <>
-              <DropdownMenu.Item className="menu__item" onSelect={() => activeTab.archivedSiteWorldId ? reload(activeTabId) : regenerate(activeTabId)}>
-                <RefreshCw aria-hidden="true" /><span>{activeTab.archivedSiteWorldId ? "Reload archived snapshot" : "Regenerate page"}</span>
+              <DropdownMenu.Item className="menu__item" disabled={!regenerate.enabled} onSelect={regenerate.execute}>
+                <RefreshCw aria-hidden="true" /><span>{regenerate.label}</span>
               </DropdownMenu.Item>
-              <DropdownMenu.Item className="menu__item" disabled={Boolean(activeTab.archivedSiteWorldId)} onSelect={() => reimagine(activeTabId)}>
-                <WandSparkles aria-hidden="true" /><span>Reimagine site</span>
+              <DropdownMenu.Item className="menu__item" disabled={!reimagine.enabled} onSelect={reimagine.execute}>
+                <WandSparkles aria-hidden="true" /><span>{reimagine.label}</span>
               </DropdownMenu.Item>
-              {externalHttpUrl(activeTab.location) && (
-                <DropdownMenu.Item className="menu__item" onSelect={() => void openExternal(activeTab.location)}>
-                  <ExternalLink aria-hidden="true" /><span>Open live site externally</span>
+              {openLiveSite.enabled && (
+                <DropdownMenu.Item className="menu__item" onSelect={openLiveSite.execute}>
+                  <ExternalLink aria-hidden="true" /><span>{openLiveSite.label}</span>
                 </DropdownMenu.Item>
               )}
             </>
           )}
           <DropdownMenu.Separator className="menu__separator" />
-          <DropdownMenu.Item className="menu__item" onSelect={openHistory}>
-            <History aria-hidden="true" /><span>History</span><kbd>{platform === "macos" ? "⌘Y" : "Ctrl+Y"}</kbd>
+          <DropdownMenu.Item className="menu__item" onSelect={history.execute}>
+            <History aria-hidden="true" /><span>{history.label}</span><kbd>{history.shortcut}</kbd>
           </DropdownMenu.Item>
           <DropdownMenu.Sub
             open={layoutSubmenuOpen}
@@ -95,8 +94,8 @@ export function AppMenu() {
             </DropdownMenu.Portal>
           </DropdownMenu.Sub>
           <DropdownMenu.Separator className="menu__separator" />
-          <DropdownMenu.Item className="menu__item" onSelect={() => openSettings("general")}>
-            <Settings aria-hidden="true" /><span>Settings</span><kbd>{shortcuts.settings}</kbd>
+          <DropdownMenu.Item className="menu__item" onSelect={settings.execute}>
+            <Settings aria-hidden="true" /><span>{settings.label}</span><kbd>{settings.shortcut}</kbd>
           </DropdownMenu.Item>
           <DropdownMenu.Arrow className="menu__arrow" />
         </DropdownMenu.Content>

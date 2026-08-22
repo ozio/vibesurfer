@@ -1,4 +1,5 @@
 import type { Preview } from "@storybook/react-vite";
+import { BROWSER_THEME_TOOLBAR_ITEMS } from "../src/browser/browser-experience-registry";
 import { withBrowserStoryEnvironment } from "../src/storybook/BrowserStoryEnvironment";
 import "../src/styles/app.css";
 import "../src/storybook/storybook.css";
@@ -11,12 +12,7 @@ const preview: Preview = {
       description: "Browser chrome theme",
       toolbar: {
         icon: "paintbrush",
-        items: [
-          { value: "native", title: "Native" },
-          { value: "sedative", title: "Sedative" },
-          { value: "ie-classic", title: "IE Classic" },
-          { value: "cyberpunk", title: "Cyberpunk" },
-        ],
+        items: BROWSER_THEME_TOOLBAR_ITEMS,
         dynamicTitle: true,
       },
     },

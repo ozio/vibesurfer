@@ -1,12 +1,14 @@
 import { Check, ChevronDown, Settings, UserRoundCog } from "lucide-react";
 import { DropdownMenu } from "radix-ui";
+import { useBrowserCommand } from "../../browser/browser-command-registry";
 import { useBrowserStore } from "../../store/browser-store";
 
 export function ProfileMenu() {
   const profileId = useBrowserStore((state) => state.activeProfileId);
   const profiles = useBrowserStore((state) => state.profiles);
   const setProfile = useBrowserStore((state) => state.setProfile);
-  const openSettings = useBrowserStore((state) => state.openSettings);
+  const openProfiles = useBrowserCommand("open-profiles");
+  const openSettings = useBrowserCommand("open-settings");
   const profile = profiles.find((item) => item.id === profileId) ?? profiles[0]!;
 
   return (
@@ -33,10 +35,10 @@ export function ProfileMenu() {
             </DropdownMenu.Item>
           ))}
           <DropdownMenu.Separator className="menu__separator" />
-          <DropdownMenu.Item className="menu__item" onSelect={() => openSettings("profiles")}>
+          <DropdownMenu.Item className="menu__item" onSelect={openProfiles.execute}>
             <UserRoundCog aria-hidden="true" /><span>Profile settings…</span>
           </DropdownMenu.Item>
-          <DropdownMenu.Item className="menu__item" onSelect={() => openSettings("general")}>
+          <DropdownMenu.Item className="menu__item" onSelect={openSettings.execute}>
             <Settings aria-hidden="true" /><span>Browser settings</span>
           </DropdownMenu.Item>
           <DropdownMenu.Arrow className="menu__arrow" />

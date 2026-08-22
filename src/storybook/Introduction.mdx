@@ -24,13 +24,32 @@ Browser themes are CSS implementations of a shared component structure. The prev
   </tbody>
 </table>
 
-The canonical baseline is Native, Light, macOS, Comfortable, Horizontal, and Reduced motion. Every axis remains switchable in the toolbar.
+The canonical baseline is Native, Light, macOS, Comfortable, Horizontal, and Reduced motion. Every axis remains switchable in the toolbar. `BrowserThemeRoot` owns these root attributes in both production and stories, so the documented surface and the shipped browser cannot drift into separate theme bootstraps.
+
+## Browser experience registry
+
+`BROWSER_EXPERIENCE_REGISTRY` is the frontend source of truth for every theme ID. A theme is a set of explicit facets rather than a component fork:
+
+- `chrome`: toolbar/settings labels, chrome variant, and address-bar language;
+- `portal`: new-tab copy, search provider, symbolic icon, and suggested routes;
+- `generation`: profile preset, deterministic preview routes, and legacy-artifact tokens;
+- `nativeWindow`: the host window corner radius.
+
+The generation worker has a deliberately separate `GENERATION_EXPERIENCE_REGISTRY` for long world instructions, its offline font catalogue, and Turbo wording. Contract tests require the frontend registry, worker registry, worker Zod schema, toolbar, and four canonical `BrowserShell` stories to expose the same ordered theme IDs. Large prompts therefore never enter the frontend bundle.
+
+To add a theme, add one complete entry to each registry, extend the worker schema through its registry tuple, add a canonical full-browser story, and implement the theme under the existing root selectors. Do not add theme checks to individual components when the difference is data or a stable chrome variant.
+
+## Runtime and command contracts
+
+Browser UI consumes `BrowserServices` instead of importing Tauri APIs. Production selects the lazy Tauri or safe Web adapter; Storybook supplies an inert adapter with injectable spies. Window operations, external links, native-window shape, and native-menu transport are therefore testable without giving stories host side effects. Generation, persistence, dynamic pages, Codex, media, and deep links remain separate host runtimes.
+
+Toolbar buttons, app menus, tab context menus, JavaScript shortcuts, and native-menu events resolve through `BROWSER_COMMAND_REGISTRY`. React surfaces share labels, enabled/checked state, shortcut presentation, and handlers. Tauri owns native menu copy and accelerators, while its command IDs and dynamic state are checked against the same language-neutral manifest; Web and Storybook install the matching JavaScript shortcuts.
 
 ## Pure and connected stories
 
 Pure components receive all behavior through props and can be rendered directly. Connected browser components read Zustand state; their stories use `withBrowserStoryState`, which starts from a deep clone of `useBrowserStore.getInitialState()`, overlays a serializable fixture, and switches persistence to in-memory storage.
 
-`BrowserShell` is the visual application boundary. Production mounts it through `BrowserApp`, which also starts generation and dynamic runtimes. Storybook mounts `BrowserShell` directly, so a story cannot accidentally generate a page or mutate a real persisted session.
+`BrowserShell` is the visual application boundary. Production mounts it through `BrowserApp`, which also starts generation and dynamic runtimes. Storybook mounts `BrowserShell` directly with the inert services adapter, so a story cannot accidentally generate a page, mutate a real persisted session, open an external URL, or alter a native window.
 
 ## Adding a component
 

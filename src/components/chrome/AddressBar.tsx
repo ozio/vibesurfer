@@ -1,58 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Globe2, PanelTop, Search, Settings, ShieldCheck, ShieldEllipsis, Sparkles } from "lucide-react";
 import { Popover } from "radix-ui";
+import { BROWSER_EXPERIENCE_REGISTRY } from "../../browser/browser-experience-registry";
+import { useBrowserServices } from "../../browser/browser-services";
 import { looksLikeUrl } from "../../lib/navigation";
-import { browserShortcutLabels, detectPlatform } from "../../lib/platform";
+import { openInNewTabShortcutLabel } from "../../lib/platform";
 import { useBrowserStore } from "../../store/browser-store";
-import type { BrowserTab, ThemeId } from "../../types/browser";
+import type { BrowserTab } from "../../types/browser";
 import { Favicon } from "../ui/Favicon";
-
-const addressLanguage: Record<ThemeId, {
-  network: string;
-  placeholder: string;
-  queryDetail: string;
-  addressDetail: string;
-  starterLabel: string;
-  starterDetail: string;
-  starterAddress: string;
-}> = {
-  native: {
-    network: "the Hallunet",
-    placeholder: "Enter an address or search the Hallunet",
-    queryDetail: "Follow this query beyond the indexed web",
-    addressDetail: "Open this coordinate in the Hallunet",
-    starterLabel: "Search for something the indexed web has never seen",
-    starterDetail: "The first result may lead anywhere",
-    starterAddress: "google.com/search?q=three-byte+metacode",
-  },
-  sedative: {
-    network: "the Quiet Web",
-    placeholder: "Enter an address on the Quiet Web",
-    queryDetail: "Let the quieter network answer",
-    addressDetail: "Drift into this address",
-    starterLabel: "Open a quiet place nearby",
-    starterDetail: "A live room, somewhere after midnight",
-    starterAddress: "stillroom.fm/live",
-  },
-  "ie-classic": {
-    network: "Hallunet",
-    placeholder: "Search Hallunet or type a Web address",
-    queryDetail: "Search all alternate Web pages",
-    addressDetail: "Go to this Web address",
-    starterLabel: "Visit the Unknown Web Ring",
-    starterDetail: "1,284 member pages and counting!",
-    starterAddress: "www.web-ring.net/unknown",
-  },
-  cyberpunk: {
-    network: "the Consensus Net",
-    placeholder: "ENTER HOST / QUERY / ACCESS CODE",
-    queryDetail: "Route query through an unlicensed index",
-    addressDetail: "Establish a ghost route to this node",
-    starterLabel: "Intercept an unregistered node",
-    starterDetail: "Trace mask active",
-    starterAddress: "blackclinic.net/memory/intake",
-  },
-};
 
 type SuggestionAction =
   | { type: "navigate"; value: string }
@@ -81,9 +36,9 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
   const composing = useRef(false);
   const selectOnPointerUp = useRef(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const platform = useMemo(detectPlatform, []);
-  const shortcuts = browserShortcutLabels(platform, theme);
-  const language = addressLanguage[theme];
+  const platform = useBrowserServices().platform;
+  const openInNewTabShortcut = openInNewTabShortcutLabel(platform);
+  const language = BROWSER_EXPERIENCE_REGISTRY[theme].chrome.address;
   const siteInfo = siteInformation(tab);
 
   useEffect(() => {
@@ -304,7 +259,7 @@ export function AddressBar({ tab }: { tab: BrowserTab }) {
               <ArrowRight className="address-suggestion__arrow" aria-hidden="true" />
             </button>
           ))}
-          <div className="address-suggestions__hint"><kbd>↑</kbd><kbd>↓</kbd> choose <kbd>↵</kbd> open <kbd>{shortcuts.openInNewTab}</kbd> new tab</div>
+          <div className="address-suggestions__hint"><kbd>↑</kbd><kbd>↓</kbd> choose <kbd>↵</kbd> open <kbd>{openInNewTabShortcut}</kbd> new tab</div>
         </div>
       )}
     </div>

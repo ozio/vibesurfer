@@ -33,6 +33,32 @@ const OPEN_PROFILES: &str = "open-profiles";
 const OPEN_GITHUB: &str = "open-github";
 const REPORT_ISSUE: &str = "report-issue";
 
+pub(crate) const NATIVE_MENU_COMMANDS: &[&str] = &[
+    NEW_TAB,
+    CLOSE_TAB,
+    FOCUS_ADDRESS,
+    RELOAD,
+    STOP,
+    BACK,
+    FORWARD,
+    HOME,
+    HISTORY,
+    NEXT_TAB,
+    PREVIOUS_TAB,
+    REGENERATE,
+    REIMAGINE,
+    OPEN_LIVE_SITE,
+    HORIZONTAL_TABS,
+    VERTICAL_TABS,
+    OPEN_SETTINGS,
+    OPEN_LICENSES,
+    OPEN_GENERATION_SETTINGS,
+    OPEN_MODELS,
+    OPEN_PROFILES,
+    OPEN_GITHUB,
+    REPORT_ISSUE,
+];
+
 pub struct NativeMenuItems<R: Runtime> {
     back: MenuItem<R>,
     forward: MenuItem<R>,
@@ -313,30 +339,8 @@ pub fn emit_native_menu_command<R: Runtime>(app: &AppHandle<R>, id: &str) {
 }
 
 pub(crate) fn native_menu_command(id: &str) -> Option<&'static str> {
-    match id {
-        NEW_TAB => Some(NEW_TAB),
-        CLOSE_TAB => Some(CLOSE_TAB),
-        FOCUS_ADDRESS => Some(FOCUS_ADDRESS),
-        RELOAD => Some(RELOAD),
-        STOP => Some(STOP),
-        BACK => Some(BACK),
-        FORWARD => Some(FORWARD),
-        HOME => Some(HOME),
-        HISTORY => Some(HISTORY),
-        NEXT_TAB => Some(NEXT_TAB),
-        PREVIOUS_TAB => Some(PREVIOUS_TAB),
-        REGENERATE => Some(REGENERATE),
-        REIMAGINE => Some(REIMAGINE),
-        OPEN_LIVE_SITE => Some(OPEN_LIVE_SITE),
-        HORIZONTAL_TABS => Some(HORIZONTAL_TABS),
-        VERTICAL_TABS => Some(VERTICAL_TABS),
-        OPEN_SETTINGS => Some(OPEN_SETTINGS),
-        OPEN_LICENSES => Some(OPEN_LICENSES),
-        OPEN_GENERATION_SETTINGS => Some(OPEN_GENERATION_SETTINGS),
-        OPEN_MODELS => Some(OPEN_MODELS),
-        OPEN_PROFILES => Some(OPEN_PROFILES),
-        OPEN_GITHUB => Some(OPEN_GITHUB),
-        REPORT_ISSUE => Some(REPORT_ISSUE),
-        _ => None,
-    }
+    NATIVE_MENU_COMMANDS
+        .iter()
+        .copied()
+        .find(|command| *command == id)
 }

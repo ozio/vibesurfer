@@ -9,151 +9,22 @@ import {
   Sparkles,
   Terminal,
   Waves,
-  type LucideIcon,
 } from "lucide-react";
 import { motion } from "motion/react";
+import {
+  BROWSER_EXPERIENCE_REGISTRY,
+  browserSearchProvider,
+} from "../../browser/browser-experience-registry";
 import { looksLikeUrl } from "../../lib/navigation";
 import { useBrowserStore } from "../../store/browser-store";
 import type { ThemeId } from "../../types/browser";
 
-interface PortalRoute {
-  label: string;
-  address: string;
-  note: string;
-}
-
-interface PortalCopy {
-  eyebrow: string;
-  title: [string, string];
-  lede: string;
-  placeholder: string;
-  inputLabel: string;
-  signal: string;
-  status: string;
-  footer: string;
-  routesLabel: string;
-  icon: LucideIcon;
-  routes: PortalRoute[];
-}
-
-const portals: Record<ThemeId, PortalCopy> = {
-  native: {
-    eyebrow: "HALLUNET / OPEN ACCESS",
-    title: ["There is another", "internet in here."],
-    lede: "Type an address that should not exist. Somewhere beyond consensus, it already does.",
-    placeholder: "Enter an impossible address or search…",
-    inputLabel: "Enter a Hallunet address or search",
-    signal: "Reality index drifting",
-    status: "Unmapped network",
-    footer: "No map. No canon. Follow the links.",
-    routesLabel: "Unstable coordinates",
-    icon: Compass,
-    routes: [
-      {
-        label: "Unknown search",
-        address: "google.com/search?q=three-byte+metacode",
-        note: "Ask the familiar web an impossible question",
-      },
-      {
-        label: "Door zero",
-        address: "library.atlas/rooms/door-zero",
-        note: "A catalogue entry with no known author",
-      },
-      {
-        label: "Off-world weather",
-        address: "weather.mars/olympus-mons",
-        note: "Local conditions from somewhere else",
-      },
-    ],
-  },
-  sedative: {
-    eyebrow: "THE QUIET NETWORK",
-    title: ["Somewhere quieter", "is already online."],
-    lede: "A parallel present, built for attention that belongs to you. Choose an address and drift.",
-    placeholder: "Where would you like to wander?",
-    inputLabel: "Enter an address on the Quiet Web",
-    signal: "Low-noise connection",
-    status: "The network is resting",
-    footer: "Nothing here will ask you to hurry.",
-    routesLabel: "Places nearby",
-    icon: Waves,
-    routes: [
-      {
-        label: "Stillroom Radio",
-        address: "stillroom.fm/live",
-        note: "A live room, somewhere after midnight",
-      },
-      {
-        label: "Morning field notes",
-        address: "fieldnotes.today/morning",
-        note: "Small observations from a slower city",
-      },
-      {
-        label: "Night train",
-        address: "nighttrain.travel/window-seat",
-        note: "A route with no arrival time",
-      },
-    ],
-  },
-  "ie-classic": {
-    eyebrow: "",
-    title: ["Explore", "Hallunet"],
-    lede: "",
-    placeholder: "Search Hallunet",
-    inputLabel: "Search Hallunet or enter an address",
-    signal: "",
-    status: "",
-    footer: "",
-    routesLabel: "Featured channels",
-    icon: Search,
-    routes: [
-      {
-        label: "The Unknown Web Ring",
-        address: "www.web-ring.net/unknown",
-        note: "1,284 member pages and counting!",
-      },
-      {
-        label: "Mars Weather Service",
-        address: "www.spaceweather.gov/mars",
-        note: "Forecasts · Dust alerts · Colony cams",
-      },
-      {
-        label: "Area 51 Archive",
-        address: "geocities.com/Area51/Archive/3058",
-        note: "Warp sightings, files and guestbook",
-      },
-    ],
-  },
-  cyberpunk: {
-    eyebrow: "HALLUNET // UNLICENSED ROUTE",
-    title: ["BREACH THE", "CONSENSUS NET"],
-    lede: "Enter a corporate host, a ghost query, or a forbidden node. Reality clearance is not required.",
-    placeholder: "ENTER HOST / QUERY / ACCESS CODE",
-    inputLabel: "Enter a Consensus Net host or query",
-    signal: "Ghost route available",
-    status: "TRACE MASK: ACTIVE",
-    footer: "Every click leaves this reality further behind.",
-    routesLabel: "Intercepted nodes",
-    icon: Terminal,
-    routes: [
-      {
-        label: "Municipal grid",
-        address: "nexus.city/grid/status",
-        note: "Sector load · curfew · live incidents",
-      },
-      {
-        label: "Memory clinic",
-        address: "blackclinic.net/memory/intake",
-        note: "Unlicensed recall reconstruction",
-      },
-      {
-        label: "Citizen ledger",
-        address: "kuroda.corp/citizen/lookup",
-        note: "Clearance required // mirror detected",
-      },
-    ],
-  },
-};
+const PORTAL_ICONS = {
+  compass: Compass,
+  waves: Waves,
+  search: Search,
+  terminal: Terminal,
+} as const;
 
 export function NewTabPage() {
   const activeTabId = useBrowserStore((state) => state.activeTabId);
@@ -167,8 +38,8 @@ export function NewTabPage() {
     return tab?.luckyJobId ? state.generationJobs[tab.luckyJobId] : undefined;
   });
   const [address, setAddress] = useState("");
-  const portal = portals[theme];
-  const PortalIcon = portal.icon;
+  const portal = BROWSER_EXPERIENCE_REGISTRY[theme].portal;
+  const PortalIcon = PORTAL_ICONS[portal.icon];
   const isRussian = useMemo(() => typeof navigator !== "undefined" && /^ru(?:-|$)/i.test(navigator.language), []);
   const search = searchPortal(theme, isRussian);
   const luckyBusy = luckyJob?.status === "queued" || luckyJob?.status === "running";
@@ -277,17 +148,9 @@ export function NewTabPage() {
 }
 
 export function searchPortal(theme: ThemeId, russian: boolean): { name: string; url: (query: string) => string } {
-  const encoded = (query: string) => encodeURIComponent(query);
-  if (theme === "ie-classic") {
-    return { name: "MSN Search", url: (query) => `https://www.msn.com/search?q=${encoded(query)}` };
-  }
-  if (theme === "cyberpunk") {
-    return { name: "NEXUS FIND", url: (query) => `https://search.nexus.city/query?q=${encoded(query)}` };
-  }
-  if (theme === "sedative") {
-    return { name: russian ? "Яндекс Тихий поиск" : "Quiet Search", url: (query) => `https://${russian ? "yandex.ru/search/" : "search.quiet"}?${russian ? "text" : "q"}=${encoded(query)}` };
-  }
-  return russian
-    ? { name: "Яндекс", url: (query) => `https://yandex.ru/search/?text=${encoded(query)}` }
-    : { name: "Google", url: (query) => `https://www.google.com/search?q=${encoded(query)}` };
+  const provider = browserSearchProvider(theme, russian);
+  return {
+    name: provider.name,
+    url: (query) => `${provider.baseUrl}?${provider.queryParameter}=${encodeURIComponent(query)}`,
+  };
 }

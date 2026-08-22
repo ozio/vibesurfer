@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { GENERATION_EXPERIENCE_REGISTRY } from "../browser-experience-registry.js";
 import { compactCapabilityContracts } from "../capabilities/registry.js";
 import type { CapabilityId } from "../capabilities/types.js";
 import type {
@@ -315,12 +316,7 @@ function compactFormFields(fields: Record<string, string> | undefined): Record<s
 }
 
 function turboTheme(theme: PipelineContext["request"]["browserTheme"]): string {
-  switch (theme) {
-    case "sedative": return "calm, low-stimulation editorial web";
-    case "ie-classic": return "compact 1997-2003 web with simple controls";
-    case "cyberpunk": return "dense dark near-future network interface";
-    default: return "site-appropriate, clear, and practical";
-  }
+  return GENERATION_EXPERIENCE_REGISTRY[theme].compactDescription;
 }
 
 function turboRequest(request: GenerateCommand): GenerateCommand {

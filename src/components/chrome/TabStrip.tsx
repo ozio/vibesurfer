@@ -6,8 +6,9 @@ import { ChevronLeft, ChevronRight, CopyX, LoaderCircle, Plus, RefreshCw, X } fr
 import { motion } from "motion/react";
 import { useCallback, useId, useLayoutEffect, useRef, useState } from "react";
 import { ContextMenu } from "radix-ui";
+import { useBrowserCommand } from "../../browser/browser-command-registry";
+import { BROWSER_EXPERIENCE_REGISTRY } from "../../browser/browser-experience-registry";
 import { useBrowserStore } from "../../store/browser-store";
-import { openBlankTabAndFocus } from "../../app/browser-actions";
 import type { BrowserTab, TabLayout } from "../../types/browser";
 import { Favicon } from "../ui/Favicon";
 import { IconButton } from "../ui/IconButton";
@@ -17,6 +18,7 @@ export interface TabStripProps {
 }
 
 export function TabStrip({ orientation }: TabStripProps) {
+  const newTab = useBrowserCommand("new-tab");
   const tabs = useBrowserStore((state) => state.tabs);
   const activeTabId = useBrowserStore((state) => state.activeTabId);
   const animations = useBrowserStore((state) => state.preferences.animations);
@@ -84,7 +86,7 @@ export function TabStrip({ orientation }: TabStripProps) {
     if (!items) return;
     items.scrollBy({
       left: direction * Math.max(160, items.clientWidth * .65),
-      behavior: animations && theme !== "ie-classic" ? "smooth" : "auto",
+      behavior: animations && BROWSER_EXPERIENCE_REGISTRY[theme].chrome.smoothTabScrolling ? "smooth" : "auto",
     });
   };
 
@@ -173,7 +175,7 @@ export function TabStrip({ orientation }: TabStripProps) {
           <ChevronRight aria-hidden="true" />
         </IconButton>
       )}
-      <IconButton className="new-tab-button" label="New tab" onClick={() => openBlankTabAndFocus()}>
+      <IconButton className="new-tab-button" label={newTab.label} onClick={newTab.execute}>
         <Plus aria-hidden="true" />
         {orientation === "vertical" && <span>New tab</span>}
       </IconButton>
@@ -202,9 +204,10 @@ function SortableTab({
 }) {
   const activeTabId = useBrowserStore((state) => state.activeTabId);
   const activateTab = useBrowserStore((state) => state.activateTab);
-  const closeTab = useBrowserStore((state) => state.closeTab);
-  const reload = useBrowserStore((state) => state.reload);
-  const canCloseOtherTabs = useBrowserStore((state) => state.tabs.length > 1);
+  const reload = useBrowserCommand("reload", { tabId: tab.id });
+  const newTabRight = useBrowserCommand("new-tab-right", { tabId: tab.id });
+  const close = useBrowserCommand("close-tab", { tabId: tab.id });
+  const closeOtherTabs = useBrowserCommand("close-other-tabs", { tabId: tab.id });
   const { ref, handleRef, isDragging } = useSortable({ id: tab.id, index });
   const active = activeTabId === tab.id;
 
@@ -232,7 +235,7 @@ function SortableTab({
           onKeyDown={(event) => {
             if (event.key === "Delete") {
               event.preventDefault();
-              closeTab(tab.id);
+              close.execute();
               return;
             }
 
@@ -262,7 +265,7 @@ function SortableTab({
             tabElements?.[targetIndex]?.focus();
           }}
           onAuxClick={(event) => {
-            if (event.button === 1) closeTab(tab.id);
+            if (event.button === 1) close.execute();
           }}
         >
           <span className="browser-tab__content">
@@ -290,7 +293,7 @@ function SortableTab({
             onPointerDown={(event) => event.stopPropagation()}
             onClick={(event) => {
               event.stopPropagation();
-              closeTab(tab.id);
+              close.execute();
             }}
           >
             <X aria-hidden="true" />
@@ -299,25 +302,25 @@ function SortableTab({
       </ContextMenu.Trigger>
       <ContextMenu.Portal>
         <ContextMenu.Content className="menu" collisionPadding={10}>
-          <ContextMenu.Item className="menu__item" onSelect={() => reload(tab.id)}>
-            <RefreshCw aria-hidden="true" /><span>Reload</span>
+          <ContextMenu.Item className="menu__item" disabled={!reload.enabled} onSelect={reload.execute}>
+            <RefreshCw aria-hidden="true" /><span>{reload.label}</span>
           </ContextMenu.Item>
           <ContextMenu.Item
             className="menu__item"
-            onSelect={() => openBlankTabAndFocus({ placement: "after-opener", opener: { tabId: tab.id, artifactId: tab.artifactId } })}
+            onSelect={newTabRight.execute}
           >
-            <Plus aria-hidden="true" /><span>New tab to the right</span>
+            <Plus aria-hidden="true" /><span>{newTabRight.label}</span>
           </ContextMenu.Item>
           <ContextMenu.Separator className="menu__separator" />
-          <ContextMenu.Item className="menu__item" onSelect={() => closeTab(tab.id)}>
-            <X aria-hidden="true" /><span>Close</span>
+          <ContextMenu.Item className="menu__item" onSelect={close.execute}>
+            <X aria-hidden="true" /><span>{close.label}</span>
           </ContextMenu.Item>
           <ContextMenu.Item
             className="menu__item"
-            disabled={!canCloseOtherTabs}
-            onSelect={() => closeOtherTabs(tab.id)}
+            disabled={!closeOtherTabs.enabled}
+            onSelect={closeOtherTabs.execute}
           >
-            <CopyX aria-hidden="true" /><span>Close other tabs</span>
+            <CopyX aria-hidden="true" /><span>{closeOtherTabs.label}</span>
           </ContextMenu.Item>
         </ContextMenu.Content>
       </ContextMenu.Portal>
@@ -335,12 +338,5 @@ function tabMeta(tab: BrowserTab) {
     return new URL(location).hostname.replace(/^www\./, "") || "Local page";
   } catch {
     return location.replace(/^vibe:\/\//, "") || "Local page";
-  }
-}
-
-function closeOtherTabs(tabId: string) {
-  const { tabs, closeTab } = useBrowserStore.getState();
-  for (const tab of tabs) {
-    if (tab.id !== tabId) closeTab(tab.id);
   }
 }

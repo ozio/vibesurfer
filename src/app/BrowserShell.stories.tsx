@@ -1,7 +1,10 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { useEffect, useGlobals } from "storybook/preview-api";
 import type { ThemeId } from "../types/browser";
-import { WELCOME_BROWSER_FIXTURE } from "../storybook/browser-story-fixtures";
+import {
+  BROWSER_SHELL_CANONICAL_THEMES,
+  WELCOME_BROWSER_FIXTURE,
+} from "../storybook/browser-story-fixtures";
 import { readBrowserStoryGlobals } from "../storybook/BrowserStoryEnvironment";
 import { withBrowserStoryState } from "../storybook/BrowserStoryHarness";
 import { BrowserShell } from "./BrowserShell";
@@ -40,17 +43,17 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Native: Story = {
-  parameters: { canonicalTheme: "native" },
+  parameters: { canonicalTheme: BROWSER_SHELL_CANONICAL_THEMES[0] },
 };
 
 export const Sedative: Story = {
-  parameters: { canonicalTheme: "sedative" },
+  parameters: { canonicalTheme: BROWSER_SHELL_CANONICAL_THEMES[1] },
 };
 
 export const IEClassic: Story = {
-  parameters: { canonicalTheme: "ie-classic" },
+  parameters: { canonicalTheme: BROWSER_SHELL_CANONICAL_THEMES[2] },
 };
 
 export const Cyberpunk: Story = {
-  parameters: { canonicalTheme: "cyberpunk" },
+  parameters: { canonicalTheme: BROWSER_SHELL_CANONICAL_THEMES[3] },
 };

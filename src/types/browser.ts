@@ -1,5 +1,7 @@
+import type { ThemeId as BrowserExperienceThemeId } from "../browser/browser-experience-registry";
+
 export type Platform = "macos" | "windows" | "linux";
-export type ThemeId = "native" | "sedative" | "ie-classic" | "cyberpunk";
+export type ThemeId = BrowserExperienceThemeId;
 export type ColorScheme = "system" | "light" | "dark";
 export type TabLayout = "horizontal" | "vertical";
 export type Density = "comfortable" | "compact";

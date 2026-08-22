@@ -1,3 +1,8 @@
+import {
+  BROWSER_EXPERIENCE_REGISTRY,
+  BROWSER_THEME_IDS,
+  type ThemeId,
+} from "../browser/browser-experience-registry";
 import type { BrowserProfile, ModelOption, ProviderConnection } from "../types/browser";
 
 export const MODELS: ModelOption[] = [
@@ -50,30 +55,25 @@ export const PROFILES: BrowserProfile[] = [
   },
 ];
 
-export const PROFILE_PRESETS = {
-  native: { name: "Native", avatar: "N", chromeSkin: "native", vibe: "", prompt: "" },
-  quiet: {
-    name: "Quiet Web",
-    avatar: "Q",
-    chromeSkin: "sedative",
-    vibe: "A quiet, humane, low-stimulation web built around privacy, repair, craft, and public life.",
-    prompt: "This is the Quiet Web: a humane, unhurried parallel internet shaped by privacy, repair, craft, public life, and low-stimulation interfaces. Keep each destination's authentic function while expressing this world through concrete ordinary details.",
-  },
-  explorer: {
-    name: "Internet Explorer",
-    avatar: "E",
-    chromeSkin: "ie-classic",
-    vibe: "A living Web 1.0 internet from roughly 1997-2003: handmade, optimistic, dense, and delightfully uneven.",
-    prompt: "This internet is alive in the Web 1.0 era, roughly 1997-2003. Every site uses the conventions, technology, optimism, clutter, and handmade character of that era, even when its underlying world contains impossible science or alternate history.",
-  },
-  cyberpunk: {
-    name: "Cyberpunk",
-    avatar: "C",
-    chromeSkin: "cyberpunk",
-    vibe: "A dense near-future network of corporate systems, civic AIs, street infrastructure, and pirate relays.",
-    prompt: "This is the near-future Consensus Net: megacorporations, municipal AIs, synthetic citizens, orbital infrastructure, surveillance systems, street clinics, and pirate relays are ordinary. Reveal power and lived history through useful interfaces and specific data.",
-  },
-} as const;
+export const PROFILE_PRESET_THEMES = {
+  native: "native",
+  quiet: "sedative",
+  explorer: "ie-classic",
+  cyberpunk: "cyberpunk",
+} as const satisfies Record<string, ThemeId>;
+
+export const PROFILE_PRESETS = Object.fromEntries(
+  Object.entries(PROFILE_PRESET_THEMES).map(([presetId, chromeSkin]) => [
+    presetId,
+    { ...BROWSER_EXPERIENCE_REGISTRY[chromeSkin].generation.profilePreset, chromeSkin },
+  ]),
+) as Record<keyof typeof PROFILE_PRESET_THEMES, {
+  name: string;
+  avatar: string;
+  chromeSkin: ThemeId;
+  vibe: string;
+  prompt: string;
+}>;
 
 export function modelCatalog(connections: ProviderConnection[], profileId?: string): ModelOption[] {
   const configured = connections.filter((connection) => !profileId || connection.profileId === profileId).flatMap((connection) =>
@@ -100,9 +100,9 @@ function displayModelId(modelId: string) {
   return separator >= 0 ? modelId.slice(separator + 1) : modelId;
 }
 
-export const THEME_LABELS = {
-  native: { name: "System Native", caption: "Quiet, familiar, platform-aware" },
-  sedative: { name: "Sedative", caption: "Soft pills and zero visual urgency" },
-  "ie-classic": { name: "Internet Explorer", caption: "Beveled chrome and classic blue" },
-  cyberpunk: { name: "Cyberdeck", caption: "Dense neon instrumentation" },
-} as const;
+export const THEME_LABELS = Object.fromEntries(
+  BROWSER_THEME_IDS.map((theme) => [theme, {
+    name: BROWSER_EXPERIENCE_REGISTRY[theme].chrome.settingsLabel,
+    caption: BROWSER_EXPERIENCE_REGISTRY[theme].chrome.caption,
+  }]),
+) as Record<ThemeId, { name: string; caption: string }>;

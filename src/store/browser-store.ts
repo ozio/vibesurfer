@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { isThemeId } from "../browser/browser-experience-registry";
 import { MODELS, PROFILE_PRESETS, PROFILES } from "../data/catalog";
 import { deterministicGlyphFavicon, faviconSourceValue, systemFavicon } from "../lib/favicon";
 import {
@@ -1949,6 +1950,7 @@ export function migrateBrowserState(persistedState: unknown, version = 0): Parti
     ...DEFAULT_BROWSER_PREFERENCES,
     ...(isRecord(source.preferences) ? source.preferences : {}),
   } as BrowserPreferences;
+  preferences.theme = themeValue(preferences.theme) ?? DEFAULT_BROWSER_PREFERENCES.theme;
   let generationSettings = migrateGenerationSettings(source.generationSettings, version);
   const legacyGenerationSettings = isRecord(source.generationSettings) ? source.generationSettings : {};
   const legacyWorldPrompt = stringValue(legacyGenerationSettings.customInstruction).slice(0, 20_000);
@@ -2493,9 +2495,7 @@ function booleanValue(value: unknown) {
 }
 
 function themeValue(value: unknown): ThemeId | undefined {
-  return value === "native" || value === "sedative" || value === "ie-classic" || value === "cyberpunk"
-    ? value
-    : undefined;
+  return isThemeId(value) ? value : undefined;
 }
 
 function clampInteger(value: number, minimum: number, maximum: number) {

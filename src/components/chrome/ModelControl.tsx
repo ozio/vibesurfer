@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, CircleAlert, Cpu, ExternalLink, Search, Sparkles, WandSparkles } from "lucide-react";
 import { Dialog, Popover } from "radix-ui";
+import { useBrowserCommand } from "../../browser/browser-command-registry";
 import { modelCatalog } from "../../data/catalog";
 import { getCodexAuthStatus, getCodexModelCatalog, startCodexLogin } from "../../lib/codex";
 import { useBrowserStore } from "../../store/browser-store";
@@ -16,7 +17,7 @@ export function ModelControl() {
   const patchCodex = useBrowserStore((state) => state.patchCodex);
   const setCodexModels = useBrowserStore((state) => state.setCodexModels);
   const patchCodexSelection = useBrowserStore((state) => state.patchCodexSelection);
-  const openSettings = useBrowserStore((state) => state.openSettings);
+  const openModels = useBrowserCommand("open-models");
   const [query, setQuery] = useState("");
   const [loginOpen, setLoginOpen] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
@@ -106,7 +107,7 @@ export function ModelControl() {
     }
     if (!model?.available) {
       setPickerVisibility(false);
-      openSettings("models");
+      openModels.execute();
       return;
     }
     setModel(model.id);
@@ -255,7 +256,7 @@ export function ModelControl() {
               type="button"
               onClick={() => {
                 setPickerVisibility(false);
-                openSettings("models");
+                openModels.execute();
               }}
             >
               Manage models and accounts…

@@ -1,55 +1,44 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createStorybookBrowserServices } from "../browser/browser-service-adapters";
+import { useBrowserStore } from "../store/browser-store";
 import {
   handleNativeMenuCommand,
   isNativeMenuCommand,
-  type NativeMenuActions,
 } from "./native-menu-runtime";
 
-function actions(): NativeMenuActions {
-  return {
-    newTab: vi.fn(),
-    closeTab: vi.fn(),
-    focusAddress: vi.fn(),
-    reload: vi.fn(),
-    stop: vi.fn(),
-    go: vi.fn(),
-    home: vi.fn(),
-    history: vi.fn(),
-    switchTab: vi.fn(),
-    reimagine: vi.fn(),
-    openLiveSite: vi.fn(),
-    setTabLayout: vi.fn(),
-    openSettings: vi.fn(),
-    openExternal: vi.fn(),
-  };
-}
-
 describe("native menu runtime", () => {
-  it("routes browser and VibeSurfer commands to their existing actions", () => {
-    const target = actions();
-
-    expect(handleNativeMenuCommand("new-tab", target)).toBe(true);
-    expect(handleNativeMenuCommand("back", target)).toBe(true);
-    expect(handleNativeMenuCommand("next-tab", target)).toBe(true);
-    expect(handleNativeMenuCommand("regenerate", target)).toBe(true);
-    expect(handleNativeMenuCommand("open-generation-settings", target)).toBe(true);
-    expect(handleNativeMenuCommand("open-licenses", target)).toBe(true);
-    expect(handleNativeMenuCommand("vertical-tabs", target)).toBe(true);
-
-    expect(target.newTab).toHaveBeenCalledOnce();
-    expect(target.go).toHaveBeenCalledWith(-1);
-    expect(target.switchTab).toHaveBeenCalledWith(1);
-    expect(target.reload).toHaveBeenCalledOnce();
-    expect(target.openSettings).toHaveBeenCalledWith("generation");
-    expect(target.openSettings).toHaveBeenCalledWith("about");
-    expect(target.setTabLayout).toHaveBeenCalledWith("vertical");
+  beforeEach(() => {
+    useBrowserStore.setState(useBrowserStore.getInitialState(), true);
   });
 
-  it("rejects unknown native payloads", () => {
-    const target = actions();
+  afterEach(() => {
+    useBrowserStore.setState(useBrowserStore.getInitialState(), true);
+  });
+
+  it("routes native payloads through the canonical browser command registry", () => {
+    const externalOpen = vi.fn();
+    const services = createStorybookBrowserServices("macos", { externalOpen });
+    const initialTabCount = useBrowserStore.getState().tabs.length;
+
+    expect(handleNativeMenuCommand("new-tab", services)).toBe(true);
+    expect(useBrowserStore.getState().tabs).toHaveLength(initialTabCount + 1);
+
+    expect(handleNativeMenuCommand("open-generation-settings", services)).toBe(true);
+    expect(useBrowserStore.getState().tabs.find((tab) => tab.id === useBrowserStore.getState().activeTabId)?.location)
+      .toBe("vibe://settings/generation");
+
+    expect(handleNativeMenuCommand("vertical-tabs", services)).toBe(true);
+    expect(useBrowserStore.getState().preferences.tabLayout).toBe("vertical");
+
+    expect(handleNativeMenuCommand("open-github", services)).toBe(true);
+    expect(externalOpen).toHaveBeenCalledWith("https://github.com/ozio/vibesurfer");
+  });
+
+  it("rejects unknown and UI-only payloads", () => {
+    const services = createStorybookBrowserServices("macos");
 
     expect(isNativeMenuCommand("javascript:alert(1)")).toBe(false);
-    expect(handleNativeMenuCommand({ command: "new-tab" }, target)).toBe(false);
-    expect(target.newTab).not.toHaveBeenCalled();
+    expect(isNativeMenuCommand("new-tab-right")).toBe(false);
+    expect(handleNativeMenuCommand({ command: "new-tab" }, services)).toBe(false);
   });
 });

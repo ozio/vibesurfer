@@ -79,6 +79,17 @@ const config: StorybookConfig = {
           ...normalizedAliases(viteConfig.resolve?.alias),
         ],
       },
+      optimizeDeps: {
+        ...viteConfig.optimizeDeps,
+        include: [
+          ...(viteConfig.optimizeDeps?.include ?? []),
+          "@tauri-apps/api/core",
+          "@tauri-apps/api/event",
+          "@tauri-apps/api/window",
+          "@tauri-apps/plugin-opener",
+          "zustand/react/shallow",
+        ],
+      },
       plugins: [...(viteConfig.plugins ?? []), selectedStaticAssets()],
     };
   },
