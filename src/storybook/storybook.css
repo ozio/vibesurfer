@@ -462,6 +462,60 @@
   background: linear-gradient(180deg, #5ba9ff, #0054d6 55%, #1677ed);
 }
 
+.story-surface--omnibox {
+  min-height: 560px;
+  align-items: flex-start;
+  padding-top: 72px;
+}
+
+.story-omnibox-frame,
+.story-omnibox-pair {
+  width: min(760px, calc(100vw - 64px));
+}
+
+.story-omnibox-frame {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--chrome-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.story-omnibox-pair {
+  display: grid;
+  gap: 250px;
+}
+
+.story-surface--toolbar {
+  min-height: 260px;
+  align-items: flex-start;
+  padding-top: 64px;
+}
+
+.story-navigation-frame {
+  width: min(1280px, calc(100vw - 32px));
+  overflow: visible;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--chrome-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+:root[data-theme="ie-classic"] .story-navigation-frame,
+:root[data-theme="ie-classic"] .story-omnibox-frame {
+  border-radius: 0;
+}
+
+.story-site-info-frame {
+  display: grid;
+  min-width: 260px;
+  min-height: 160px;
+  place-items: center;
+  padding: 32px;
+  color: var(--text);
+  background: var(--app-bg);
+}
+
 @media (max-width: 780px) {
   .story-favicon-grid {
     grid-template-columns: repeat(2, minmax(80px, 1fr));

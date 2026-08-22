@@ -129,7 +129,7 @@
 }
 
 :root[data-theme="sedative"] .titlebar,
-:root[data-theme="sedative"] .navigation-bar,
+:root[data-theme="sedative"] .navigation-toolbar,
 :root[data-theme="sedative"] .vertical-sidebar,
 :root[data-theme="sedative"] .browser-statusbar,
 :root[data-theme="sedative"] .settings-sidebar {
@@ -177,14 +177,14 @@
 :root[data-theme="sedative"] .icon-button,
 :root[data-theme="sedative"] .profile-trigger,
 :root[data-theme="sedative"] .model-pill,
-:root[data-theme="sedative"] .address-bar,
+:root[data-theme="sedative"] .omnibox,
 :root[data-theme="sedative"] .generation-composer,
 :root[data-theme="sedative"] .generation-composer__model,
 :root[data-theme="sedative"] .generation-composer__submit,
 :root[data-theme="sedative"] .prompt-starters button,
 :root[data-theme="sedative"] .button,
 :root[data-theme="sedative"] .menu__item,
-:root[data-theme="sedative"] .address-suggestion,
+:root[data-theme="sedative"] .omnibox-suggestion,
 :root[data-theme="sedative"] .popover__footer-action,
 :root[data-theme="sedative"] .remote-surface-tools,
 :root[data-theme="sedative"] .remote-surface-tools button,
@@ -210,19 +210,19 @@
   background: var(--surface-3);
 }
 
-:root[data-theme="sedative"] .navigation-bar {
+:root[data-theme="sedative"] .navigation-toolbar {
   gap: 9px;
   padding-inline: 13px;
 }
 
-:root[data-theme="sedative"] .address-bar,
+:root[data-theme="sedative"] .omnibox,
 :root[data-theme="sedative"] .model-pill {
   border: 0;
   background: var(--surface);
   box-shadow: var(--shadow-sm);
 }
 
-:root[data-theme="sedative"] .address-bar.is-focused {
+:root[data-theme="sedative"] .omnibox.is-open {
   border: 0;
   box-shadow: var(--shadow-sm), 0 0 0 4px var(--accent-soft);
 }
@@ -243,7 +243,7 @@
 }
 
 :root[data-theme="sedative"] .model-pill__mark,
-:root[data-theme="sedative"] .address-suggestion__icon,
+:root[data-theme="sedative"] .omnibox-suggestion__icon,
 :root[data-theme="sedative"] .settings-model-list__icon,
 :root[data-theme="sedative"] .connection-card__mark,
 :root[data-theme="sedative"] .codex-dialog__icon {
@@ -414,7 +414,7 @@
 :root[data-theme="sedative"] .new-tab-page__principles { text-transform: none; letter-spacing: .025em; }
 :root[data-theme="sedative"] .new-tab-page__principles svg { color: #80979d; }
 
-:root[data-theme="sedative"] .address-suggestions,
+:root[data-theme="sedative"] .omnibox-suggestions,
 :root[data-theme="sedative"] .popover,
 :root[data-theme="sedative"] .menu {
   border: 0;
@@ -431,12 +431,12 @@
   box-shadow: var(--shadow-sm);
 }
 
-:root[data-theme="sedative"] .address-suggestions,
+:root[data-theme="sedative"] .omnibox-suggestions,
 :root[data-theme="sedative"] .model-popover {
   padding: 10px;
 }
 
-:root[data-theme="sedative"] .address-suggestion__icon,
+:root[data-theme="sedative"] .omnibox-suggestion__icon,
 :root[data-theme="sedative"] .model-row__icon {
   border: 0;
 }
@@ -470,7 +470,7 @@
 }
 
 :root[data-theme="sedative"] .menu__separator,
-:root[data-theme="sedative"] .address-suggestions__hint {
+:root[data-theme="sedative"] .omnibox-suggestions__hint {
   border: 0;
   background: transparent;
 }
@@ -482,7 +482,7 @@
   background: var(--surface-2);
 }
 
-:root[data-theme="sedative"] .address-suggestions__hint kbd,
+:root[data-theme="sedative"] .omnibox-suggestions__hint kbd,
 :root[data-theme="sedative"] .new-tab-page__principles kbd {
   border: 0;
   border-radius: 999px;
@@ -667,7 +667,7 @@
   border-color: #ffffff #404040 #404040 #ffffff;
 }
 
-:root[data-theme="ie-classic"] .navigation-bar,
+:root[data-theme="ie-classic"] .navigation-toolbar,
 :root[data-theme="ie-classic"] .vertical-sidebar,
 :root[data-theme="ie-classic"] .browser-statusbar {
   border-color: #ffffff #666666 #666666 #ffffff;
@@ -808,7 +808,7 @@
 :root[data-theme="cyberpunk"] .new-tab-page h1 span { color: #ff3f81; background: none; background-clip: border-box; -webkit-background-clip: border-box; }
 :root[data-theme="cyberpunk"] .new-tab-page__lede { max-width: 700px; color: #8fb5bb; }
 :root[data-theme="cyberpunk"] .generation-composer { border-radius: 0; background: rgba(2,9,13,.9); box-shadow: 10px 10px 0 rgba(77,244,255,.035), inset 0 0 0 1px rgba(77,244,255,.04); clip-path: polygon(0 0, calc(100% - 15px) 0, 100% 15px, 100% 100%, 0 100%); }
-:root[data-theme="cyberpunk"] .address-bar.is-focused,
+:root[data-theme="cyberpunk"] .omnibox.is-open,
 :root[data-theme="cyberpunk"] .generation-composer:focus-within {
   border-color: #4df4ff;
   box-shadow: 10px 10px 0 rgba(77,244,255,.055), inset 0 0 0 1px #4df4ff, 0 0 24px rgba(77,244,255,.1);

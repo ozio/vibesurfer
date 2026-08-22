@@ -1,4 +1,9 @@
 import { BROWSER_EXPERIENCE_REGISTRY, type ThemeId } from "../../browser/browser-experience-registry";
+import {
+  CLASSIC_NAVIGATION_RECIPE,
+  STANDARD_NAVIGATION_RECIPE,
+  type BrowserNavigationRecipe,
+} from "./navigation-recipes";
 
 export type BrowserChromeRecipeId = "standard" | "classic";
 
@@ -9,6 +14,7 @@ export interface BrowserChromeRecipe {
   horizontalTabs: "titlebar" | "tab-row";
   menuBar: boolean;
   verticalBrand: boolean;
+  navigation: BrowserNavigationRecipe;
 }
 
 export const STANDARD_CHROME_RECIPE = {
@@ -18,6 +24,7 @@ export const STANDARD_CHROME_RECIPE = {
   horizontalTabs: "titlebar",
   menuBar: false,
   verticalBrand: true,
+  navigation: STANDARD_NAVIGATION_RECIPE,
 } as const satisfies BrowserChromeRecipe;
 
 export const CLASSIC_CHROME_RECIPE = {
@@ -27,6 +34,7 @@ export const CLASSIC_CHROME_RECIPE = {
   horizontalTabs: "tab-row",
   menuBar: true,
   verticalBrand: false,
+  navigation: CLASSIC_NAVIGATION_RECIPE,
 } as const satisfies BrowserChromeRecipe;
 
 export const BROWSER_CHROME_RECIPES = {

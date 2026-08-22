@@ -9,7 +9,7 @@ import {
 import { BrowserThemeRoot } from "../browser/BrowserThemeRoot";
 import { BrowserChrome } from "../components/chrome/BrowserChrome";
 import { BrowserStatusBar } from "../components/chrome/BrowserStatusBar";
-import { NavigationBar } from "../components/chrome/NavigationBar";
+import { ConnectedNavigationToolbar } from "../components/chrome/NavigationToolbar";
 import { ConnectedTabStrip } from "../components/chrome/TabStrip";
 import { ConnectedVerticalTabSidebar } from "../components/chrome/VerticalTabSidebar";
 import { browserChromeRecipeForTheme } from "../components/chrome/chrome-recipes";
@@ -110,7 +110,7 @@ export function BrowserShell({ platform: platformOverride }: BrowserShellProps) 
           layout={preferences.tabLayout}
           title={activeTab.title}
           horizontalTabs={<ConnectedTabStrip orientation="horizontal" />}
-          navigation={<NavigationBar tab={activeTab} />}
+          navigation={<ConnectedNavigationToolbar tab={activeTab} recipe={chromeRecipe.navigation} />}
           verticalTabs={<ConnectedVerticalTabSidebar />}
           status={<BrowserStatusBar
             location={activeTab.kind === "settings" ? "Settings" : activeTab.location}
