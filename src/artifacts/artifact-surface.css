@@ -7,6 +7,33 @@
   transition: opacity var(--motion-fast, 160ms) ease;
 }
 
+.frame-connection-state {
+  position: absolute;
+  z-index: 2;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.frame-connection-state--connecting {
+  display: inline-flex;
+  min-width: 220px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 16px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+  font-size: 10.5px;
+}
+
+.frame-connection-state--failed {
+  width: min(460px, calc(100% - 48px));
+}
+
 .artifact-error {
   position: absolute;
   inset: 0;
@@ -19,11 +46,9 @@
 }
 
 .artifact-error__card {
-  display: flex;
   width: min(460px, 100%);
+  min-height: 0;
   padding: 34px;
-  flex-direction: column;
-  align-items: center;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
@@ -31,14 +56,15 @@
   text-align: center;
 }
 
-.artifact-error__card > svg {
-  width: 28px;
-  height: 28px;
-  color: var(--accent);
+.artifact-error__card .ui-empty-state__icon {
+  width: 48px;
+  height: 48px;
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface));
 }
 
-.artifact-error__card h2 {
-  margin: 15px 0 6px;
+.artifact-error__card > strong {
+  margin-top: 7px;
   font-size: 18px;
 }
 
@@ -49,10 +75,6 @@
   line-height: 1.5;
 }
 
-.artifact-error__actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-  margin-top: 18px;
+.artifact-error__card .ui-empty-state__actions {
+  margin-top: 12px;
 }

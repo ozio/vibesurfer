@@ -1,11 +1,8 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import { ArrowLeft, ArrowRight, Code2, ExternalLink, Info, RefreshCw, TriangleAlert, X } from "lucide-react";
-import { Dialog } from "radix-ui";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useBrowserCommand } from "../../browser/browser-command-registry";
 import { connectArtifactFrame, type ArtifactFrameConnection } from "../../artifacts/iframe-host";
 import type { ArtifactFrameEvent } from "../../artifacts/bridge-protocol";
 import { createBridgeNonce } from "../../artifacts/document";
-import "../../artifacts/artifact-surface.css";
 import {
   buildLegacyGeneratedArtifactDocument,
   compileGeneratedArtifactDocument,
@@ -24,16 +21,16 @@ import { HistoryPage } from "./HistoryPage";
 import { ActivityPage } from "./ActivityPage";
 import { CapabilityLabPage } from "./CapabilityLabPage";
 import { GenerationDebugPage } from "./GenerationDebugPage";
-
-interface PageContextMenuState {
-  left: number;
-  top: number;
-  href?: string;
-  linkText?: string;
-  ariaLabel?: string;
-  linkContext?: string;
-  context?: string;
-}
+import {
+  ArchivedWorldDialog,
+  ArtifactErrorState,
+  ArtifactFrameShell,
+  GenerationFailureNotice,
+  PageContextMenu,
+  RemoteBlockedState,
+  SourceViewerDialog,
+  type PageContextMenuState,
+} from "./ContentSurfaces";
 
 interface PendingArchivedNavigation {
   href: string;
@@ -55,16 +52,7 @@ export function PageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHover
   if (tab.kind === "generation-debug") return <GenerationDebugPage />;
   if (tab.kind === "generated") return <GeneratedPageSurface tab={tab} onLinkHover={onLinkHover} />;
 
-  return (
-    <div className="page-surface page-surface--remote">
-      <div className="surface-error">
-        <Info aria-hidden="true" />
-        <h2>Live web stays outside vibesurfer</h2>
-        <p>This legacy tab will not contact <strong>{safeHostname(tab.location)}</strong>. Generate an imagined version from the address bar, or explicitly open the live site in your system browser.</p>
-        <button className="button button--primary" type="button" onClick={openLiveSite.execute}><ExternalLink aria-hidden="true" /> Open live site externally</button>
-      </div>
-    </div>
-  );
+  return <RemoteBlockedState hostname={safeHostname(tab.location)} onOpenExternal={openLiveSite.execute} />;
 }
 
 function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHover?: (href?: string) => void }) {
@@ -497,7 +485,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
   if (generationFailed && !hasRecoverableArtifact && !hasPreview) {
     const cancelled = job?.status === "cancelled";
     return (
-      <ArtifactError
+      <ArtifactErrorState
         title={cancelled ? "Generation stopped" : "This page could not be generated"}
         message={job?.error?.message ?? (cancelled ? "The generation was cancelled." : "The model did not return a usable artifact.")}
         onRetry={job?.error?.retryable === false ? undefined : regenerate.execute}
@@ -508,7 +496,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
 
   if (!compiledResult?.ok) {
     return (
-      <ArtifactError
+      <ArtifactErrorState
         title="This artifact could not be opened"
         message={compiledResult?.message ?? "The artifact is unavailable."}
         onRetry={regenerate.execute}
@@ -518,7 +506,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
 
   if (currentBridgeFailure) {
     return (
-      <ArtifactError
+      <ArtifactErrorState
         title="The safe page bridge did not start"
         message={currentBridgeFailure}
         onRetry={reload.execute}
@@ -526,26 +514,21 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
     );
   }
 
+  if (armedKey !== documentKey || !frameUrl) return null;
+
   return (
-    <div className="page-surface page-surface--generated">
-      {armedKey === documentKey && (
-        <iframe
-          ref={frameRef}
-          key={documentKey}
-          className={`page-frame ${frameReady ? "artifact-frame--ready" : "artifact-frame--connecting"}`}
-          title={compiledResult.document.payload.title}
-          src={frameUrl}
-          scrolling="auto"
-          sandbox="allow-scripts"
-          allowFullScreen
-          referrerPolicy="no-referrer"
-          onLoad={ensureFrameConnection}
-          onError={() => {
-            setLoadState(tab.id, "error");
-            setBridgeFailure({ key: documentKey ?? compiledResult.document.artifactId, message: "The generated document could not be loaded." });
-          }}
-        />
-      )}
+    <ArtifactFrameShell
+      ref={frameRef}
+      key={documentKey}
+      connectionStatus={frameReady ? "ready" : "connecting"}
+      title={compiledResult.document.payload.title}
+      src={frameUrl}
+      onLoad={ensureFrameConnection}
+      onError={() => {
+        setLoadState(tab.id, "error");
+        setBridgeFailure({ key: documentKey ?? compiledResult.document.artifactId, message: "The generated document could not be loaded." });
+      }}
+    >
       {generationFailed && (hasRecoverableArtifact || hasPreview) && (
         <GenerationFailureNotice
           cancelled={job?.status === "cancelled"}
@@ -591,34 +574,22 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
           } : undefined}
         />
       )}
-      <Dialog.Root open={Boolean(pendingArchivedNavigation)} onOpenChange={(open) => { if (!open) setPendingArchivedNavigation(undefined); }}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="dialog-overlay" />
-          <Dialog.Content className="dialog" aria-describedby="archived-navigation-description">
-            <Dialog.Title>Continue from an archived site?</Dialog.Title>
-            <Dialog.Description id="archived-navigation-description">This snapshot belongs to an archived SiteWorld. Choose which identity should own the next generated page.</Dialog.Description>
-            <div className="dialog__actions">
-              <button className="button button--primary" type="button" onClick={() => continueArchivedNavigation(false)}>Use current identity</button>
-              <button className="button" type="button" onClick={() => continueArchivedNavigation(true)}>Restore this identity</button>
-              <button className="button" type="button" onClick={() => setPendingArchivedNavigation(undefined)}>Cancel</button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-      <Dialog.Root open={Boolean(pendingArchivedDynamic)} onOpenChange={(open) => { if (!open) cancelArchivedDynamic(); }}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="dialog-overlay" />
-          <Dialog.Content className="dialog" aria-describedby="archived-dynamic-description">
-            <Dialog.Title>Restore this archived site?</Dialog.Title>
-            <Dialog.Description id="archived-dynamic-description">Live state and model actions require this SiteWorld identity to be active again. Nothing will update until you restore it.</Dialog.Description>
-            <div className="dialog__actions">
-              <button className="button button--primary" type="button" onClick={continueArchivedDynamic}>Restore and continue</button>
-              <button className="button" type="button" onClick={cancelArchivedDynamic}>Cancel</button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
-      <SourceDialog
+      <ArchivedWorldDialog
+        open={Boolean(pendingArchivedNavigation)}
+        kind="navigation"
+        onOpenChange={() => undefined}
+        onCancel={() => setPendingArchivedNavigation(undefined)}
+        onUseCurrent={() => continueArchivedNavigation(false)}
+        onRestore={() => continueArchivedNavigation(true)}
+      />
+      <ArchivedWorldDialog
+        open={Boolean(pendingArchivedDynamic)}
+        kind="dynamic-action"
+        onOpenChange={() => undefined}
+        onCancel={cancelArchivedDynamic}
+        onRestore={continueArchivedDynamic}
+      />
+      <SourceViewerDialog
         open={sourceOpen}
         onOpenChange={setSourceOpen}
         title={compiledResult.document.payload.title}
@@ -626,192 +597,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
           ? job.previewHtml
           : artifact?.html ?? compiledResult.document.payload.html}
       />
-    </div>
-  );
-}
-
-function GenerationFailureNotice({
-  cancelled,
-  partial,
-  message,
-  onRetry,
-  onChooseModel,
-}: {
-  cancelled: boolean;
-  partial: boolean;
-  message: string;
-  onRetry?: () => void;
-  onChooseModel?: () => void;
-}) {
-  return (
-    <div className="generation-failure-notice" role="alert">
-      <TriangleAlert aria-hidden="true" />
-      <span>
-        <strong>{cancelled ? "Generation stopped" : "Generation failed"}</strong>
-        <small>{message} {partial ? "The partial result is still shown." : "The last complete version is still shown."}</small>
-      </span>
-      {onChooseModel && <button className="button button--primary" type="button" onClick={onChooseModel}>Choose another model</button>}
-      {onRetry && <button className="button" type="button" onClick={onRetry}>Try again</button>}
-    </div>
-  );
-}
-
-function PageContextMenu({
-  menu,
-  canGoBack,
-  canGoForward,
-  onDismiss,
-  onBack,
-  onForward,
-  onReload,
-  onViewSource,
-  onOpenLink,
-}: {
-  menu: PageContextMenuState;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  onDismiss: () => void;
-  onBack: () => void;
-  onForward: () => void;
-  onReload: () => void;
-  onViewSource: () => void;
-  onOpenLink?: () => void;
-}) {
-  const run = (action: () => void) => {
-    onDismiss();
-    action();
-  };
-  const focusFirst = !onOpenLink && !canGoBack && !canGoForward;
-
-  const moveFocus = (event: ReactKeyboardEvent<HTMLDivElement>, delta: -1 | 1) => {
-    const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('.menu__item:not(:disabled)'));
-    if (items.length === 0) return;
-    const current = items.indexOf(document.activeElement as HTMLButtonElement);
-    items[(current + delta + items.length) % items.length]?.focus();
-  };
-
-  return (
-    <>
-      <div
-        className="page-context-menu__backdrop"
-        aria-hidden="true"
-        onPointerDown={onDismiss}
-        onContextMenu={(event) => {
-          event.preventDefault();
-          onDismiss();
-        }}
-      />
-      <div
-        className="menu page-context-menu"
-        role="menu"
-        aria-label={menu.href ? "Link actions" : "Page actions"}
-        style={{ left: menu.left, top: menu.top }}
-        onPointerDown={(event) => event.stopPropagation()}
-        onContextMenu={(event) => event.preventDefault()}
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown") {
-            event.preventDefault();
-            moveFocus(event, 1);
-          } else if (event.key === "ArrowUp") {
-            event.preventDefault();
-            moveFocus(event, -1);
-          } else if (event.key === "Home") {
-            event.preventDefault();
-            event.currentTarget.querySelector<HTMLButtonElement>('.menu__item:not(:disabled)')?.focus();
-          } else if (event.key === "End") {
-            event.preventDefault();
-            const items = event.currentTarget.querySelectorAll<HTMLButtonElement>('.menu__item:not(:disabled)');
-            items[items.length - 1]?.focus();
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            onDismiss();
-          }
-        }}
-      >
-        {onOpenLink && (
-          <>
-            <button className="menu__item" type="button" role="menuitem" autoFocus onClick={() => run(onOpenLink)}>
-              <ExternalLink aria-hidden="true" /><span>Open link in new tab</span>
-            </button>
-            <div className="menu__separator" role="separator" />
-          </>
-        )}
-        <button className="menu__item" type="button" role="menuitem" disabled={!canGoBack} autoFocus={!onOpenLink && canGoBack} onClick={() => run(onBack)}>
-          <ArrowLeft aria-hidden="true" /><span>Back</span>
-        </button>
-        <button className="menu__item" type="button" role="menuitem" disabled={!canGoForward} autoFocus={!onOpenLink && !canGoBack && canGoForward} onClick={() => run(onForward)}>
-          <ArrowRight aria-hidden="true" /><span>Forward</span>
-        </button>
-        <button className="menu__item" type="button" role="menuitem" autoFocus={focusFirst} onClick={() => run(onReload)}>
-          <RefreshCw aria-hidden="true" /><span>Reload</span>
-        </button>
-        <div className="menu__separator" role="separator" />
-        <button className="menu__item" type="button" role="menuitem" onClick={() => run(onViewSource)}>
-          <Code2 aria-hidden="true" /><span>View source</span>
-        </button>
-      </div>
-    </>
-  );
-}
-
-function SourceDialog({
-  open,
-  onOpenChange,
-  title,
-  source,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  title: string;
-  source: string;
-}) {
-  return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
-      <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
-        <Dialog.Content className="dialog source-dialog" aria-describedby="artifact-source-description">
-          <header className="source-dialog__header">
-            <span><Code2 aria-hidden="true" /></span>
-            <div>
-              <Dialog.Title>Source: {title}</Dialog.Title>
-              <Dialog.Description id="artifact-source-description">Page HTML displayed as inert text.</Dialog.Description>
-            </div>
-            <Dialog.Close className="dialog__close" aria-label="Close source"><X aria-hidden="true" /></Dialog.Close>
-          </header>
-          <pre tabIndex={0}><code>{source}</code></pre>
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
-  );
-}
-
-function ArtifactError({
-  title,
-  message,
-  onRetry,
-  onChooseModel,
-}: {
-  title: string;
-  message: string;
-  onRetry?: () => void;
-  onChooseModel?: () => void;
-}) {
-  return (
-    <div className="page-surface page-surface--generated">
-      <div className="artifact-error" role="alert">
-        <div className="artifact-error__card">
-          <TriangleAlert aria-hidden="true" />
-          <h2>{title}</h2>
-          <p>{message}</p>
-          {(onRetry || onChooseModel) && (
-            <div className="artifact-error__actions">
-              {onChooseModel && <button className="button button--primary" type="button" onClick={onChooseModel}>Choose another model</button>}
-              {onRetry && <button className={`button${onChooseModel ? "" : " button--primary"}`} type="button" onClick={onRetry}>Try again</button>}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
+    </ArtifactFrameShell>
   );
 }
 

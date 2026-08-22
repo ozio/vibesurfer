@@ -83,6 +83,7 @@ const config: StorybookConfig = {
         ...viteConfig.optimizeDeps,
         include: [
           ...(viteConfig.optimizeDeps?.include ?? []),
+          "react-dom",
           "@tauri-apps/api/core",
           "@tauri-apps/api/event",
           "@tauri-apps/api/window",
