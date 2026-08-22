@@ -3,6 +3,7 @@ import {
   type CapabilityExecutionTarget,
   type CapabilityId,
   type ResolvedCapability,
+  USER_CONFIGURABLE_CAPABILITY_IDS,
 } from "./types.js";
 
 export interface CapabilityDescriptor {
@@ -18,6 +19,11 @@ export interface CapabilityDescriptor {
 }
 
 const always = () => true;
+const userConfigurableCapabilities = new Set<CapabilityId>(USER_CONFIGURABLE_CAPABILITY_IDS);
+
+export function isCapabilityEnabled(settings: GenerationSettings, id: CapabilityId): boolean {
+  return !userConfigurableCapabilities.has(id) || settings.capabilities.enabled[id] !== false;
+}
 
 const descriptors: readonly CapabilityDescriptor[] = [
   {
@@ -227,7 +233,7 @@ const descriptors: readonly CapabilityDescriptor[] = [
     version: "1",
     noticeIds: [],
     compact: true,
-    available: (settings) => settings.capabilities.audioSpeechEnabled,
+    available: always,
   },
   {
     id: "speech",
@@ -305,7 +311,8 @@ export function availableCapabilities(
   settings: GenerationSettings,
   browserTheme: BrowserTheme,
 ): readonly CapabilityDescriptor[] {
-  return descriptors.filter((descriptor) => descriptor.available(settings, browserTheme));
+  return descriptors.filter((descriptor) => descriptor.available(settings, browserTheme)
+    && isCapabilityEnabled(settings, descriptor.id));
 }
 
 export function compactCapabilityContracts(
@@ -332,7 +339,8 @@ export function resolveCapabilities(
   const unique = [...new Set([...required, ...selected])];
   return unique.map((id) => {
     const descriptor = CAPABILITY_REGISTRY.get(id);
-    if (!descriptor || !descriptor.available(settings, browserTheme)) {
+    if (!descriptor || !descriptor.available(settings, browserTheme)
+      || !isCapabilityEnabled(settings, descriptor.id)) {
       throw new Error(`Director selected unavailable capability: ${id}`);
     }
     return {

@@ -332,9 +332,11 @@ function turboRequest(request: GenerateCommand): GenerateCommand {
       motionEnabled: false,
       dynamicMode: "off",
       capabilities: {
+        iconsEnabled: false,
         audioSpeechEnabled: false,
         externalMediaEnabled: false,
         experimentalEnabled: false,
+        enabled: {},
       },
       images: { mode: "off", fetchExternal: false, safeContent: true },
       maxOutputTokens: Math.min(request.settings.maxOutputTokens, TURBO_MAX_OUTPUT_TOKENS),

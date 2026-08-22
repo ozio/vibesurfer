@@ -82,7 +82,10 @@ export async function runDirectedPipeline(context: PipelineContext): Promise<Pip
   // page direction. Models can echo those fields with harmless formatting or
   // color differences even when explicitly told they are frozen. Treat the
   // persisted SiteIdentity as authoritative instead of failing the whole page.
-  const direction = alignDirectionWithIdentity(result.direction, identity);
+  const direction = {
+    ...alignDirectionWithIdentity(result.direction, identity),
+    iconSet: request.settings.capabilities.iconsEnabled ? result.direction.iconSet : null,
+  };
   const selectedCapabilityContracts = approveCapabilitySelection(
     request.settings,
     request.browserTheme,

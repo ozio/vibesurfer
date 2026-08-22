@@ -19,9 +19,11 @@ export function generationCommand(overrides: Partial<GenerateCommand> = {}): Gen
       motionEnabled: true,
       dynamicMode: "active",
       capabilities: {
+        iconsEnabled: true,
         audioSpeechEnabled: true,
         externalMediaEnabled: false,
         experimentalEnabled: false,
+        enabled: {},
       },
       images: { mode: "local", fetchExternal: false, safeContent: true },
       maxOutputTokens: 20_000,

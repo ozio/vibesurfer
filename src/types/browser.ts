@@ -4,7 +4,7 @@ export type ColorScheme = "system" | "light" | "dark";
 export type TabLayout = "horizontal" | "vertical";
 export type Density = "comfortable" | "compact";
 export type DynamicMode = "off" | "active" | "always";
-export type TabKind = "new-tab" | "remote" | "generated" | "settings" | "history" | "activity" | "capabilities";
+export type TabKind = "new-tab" | "remote" | "generated" | "settings" | "history" | "activity" | "capabilities" | "generation-debug";
 export type LoadState = "idle" | "loading" | "error";
 export type NavigationDisposition = "current" | "foreground-tab" | "background-tab";
 export type NavigationTrigger =
@@ -116,7 +116,7 @@ export interface ImageFavicon {
   mimeType?: string;
 }
 
-export type SystemFaviconName = "new-tab" | "settings" | "history" | "activity" | "capabilities";
+export type SystemFaviconName = "new-tab" | "settings" | "history" | "activity" | "capabilities" | "generation-debug";
 
 export interface SystemFavicon {
   kind: "system";
@@ -544,9 +544,11 @@ export interface GenerationPrivacySettings {
 }
 
 export interface GenerationCapabilitySettings {
+  iconsEnabled: boolean;
   audioSpeechEnabled: boolean;
   externalMediaEnabled: boolean;
   experimentalEnabled: boolean;
+  enabled: Partial<Record<CapabilityId, boolean>>;
 }
 
 export type GenerationStrategy = "full" | "turbo";

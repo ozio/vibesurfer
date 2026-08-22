@@ -292,6 +292,64 @@ describe("artifact frame runtime", () => {
     }
   });
 
+  test("enhances carousel, poll, and pseudo-video with real local controls", () => {
+    const harness = createRuntimeHarness();
+    try {
+      const bootstrap = harness.parentMessages[0] as BootstrapMessage;
+      const port = new FakeMessagePort();
+      harness.window.dispatchEvent(new harness.window.MessageEvent("message", {
+        data: {
+          protocol: ARTIFACT_BRIDGE_PROTOCOL,
+          version: ARTIFACT_BRIDGE_VERSION,
+          type: "init",
+          instanceId: bootstrap.instanceId,
+          ...identity,
+        },
+        source: harness.window,
+        ports: [port as unknown as MessagePort],
+      }));
+
+      port.dispatch(renderCommand({
+        title: "Interactive capabilities",
+        executeScripts: false,
+        html: `<main>
+          <section id="carousel" data-vibe-carousel><article>One</article><article>Two</article><button id="carousel-next" data-vibe-next>Next</button></section>
+          <section id="poll" data-vibe-widget="poll"><button id="vote-a" data-vibe-vote="A">A</button><button data-vibe-vote="B">B</button></section>
+          <section id="video" data-vibe-pseudo-video>
+            <figure data-vibe-video-scene data-duration-ms="2000"><figcaption>First scene</figcaption></figure>
+            <figure data-vibe-video-scene data-duration-ms="3000"><figcaption>Second scene</figcaption></figure>
+          </section>
+        </main>`,
+      }));
+
+      const carousel = harness.document.querySelector<HTMLElement>("#carousel")!;
+      const scrollBy = vi.fn();
+      Object.defineProperty(carousel, "scrollBy", { configurable: true, value: scrollBy });
+      harness.document.querySelector<HTMLButtonElement>("#carousel-next")!.click();
+      expect(scrollBy).toHaveBeenCalledWith(expect.objectContaining({ left: expect.any(Number) }));
+
+      harness.document.querySelector<HTMLButtonElement>("#vote-a")!.click();
+      expect(harness.document.querySelector("#poll")).toHaveAttribute("data-vibe-selection", "A");
+      expect(harness.document.querySelector("#vote-a")).toHaveAttribute("aria-pressed", "true");
+
+      const video = harness.document.querySelector("#video")!;
+      expect(video.querySelector("[data-vibe-video-controls]")).not.toBeNull();
+      expect(video.querySelector("[data-vibe-video-total]")).toHaveTextContent("0:05");
+      expect(video.querySelector('[data-vibe-video-scene]:nth-of-type(1)')).not.toHaveAttribute("hidden");
+      expect(video.querySelector('[data-vibe-video-scene]:nth-of-type(2)')).toHaveAttribute("hidden");
+      const play = video.querySelector<HTMLButtonElement>("[data-vibe-video-play]")!;
+      play.click();
+      expect(play).toHaveAttribute("aria-pressed", "true");
+      expect(video.querySelector<HTMLInputElement>("[data-vibe-video-seek]")).toHaveAttribute("max", "5000");
+      expect(video.querySelector("[data-vibe-video-caption]")).toHaveTextContent("First scene");
+      play.click();
+      expect(play).toHaveAttribute("aria-pressed", "false");
+      expect(harness.jsdomErrors).toEqual([]);
+    } finally {
+      harness.close();
+    }
+  });
+
   test("keeps local tabs available and applies only revisioned host-authorized region patches", () => {
     const harness = createRuntimeHarness();
     try {

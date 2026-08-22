@@ -78,6 +78,19 @@ test("settings open on General by default and reuse the existing tab at the requ
   assert.equal(state.tabs.filter((tab) => tab.kind === "settings").length, 1);
 });
 
+test("generation debug opens as one reusable host-owned tab", () => {
+  const debugId = useBrowserStore.getState().openGenerationDebug();
+  let state = useBrowserStore.getState();
+  const debugTab = state.tabs.find((tab) => tab.id === debugId);
+  assert.equal(debugTab?.kind, "generation-debug");
+  assert.equal(debugTab?.location, "vibe://generation-debug");
+  state.activateTab("welcome");
+  assert.equal(useBrowserStore.getState().openGenerationDebug(), debugId);
+  state = useBrowserStore.getState();
+  assert.equal(state.activeTabId, debugId);
+  assert.equal(state.tabs.filter((tab) => tab.kind === "generation-debug").length, 1);
+});
+
 test("free-form prompt regeneration keeps its SiteWorld without sharing unrelated prompt worlds", () => {
   const prompt = "A calm research space for a new idea";
   const firstJobId = useBrowserStore.getState().navigate("welcome", prompt);
@@ -383,6 +396,23 @@ test("version-eleven sessions hydrate new voice defaults and typed system favico
   assert.deepEqual(migrated.tabs?.[0].favicon, { kind: "system", icon: "settings" });
   assert.deepEqual(migrated.generationSettings?.voice, DEFAULT_GENERATION_SETTINGS.voice);
   assert.equal(migrated.generationSettings?.capabilities.experimentalEnabled, true);
+  assert.equal(migrated.generationSettings?.capabilities.enabled["data-chart"], true);
+});
+
+test("migration preserves individual capability flags and legacy audio opt-outs", () => {
+  const explicit = migrateBrowserState({
+    generationSettings: { capabilities: { enabled: { "data-chart": false, slideshow: true } } },
+  }, 12).generationSettings!;
+  assert.equal(explicit.capabilities.enabled["data-chart"], false);
+  assert.equal(explicit.capabilities.enabled.slideshow, true);
+  assert.equal(explicit.capabilities.enabled.diagram, true);
+
+  const legacyAudio = migrateBrowserState({
+    generationSettings: { capabilities: { audioSpeechEnabled: false } },
+  }, 11).generationSettings!;
+  assert.equal(legacyAudio.capabilities.enabled.speech, false);
+  assert.equal(legacyAudio.capabilities.enabled.sound, false);
+  assert.equal(legacyAudio.capabilities.enabled["pseudo-video"], true);
 });
 
 test("migration preserves an explicit generated JavaScript opt-in", () => {

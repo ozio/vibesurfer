@@ -16,7 +16,8 @@ The repository contains both a fast browser preview and the Tauri 2 desktop runt
 - BYOK connections for OpenAI, Anthropic, Google, and HTTPS OpenAI-compatible endpoints in the desktop app.
 - Switchable Full and Turbo generation: Full uses the exact two-request Director → Builder pipeline; Turbo uses one bounded plain-HTML request. Both retain ordered progress, cancellation, and deterministic validation with no semantic repair request.
 - Editable profile world prompts snapshotted into new site identities below immutable protocol and security instructions.
-- Optional Tailwind artifact compilation, generated JavaScript interactions, and configurable semantic image resolution.
+- Optional Tailwind artifact compilation, generated JavaScript interactions, configurable semantic image resolution, and independent settings for every built-in chart/diagram/media/widget capability.
+- `vibe://generation-debug` correlates the current settings with actual Director/Builder prompt evidence, the latest artifact manifest, and an interactive production-sandbox rendering fixture.
 - Sandboxed generated documents connected to the trusted browser chrome through a private, typed message bridge.
 - SQLite artifact/site-world persistence and operating-system credential-vault storage in the Tauri runtime.
 

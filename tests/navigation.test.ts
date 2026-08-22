@@ -85,3 +85,10 @@ test("repairs quote escaping wrapped around generated navigation URLs", () => {
     "https://example.com/search?q=%22sale%22",
   );
 });
+
+test("generation debug is a host-owned vibe page and never starts generation", () => {
+  const target = resolveNavigation("vibe://generation-debug", "codex:auto");
+  assert.equal(target.kind, "generation-debug");
+  assert.equal(target.location, "vibe://generation-debug");
+  assert.equal(target.requiresGeneration, false);
+});

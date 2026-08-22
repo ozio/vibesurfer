@@ -123,7 +123,7 @@ export interface CapabilityCatalog {
   version: number;
   fonts: readonly string[];
   capabilities: Readonly<Partial<Record<CapabilityId, string>>>;
-  iconSets: Readonly<Record<IconSet, string>>;
+  iconSets: Readonly<Partial<Record<IconSet, string>>>;
   rendererConstraints: readonly string[];
 }
 
@@ -135,7 +135,7 @@ export function capabilityCatalog(settings: GenerationSettings, browserTheme: Br
     version: GENERATION_PROMPT_VERSION,
     fonts: THEME_FONT_CATALOG[browserTheme],
     capabilities,
-    iconSets: iconSetSelectionCatalog(),
+    iconSets: settings.capabilities.iconsEnabled ? iconSetSelectionCatalog() : {},
     rendererConstraints: [
       `Maximum artifact size: ${settings.maxArtifactBytes} bytes`,
       `Minimum useful internal links where appropriate: ${settings.minInternalLinks}`,

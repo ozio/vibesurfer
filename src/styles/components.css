@@ -877,3 +877,282 @@
   .provider-form__grid { grid-template-columns: 1fr; }
   .provider-form__wide { grid-column: auto; }
 }
+.generation-debug-page {
+  height: 100%;
+  overflow: auto;
+  padding: 28px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface) 84%, var(--accent) 4%);
+}
+
+.generation-debug-page__header {
+  max-width: 920px;
+  margin-bottom: 20px;
+}
+
+.generation-debug-page__header > span,
+.generation-debug-render h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.generation-debug-page__header > span {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.generation-debug-page__header svg,
+.generation-debug-render h2 svg {
+  width: 16px;
+  height: 16px;
+}
+
+.generation-debug-page h1 {
+  margin: 7px 0;
+  font-size: 30px;
+}
+
+.generation-debug-page h2,
+.generation-debug-page p {
+  margin: 0;
+}
+
+.generation-debug-page__header p,
+.generation-debug-matrix > header p,
+.generation-debug-render > header p {
+  color: var(--text-muted);
+}
+
+.generation-debug-mode {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.generation-debug-mode.is-turbo {
+  border-color: color-mix(in srgb, #d97706 42%, var(--border));
+  background: color-mix(in srgb, #d97706 10%, var(--surface));
+}
+
+.generation-debug-mode span {
+  color: var(--text-muted);
+}
+
+.generation-debug-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 9px;
+  margin-bottom: 18px;
+}
+
+.generation-debug-summary article {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text-muted);
+}
+
+.generation-debug-summary article.is-enabled {
+  color: #15803d;
+}
+
+.generation-debug-summary svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+}
+
+.generation-debug-summary span {
+  display: grid;
+  min-width: 0;
+}
+
+.generation-debug-summary strong,
+.generation-debug-summary small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.generation-debug-matrix,
+.generation-debug-render {
+  margin-bottom: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.generation-debug-matrix > header,
+.generation-debug-render > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.generation-debug-matrix > header small,
+.generation-debug-render > header > span {
+  color: var(--text-muted);
+}
+
+.generation-debug-matrix__table {
+  min-width: 760px;
+}
+
+.generation-debug-matrix {
+  overflow-x: auto;
+}
+
+.generation-debug-matrix > header {
+  position: sticky;
+  left: 0;
+}
+
+.generation-debug-matrix__row {
+  display: grid;
+  grid-template-columns: minmax(230px, 1.6fr) repeat(4, minmax(100px, .7fr));
+  align-items: center;
+  min-height: 48px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.generation-debug-matrix__row:last-child {
+  border-bottom: 0;
+}
+
+.generation-debug-matrix__row > span {
+  min-width: 0;
+  padding: 9px 12px;
+}
+
+.generation-debug-matrix__row > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.generation-debug-matrix__row code {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.generation-debug-matrix__row.is-heading {
+  min-height: 34px;
+  color: var(--text-muted);
+  background: color-mix(in srgb, var(--surface) 91%, var(--text) 4%);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.debug-state-button {
+  min-width: 52px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 84%, var(--text) 5%);
+  color: var(--text-muted);
+  font: inherit;
+}
+
+.debug-state-button.is-on {
+  border-color: color-mix(in srgb, #16a34a 45%, var(--border));
+  background: color-mix(in srgb, #16a34a 12%, var(--surface));
+  color: #15803d;
+}
+
+.debug-evidence {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.debug-evidence.is-yes {
+  color: #15803d;
+  font-weight: 700;
+}
+
+.debug-evidence.is-no {
+  color: #b45309;
+}
+
+.generation-debug-frame {
+  position: relative;
+  min-height: 720px;
+  background: #eef1f5;
+}
+
+.generation-debug-frame iframe {
+  display: block;
+  width: 100%;
+  height: 780px;
+  border: 0;
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+.generation-debug-frame.is-ready iframe {
+  opacity: 1;
+}
+
+.generation-debug-frame__status {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid #b8c0cc;
+  border-radius: 999px;
+  background: #ffffffee;
+  color: #586475;
+  font-size: 11px;
+}
+
+.generation-debug-frame.is-ready .generation-debug-frame__status {
+  color: #15803d;
+}
+
+.generation-debug-frame.is-error .generation-debug-frame__status {
+  color: #b42318;
+}
+
+@media (max-width: 980px) {
+  .generation-debug-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .generation-debug-page {
+    padding: 16px;
+  }
+
+  .generation-debug-mode,
+  .generation-debug-matrix > header,
+  .generation-debug-render > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .generation-debug-summary {
+    grid-template-columns: 1fr;
+  }
+}

@@ -5,7 +5,7 @@ import { ArtifactCapabilityUseSchema, CapabilityIdSchema } from "./capabilities/
 import { IconSetSchema } from "./iconify/catalog.js";
 
 export const PROTOCOL_VERSION = 1 as const;
-export const GENERATION_PROMPT_VERSION = 16 as const;
+export const GENERATION_PROMPT_VERSION = 17 as const;
 
 export const DynamicModeSchema = z.enum(["off", "active", "always"]);
 export type DynamicMode = z.infer<typeof DynamicModeSchema>;
@@ -212,13 +212,17 @@ export const GenerationSettingsSchema = z
     motionEnabled: z.boolean().default(true),
     dynamicMode: DynamicModeSchema.default("active"),
     capabilities: z.object({
+      iconsEnabled: z.boolean().default(true),
       audioSpeechEnabled: z.boolean().default(true),
       externalMediaEnabled: z.boolean().default(false),
       experimentalEnabled: z.boolean().default(false),
+      enabled: z.partialRecord(CapabilityIdSchema, z.boolean()).default({}),
     }).strict().default({
+      iconsEnabled: true,
       audioSpeechEnabled: true,
       externalMediaEnabled: false,
       experimentalEnabled: false,
+      enabled: {},
     }),
     voice: z.object({
       engine: z.enum(["local", "system", "cloud"]).default("local"),

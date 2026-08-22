@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Activity, FlaskConical, Globe2, History, Settings, Sparkles } from "lucide-react";
+import { Activity, Bug, FlaskConical, Globe2, History, Settings, Sparkles } from "lucide-react";
 import { deterministicGlyphFavicon, isHostOwnedFaviconImage } from "../../lib/favicon";
 import type { FaviconSource, GlyphFavicon } from "../../types/browser";
 
@@ -27,6 +27,7 @@ export function Favicon({ source, title, generated, seed }: FaviconProps) {
       history: History,
       activity: Activity,
       capabilities: FlaskConical,
+      "generation-debug": Bug,
     }[source.icon];
     return <Icon className="favicon favicon--icon favicon--system" aria-hidden="true" />;
   }

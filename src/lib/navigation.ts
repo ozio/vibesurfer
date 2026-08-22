@@ -148,6 +148,16 @@ export function resolveNavigation(
     };
   }
 
+  if (value === "vibe://generation-debug") {
+    return {
+      location: value,
+      title: "Generation debug",
+      kind: "generation-debug",
+      favicon: systemFavicon("generation-debug"),
+      requiresGeneration: false,
+    };
+  }
+
   if (value.startsWith("vibe://generated/")) {
     return {
       location: value,

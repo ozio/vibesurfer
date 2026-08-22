@@ -109,9 +109,11 @@ export const GenerateCommandSchema = z
       motionEnabled: true,
       dynamicMode: "active",
       capabilities: {
+        iconsEnabled: true,
         audioSpeechEnabled: true,
         externalMediaEnabled: false,
         experimentalEnabled: false,
+        enabled: {},
       },
       voice: { engine: "local", provider: "openai", model: "kokoro-82m-q8", voice: "af_heart", speed: 1, musicEnabled: true },
       images: { mode: "tag-placeholder", fetchExternal: true, safeContent: true },

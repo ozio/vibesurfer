@@ -3,6 +3,10 @@ import { persist } from "zustand/middleware";
 import { MODELS, PROFILE_PRESETS, PROFILES } from "../data/catalog";
 import { deterministicGlyphFavicon, faviconSourceValue, systemFavicon } from "../lib/favicon";
 import {
+  DEFAULT_GENERATION_CAPABILITY_FLAGS,
+  USER_CONFIGURABLE_CAPABILITY_IDS,
+} from "../generation/capability-settings";
+import {
   isExplicitRelativeReference,
   normalizeVirtualUrl,
   readableHost,
@@ -125,6 +129,7 @@ export interface BrowserState {
   openHistory: () => string;
   openActivity: (jobId?: string) => string;
   openCapabilities: () => string;
+  openGenerationDebug: () => string;
   removeBrowsingHistoryEntry: (id: string) => void;
   clearBrowsingHistory: (profileId?: string) => void;
   setSettingsSection: (section: string) => void;
@@ -165,7 +170,7 @@ export const DEFAULT_BROWSER_PREFERENCES: BrowserPreferences = {
 };
 
 export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
-  promptVersion: 16,
+  promptVersion: 17,
   strategy: "full",
   maxOutputTokens: 16_000,
   reuseCachedPages: true,
@@ -185,9 +190,11 @@ export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
     allowExternalRequests: true,
   },
   capabilities: {
+    iconsEnabled: true,
     audioSpeechEnabled: true,
     externalMediaEnabled: false,
     experimentalEnabled: false,
+    enabled: DEFAULT_GENERATION_CAPABILITY_FLAGS,
   },
   voice: {
     engine: "local",
@@ -1106,6 +1113,18 @@ export const useBrowserStore = create<BrowserState>()(
         }
         const id = createId("tab");
         const tab = makeTab({ id, title: "Capability lab", location: "vibe://capabilities", kind: "capabilities", favicon: systemFavicon("capabilities") });
+        set({ tabs: [...state.tabs, tab], activeTabId: id });
+        return id;
+      },
+      openGenerationDebug: () => {
+        const state = get();
+        const existing = state.tabs.find((tab) => tab.kind === "generation-debug");
+        if (existing) {
+          set({ activeTabId: existing.id });
+          return existing.id;
+        }
+        const id = createId("tab");
+        const tab = makeTab({ id, title: "Generation debug", location: "vibe://generation-debug", kind: "generation-debug", favicon: systemFavicon("generation-debug") });
         set({ tabs: [...state.tabs, tab], activeTabId: id });
         return id;
       },
@@ -2288,6 +2307,8 @@ function migrateGenerationSettings(value: unknown, version: number): GenerationS
   const imageProvider = images.provider === "off" ? "off" : "tag-placeholder";
   const imagesEnabled = (booleanValue(images.enabled) ?? DEFAULT_GENERATION_SETTINGS.images.enabled)
     && imageProvider !== "off";
+  const audioSpeechEnabled = booleanValue(capabilities.audioSpeechEnabled)
+    ?? DEFAULT_GENERATION_SETTINGS.capabilities.audioSpeechEnabled;
   return {
     promptVersion: DEFAULT_GENERATION_SETTINGS.promptVersion,
     strategy: source.strategy === "turbo" ? "turbo" : "full",
@@ -2318,12 +2339,19 @@ function migrateGenerationSettings(value: unknown, version: number): GenerationS
           : booleanValue(images.allowExternalRequests) ?? DEFAULT_GENERATION_SETTINGS.images.allowExternalRequests),
     },
     capabilities: {
-      audioSpeechEnabled: booleanValue(capabilities.audioSpeechEnabled)
-        ?? DEFAULT_GENERATION_SETTINGS.capabilities.audioSpeechEnabled,
+      iconsEnabled: booleanValue(capabilities.iconsEnabled)
+        ?? DEFAULT_GENERATION_SETTINGS.capabilities.iconsEnabled,
+      audioSpeechEnabled,
       externalMediaEnabled: booleanValue(capabilities.externalMediaEnabled)
         ?? DEFAULT_GENERATION_SETTINGS.capabilities.externalMediaEnabled,
       experimentalEnabled: booleanValue(capabilities.experimentalEnabled)
         ?? DEFAULT_GENERATION_SETTINGS.capabilities.experimentalEnabled,
+      enabled: Object.fromEntries(USER_CONFIGURABLE_CAPABILITY_IDS.map((id) => [
+        id,
+        booleanValue(isRecord(capabilities.enabled) ? capabilities.enabled[id] : undefined)
+          ?? ((id === "speech" || id === "sound") ? audioSpeechEnabled : DEFAULT_GENERATION_SETTINGS.capabilities.enabled[id])
+          ?? true,
+      ])),
     },
     voice: {
       engine: voice.engine === "system" || voice.engine === "cloud" ? voice.engine : "local",
@@ -2403,12 +2431,13 @@ function openerValue(value: unknown): TabOpenerContext | undefined {
 }
 
 function tabKind(value: unknown, location: string): TabKind {
-  if (value === "new-tab" || value === "remote" || value === "generated" || value === "settings" || value === "history" || value === "activity" || value === "capabilities") return value;
+  if (value === "new-tab" || value === "remote" || value === "generated" || value === "settings" || value === "history" || value === "activity" || value === "capabilities" || value === "generation-debug") return value;
   if (location === "vibe://new-tab") return "new-tab";
   if (location === "vibe://history") return "history";
   if (location.startsWith("vibe://settings")) return "settings";
   if (location.startsWith("vibe://activity")) return "activity";
   if (location === "vibe://capabilities") return "capabilities";
+  if (location === "vibe://generation-debug") return "generation-debug";
   if (location.startsWith("vibe://generated")) return "generated";
   return normalizeVirtualUrl(location) ? "remote" : "generated";
 }
@@ -2419,6 +2448,7 @@ function migrateSystemFavicon(kind: TabKind, favicon: FaviconSource | undefined)
   if (kind === "history" && (!favicon || favicon === "◷")) return systemFavicon("history");
   if (kind === "activity") return systemFavicon("activity");
   if (kind === "capabilities") return systemFavicon("capabilities");
+  if (kind === "generation-debug") return systemFavicon("generation-debug");
   return favicon;
 }
 

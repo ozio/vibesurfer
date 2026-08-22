@@ -104,6 +104,15 @@ model/reasoning/service-tier tuple:
    metadata, summary, and HTML without authority to change identity, palette,
    fonts, or favicon.
 
+Every optional built-in capability has an independent profile-scoped flag.
+Disabled entries are omitted from the Director catalog, rejected if a stale or
+malformed Director still selects them, and therefore never reach Builder or the
+compiler. Images, the local icon catalog, Tailwind, generated JavaScript, and
+dynamic regions retain their own independent controls. `vibe://generation-debug`
+shows those effective settings, searches the latest completed artifact's two
+prompt records, reports manifest instances, and renders a deterministic fixture
+through the production artifact-frame sandbox.
+
 Turbo mode is selected from the same frozen job snapshot and performs one
 ordinary streaming text exchange. Its bounded prompt asks only for HTML; the
 host supplies stable identity/favicon data, extracts document metadata, adds
@@ -215,4 +224,7 @@ when possible and discard unsafe or structurally invalid generated content.
   BYOK provider, and each uncached success records exactly those two exchanges.
 - Tailwind, images, and generated-JavaScript enabled/disabled combinations are
   tested. The JavaScript path additionally requires a real-browser CSP smoke.
+- Every user-configurable capability is tested as an independent
+  setting-to-Director-catalog gate; compiler and trusted-runtime fixtures cover
+  the corresponding final markup and interaction path.
 - The packaged desktop application can start, supervise and recover its worker.

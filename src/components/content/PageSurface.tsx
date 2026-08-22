@@ -22,6 +22,7 @@ import { NewTabPage } from "./NewTabPage";
 import { HistoryPage } from "./HistoryPage";
 import { ActivityPage } from "./ActivityPage";
 import { CapabilityLabPage } from "./CapabilityLabPage";
+import { GenerationDebugPage } from "./GenerationDebugPage";
 
 interface PageContextMenuState {
   left: number;
@@ -49,6 +50,7 @@ export function PageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHover
   if (tab.kind === "history") return <HistoryPage />;
   if (tab.kind === "activity") return <ActivityPage tab={tab} />;
   if (tab.kind === "capabilities") return <CapabilityLabPage />;
+  if (tab.kind === "generation-debug") return <GenerationDebugPage />;
   if (tab.kind === "generated") return <GeneratedPageSurface tab={tab} onLinkHover={onLinkHover} />;
 
   return (

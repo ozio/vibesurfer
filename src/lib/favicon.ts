@@ -31,7 +31,7 @@ export function systemFavicon(icon: SystemFaviconName): FaviconSource {
 
 function isSystemFaviconName(value: unknown): value is SystemFaviconName {
   return value === "new-tab" || value === "settings" || value === "history"
-    || value === "activity" || value === "capabilities";
+    || value === "activity" || value === "capabilities" || value === "generation-debug";
 }
 
 export function deterministicGlyphFavicon(seed: string, glyph: string): GlyphFavicon {

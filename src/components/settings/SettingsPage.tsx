@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useState, type FormEvent } from "react";
 import {
   BadgeInfo,
   Bot,
+  Bug,
   Check,
   ChevronRight,
   CircleUserRound,
@@ -37,6 +38,7 @@ import {
   verifyProviderConnection,
   type RuntimeStatus,
 } from "../../generation/host-api";
+import { GENERATION_CAPABILITY_OPTIONS } from "../../generation/capability-settings";
 import { isTauri, openExternal } from "../../lib/platform";
 import { useBrowserStore } from "../../store/browser-store";
 import type { Density, DynamicMode, ProviderConnection, ProviderKind, TabLayout, ThemeId } from "../../types/browser";
@@ -168,6 +170,7 @@ function GenerationSettings() {
   const patchVoiceSettings = useBrowserStore((state) => state.patchVoiceSettings);
   const patchPrivacySettings = useBrowserStore((state) => state.patchPrivacySettings);
   const openCapabilities = useBrowserStore((state) => state.openCapabilities);
+  const openGenerationDebug = useBrowserStore((state) => state.openGenerationDebug);
 
   return (
     <>
@@ -252,11 +255,28 @@ function GenerationSettings() {
           <p>The page itself cannot contact an origin, load scripts from a CDN, read credentials or call native APIs. These choices affect newly generated pages; existing artifacts remain unchanged until regenerated.</p>
         </details>
         <GenerationToggle
-          title="Allow audio and read-aloud controls"
-          description="Let newly generated pages offer user-triggered system speech and small procedural Web Audio cues. Nothing autoplays."
-          checked={settings.capabilities.audioSpeechEnabled}
-          onCheckedChange={(audioSpeechEnabled) => patchCapabilitySettings({ audioSpeechEnabled })}
+          title="Icon library"
+          description="Let the Director choose one allowlisted local Iconify set. Selected icons are compiled to inline SVG before display."
+          checked={settings.capabilities.iconsEnabled}
+          onCheckedChange={(iconsEnabled) => patchCapabilitySettings({ iconsEnabled })}
         />
+        {GENERATION_CAPABILITY_OPTIONS.map((option) => {
+          const needsAudio = option.id === "speech" || option.id === "sound";
+          const checked = settings.capabilities.enabled[option.id] !== false
+            && (!needsAudio || settings.capabilities.audioSpeechEnabled);
+          return (
+            <GenerationToggle
+              key={option.id}
+              title={option.title}
+              description={`${option.description} ${option.execution === "compiler" ? "Compiled locally." : "Runs in the trusted page runtime."}`}
+              checked={checked}
+              onCheckedChange={(enabled) => patchCapabilitySettings({
+                ...(needsAudio && enabled ? { audioSpeechEnabled: true } : {}),
+                enabled: { ...settings.capabilities.enabled, [option.id]: enabled },
+              })}
+            />
+          );
+        })}
         <GenerationToggle
           title="Allow configured external media providers"
           description="Permit licensed stock media only after a provider and credential are configured. Built-in capabilities remain fully offline."
@@ -271,6 +291,9 @@ function GenerationSettings() {
         />
         <button className="button capability-lab-link" type="button" onClick={openCapabilities}>
           <FlaskConical aria-hidden="true" /> Open capability lab
+        </button>
+        <button className="button capability-lab-link" type="button" onClick={openGenerationDebug}>
+          <Bug aria-hidden="true" /> Open generation debug
         </button>
       </section>
       <section className="settings-group">

@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { CAPABILITY_REGISTRY, compactCapabilityContracts, resolveCapabilities } from "../src/capabilities/registry.js";
-import type { CapabilityId } from "../src/capabilities/types.js";
+import { USER_CONFIGURABLE_CAPABILITY_IDS, type CapabilityId } from "../src/capabilities/types.js";
+import { capabilityCatalog } from "../src/prompt-builder.js";
 import { transformHtml, transformPreviewHtml } from "../src/html/transform.js";
 import { generationCommand } from "./helpers.js";
 
@@ -50,6 +51,37 @@ describe("capability compiler", () => {
       .toThrow("Director selected unavailable capability: external-media");
     expect(CAPABILITY_REGISTRY.get("data-chart")?.maxInstances).toBe(8);
     expect(compactCapabilityContracts(settings, "native")).not.toHaveProperty("pattern-background");
+  });
+
+  it("withholds every user-configurable capability independently from Director and compiler", () => {
+    const base = generationCommand().settings;
+    for (const disabledId of USER_CONFIGURABLE_CAPABILITY_IDS) {
+      const settings = {
+        ...base,
+        capabilities: {
+          ...base.capabilities,
+          enabled: { ...base.capabilities.enabled, [disabledId]: false },
+        },
+      };
+      expect(capabilityCatalog(settings, "native").capabilities, disabledId).not.toHaveProperty(disabledId);
+      expect(() => resolveCapabilities(settings, "native", [disabledId]), disabledId)
+        .toThrow(`Director selected unavailable capability: ${disabledId}`);
+      const stillEnabled = USER_CONFIGURABLE_CAPABILITY_IDS.find((id) => id !== disabledId)!;
+      expect(capabilityCatalog(settings, "native").capabilities, stillEnabled).toHaveProperty(stillEnabled);
+    }
+  });
+
+  it("keeps pseudo-video independent from speech and sound permissions", () => {
+    const base = generationCommand().settings;
+    const settings = {
+      ...base,
+      capabilities: { ...base.capabilities, audioSpeechEnabled: false },
+    };
+    expect(resolveCapabilities(settings, "native", ["pseudo-video"]).map(({ id }) => id)).toContain("pseudo-video");
+    expect(() => resolveCapabilities(settings, "native", ["speech"]))
+      .toThrow("Director selected unavailable capability: speech");
+    expect(() => resolveCapabilities(settings, "native", ["sound"]))
+      .toThrow("Director selected unavailable capability: sound");
   });
 
   it("deterministically reduces SCP-like pattern overload to one family and two uses", async () => {

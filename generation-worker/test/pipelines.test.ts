@@ -160,6 +160,28 @@ describe("directed generation pipeline", () => {
     expect(events.phases.at(-1)).toBe("committing");
   });
 
+  it("forces the approved icon contract to null when the icon library is disabled", async () => {
+    const base = generationCommand({ url: "https://bububu.com/" });
+    const request = generationCommand({
+      url: base.url,
+      settings: {
+        ...base.settings,
+        capabilities: { ...base.settings.capabilities, iconsEnabled: false },
+      },
+    });
+    const result = await runGenerationPipeline({
+      request,
+      executor: new DeterministicMockExecutor({ providerId: "mock", modelId: "mock-v1", seed: "icons-disabled" }),
+      signal: new AbortController().signal,
+      emit: emitter().value,
+    });
+
+    expect(result.artifact.modelExchanges[0]!.prompt).toContain('"iconSets": {}');
+    expect(result.artifact.modelExchanges[1]!.prompt).toContain("Selected Iconify set: `null`");
+    expect(result.artifact.payload).toMatchObject({ pageDirection: { iconSet: null } });
+    expect(result.artifact.html).not.toContain("data-iconify-rendered");
+  });
+
   it("selects dynamic regions for a live route but not for an ordinary article", async () => {
     const live = await runGenerationPipeline({
       request: generationCommand({ url: "https://example.com/chat" }),

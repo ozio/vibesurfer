@@ -17,6 +17,9 @@ import {
   type ProviderKind,
   type SiteWorld,
 } from "../domain.js";
+import { CAPABILITY_IDS } from "../capabilities/types.js";
+
+const capabilityIds = new Set<string>(CAPABILITY_IDS);
 
 function record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
@@ -30,6 +33,13 @@ function string(value: unknown): string | undefined {
 
 function boolean(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function normalizeCapabilityFlags(value: unknown): Record<string, boolean> {
+  return Object.fromEntries(
+    Object.entries(record(value)).flatMap(([id, enabled]) =>
+      capabilityIds.has(id) && typeof enabled === "boolean" ? [[id, enabled]] : []),
+  );
 }
 
 function number(value: unknown): number | undefined {
@@ -342,9 +352,11 @@ export function normalizeHostDynamicGeneration(input: HostGenerateCommand): Norm
       motionEnabled: boolean(settings.motionEnabled ?? style.motionEnabled) ?? true,
       dynamicMode: settings.dynamicMode === "off" || settings.dynamicMode === "always" ? settings.dynamicMode : "active",
       capabilities: {
+        iconsEnabled: false,
         audioSpeechEnabled: false,
         externalMediaEnabled: false,
         experimentalEnabled: false,
+        enabled: {},
       },
       voice: normalizeVoiceSettings(settings),
       images: {
@@ -436,9 +448,11 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
         ? settings.dynamicMode
         : "active",
       capabilities: {
+        iconsEnabled: boolean(record(settings.capabilities).iconsEnabled) ?? true,
         audioSpeechEnabled: boolean(record(settings.capabilities).audioSpeechEnabled) ?? true,
         externalMediaEnabled: boolean(record(settings.capabilities).externalMediaEnabled) ?? false,
         experimentalEnabled: boolean(record(settings.capabilities).experimentalEnabled) ?? false,
+        enabled: normalizeCapabilityFlags(record(settings.capabilities).enabled),
       },
       voice: normalizeVoiceSettings(settings),
       images: {

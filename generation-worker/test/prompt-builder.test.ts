@@ -123,6 +123,24 @@ describe("two-stage prompt layering", () => {
     expect(bundle.prompt).not.toContain("account-group-1");
   });
 
+  it("withholds images and icon sets from the Director when their individual settings are off", () => {
+    const request = generationCommand();
+    const bundle = buildPrompt({
+      stage: "page-director",
+      url: request.url,
+      settings: {
+        ...request.settings,
+        images: { mode: "off", fetchExternal: false, safeContent: true },
+        capabilities: { ...request.settings.capabilities, iconsEnabled: false },
+      },
+      worldPromptSnapshot: request.worldPromptSnapshot,
+      context: request.context,
+    });
+    expect(bundle.prompt).not.toContain('"image-intents"');
+    for (const iconSet of ICON_SET_IDS) expect(bundle.prompt).not.toContain(`"${iconSet}"`);
+    expect(bundle.prompt).toContain('"iconSets": {}');
+  });
+
   it("uses the profile prompt when present and the skin preset only as an empty-profile fallback", () => {
     const request = generationCommand({ browserTheme: "sedative" });
     const custom = buildPrompt({ stage: "page-director", url: request.url, browserTheme: "sedative", settings: request.settings, worldPromptSnapshot: request.worldPromptSnapshot, context: request.context });

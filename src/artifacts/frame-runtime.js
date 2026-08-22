@@ -720,7 +720,10 @@
       const previous = state.currentMs;
       state.currentMs = Math.min(state.totalMs, performance.now() - state.startedAt);
       renderPseudoVideo(state, previous);
-      if (state.currentMs >= state.totalMs) pausePseudoVideo(state);
+      if (state.currentMs >= state.totalMs) {
+        pausePseudoVideo(state);
+        renderPseudoVideo(state, state.currentMs);
+      }
     }, 100);
   };
 

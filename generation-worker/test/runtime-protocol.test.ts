@@ -84,6 +84,20 @@ describe("Rust host JSONL compatibility", () => {
     expect(enabled.settings.allowGeneratedScripts).toBe(true);
   });
 
+  it("normalizes only known per-capability flags from the host", () => {
+    const input = hostGenerate({ jobId: "capability-flags" }) as HostGenerateCommand;
+    (input.request.settings as Record<string, unknown>).capabilities = {
+      iconsEnabled: false,
+      enabled: { "data-chart": false, slideshow: true, "unknown-capability": false },
+    };
+    const normalized = normalizeHostGeneration(input).command;
+    expect(normalized.settings.capabilities).toMatchObject({
+      iconsEnabled: false,
+      enabled: { "data-chart": false, slideshow: true },
+    });
+    expect(normalized.settings.capabilities.enabled).not.toHaveProperty("unknown-capability");
+  });
+
   it("preserves a job-level compact mode independently of provider kind", () => {
     const input = hostGenerate({ jobId: "turbo-normalize", kind: "openai" }) as HostGenerateCommand;
     (input.request.provider as Record<string, unknown>).generationMode = "compact";
