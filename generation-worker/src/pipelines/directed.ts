@@ -8,6 +8,7 @@ import {
   type SiteIdentity,
 } from "../domain.js";
 import { approveCapabilitySelection, buildPrompt } from "../prompt-builder.js";
+import { hasVerifiedExternalMediaConnection } from "../capabilities/registry.js";
 import { addUsage, EMPTY_USAGE } from "../providers/executor.js";
 import { compilePage, createProgressivePagePreview } from "./shared.js";
 import { type PipelineContext, type PipelineResult, UnsafeOutputError } from "./types.js";
@@ -82,9 +83,34 @@ export async function runDirectedPipeline(context: PipelineContext): Promise<Pip
   // page direction. Models can echo those fields with harmless formatting or
   // color differences even when explicitly told they are frozen. Treat the
   // persisted SiteIdentity as authoritative instead of failing the whole page.
+  const selectedPseudoVideo = result.direction.selectedCapabilities.includes("pseudo-video");
+  const verifiedExternalMedia = request.settings.capabilities.externalMediaEnabled
+    && hasVerifiedExternalMediaConnection(request.settings);
+  const requestedVideoIntent = result.direction.videoIntent;
   const direction = {
     ...alignDirectionWithIdentity(result.direction, identity),
     iconSet: request.settings.capabilities.iconsEnabled ? result.direction.iconSet : null,
+    ...(selectedPseudoVideo ? {
+      videoIntent: {
+        ...(requestedVideoIntent ?? {
+        kind: "documentary" as const,
+        goal: "Create a concise narrated scene sequence for the primary video experience.",
+        pacing: "balanced" as const,
+        narration: "voiceover" as const,
+        music: "library" as const,
+        }),
+        narration: request.settings.capabilities.audioSpeechEnabled
+          ? (requestedVideoIntent?.narration ?? "voiceover" as const)
+          : "none" as const,
+        music: request.settings.voice.musicMode === "off"
+          ? "none" as const
+          : requestedVideoIntent?.music === "none"
+            ? "none" as const
+            : requestedVideoIntent?.music === "generate-if-available" && verifiedExternalMedia
+              ? "generate-if-available" as const
+              : "library" as const,
+      },
+    } : { videoIntent: undefined }),
   };
   const selectedCapabilityContracts = approveCapabilitySelection(
     request.settings,

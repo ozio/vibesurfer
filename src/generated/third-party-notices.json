@@ -4,7 +4,7 @@
   "generatedFrom": {
     "npmApp": {
       "path": "package-lock.json",
-      "sha256": "3871c4389c2694ddfe221e222cd1249435679ea76374b50d0aaa93013eef5781"
+      "sha256": "dc141669f99bc086d69e5ca8c3fdbc5e7dabc031ed3e2818209061f424b3d6f0"
     },
     "npmWorker": {
       "path": "generation-worker/package-lock.json",
@@ -12,7 +12,7 @@
     },
     "cargo": {
       "path": "src-tauri/Cargo.lock",
-      "sha256": "5d4387dda8ec93eecf45b0933784df4b1d2331b7ecc777a91cd27bec7b2ee100"
+      "sha256": "008136b2c32943d15dee90807efdedcde270ab1995ae02d18a140f2317d069c0"
     },
     "iconify": {
       "path": "generation-worker/src/iconify/iconify-packs.generated.json",
@@ -96,6 +96,16 @@
       "source": "https://www.npmjs.com/package/@ai-sdk/provider-utils/v/5.0.26",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "npm:@babel/runtime@7.29.7",
+      "name": "@babel/runtime",
+      "version": "7.29.7",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/@babel/runtime/v/7.29.7",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -1849,6 +1859,16 @@
       ]
     },
     {
+      "id": "npm:@tonejs/midi@2.0.28",
+      "name": "@tonejs/midi",
+      "version": "2.0.28",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/@tonejs/midi/v/2.0.28",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "npm:@types/estree@1.0.9",
       "name": "@types/estree",
       "version": "1.0.9",
@@ -2109,6 +2129,16 @@
       ]
     },
     {
+      "id": "npm:array-flatten@3.0.0",
+      "name": "array-flatten",
+      "version": "3.0.0",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/array-flatten/v/3.0.0",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
       "id": "cargo:async-broadcast@0.7.2",
       "name": "async-broadcast",
       "version": "0.7.2",
@@ -2244,6 +2274,36 @@
       "version": "1.5.1",
       "license": "Apache-2.0 OR MIT",
       "source": "https://github.com/cuviper/autocfg",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "npm:automation-events@7.1.19",
+      "name": "automation-events",
+      "version": "7.1.19",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/automation-events/v/7.1.19",
+      "surfaces": [
+        "app"
+      ]
+    },
+    {
+      "id": "cargo:aws-lc-rs@1.18.0",
+      "name": "aws-lc-rs",
+      "version": "1.18.0",
+      "license": "ISC AND (Apache-2.0 OR ISC)",
+      "source": "https://github.com/aws/aws-lc-rs",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:aws-lc-sys@0.44.0",
+      "name": "aws-lc-sys",
+      "version": "0.44.0",
+      "license": "ISC AND (Apache-2.0 OR ISC) AND Apache-2.0 AND MIT AND BSD-3-Clause AND (Apache-2.0 OR ISC OR MIT) AND (Apache-2.0 OR ISC OR MIT-0)",
+      "source": "https://github.com/aws/aws-lc-rs",
       "surfaces": [
         "rust-host"
       ]
@@ -2569,6 +2629,16 @@
       ]
     },
     {
+      "id": "cargo:cfg_aliases@0.2.2",
+      "name": "cfg_aliases",
+      "version": "0.2.2",
+      "license": "MIT",
+      "source": "https://github.com/katharostech/cfg_aliases",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:cfg-expr@0.15.8",
       "name": "cfg-expr",
       "version": "0.15.8",
@@ -2584,6 +2654,16 @@
       "version": "1.0.4",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/rust-lang/cfg-if",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:chacha20@0.10.1",
+      "name": "chacha20",
+      "version": "0.10.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/RustCrypto/stream-ciphers",
       "surfaces": [
         "rust-host"
       ]
@@ -2656,6 +2736,16 @@
       "source": "https://www.npmjs.com/package/cliui/v/9.0.1",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "cargo:cmake@0.1.58",
+      "name": "cmake",
+      "version": "0.1.58",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rust-lang/cmake-rs",
+      "surfaces": [
+        "rust-host"
       ]
     },
     {
@@ -2822,6 +2912,16 @@
       "id": "cargo:cpufeatures@0.2.17",
       "name": "cpufeatures",
       "version": "0.2.17",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/RustCrypto/utils",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:cpufeatures@0.3.0",
+      "name": "cpufeatures",
+      "version": "0.3.0",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/RustCrypto/utils",
       "surfaces": [
@@ -3849,6 +3949,16 @@
       ]
     },
     {
+      "id": "cargo:fs_extra@1.3.0",
+      "name": "fs_extra",
+      "version": "1.3.0",
+      "license": "MIT",
+      "source": "https://github.com/webdesus/fs_extra",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:futures-channel@0.3.32",
       "name": "futures-channel",
       "version": "0.3.32",
@@ -4439,6 +4549,16 @@
       ]
     },
     {
+      "id": "cargo:hyper-rustls@0.27.9",
+      "name": "hyper-rustls",
+      "version": "0.27.9",
+      "license": "Apache-2.0 OR ISC OR MIT",
+      "source": "https://github.com/rustls/hyper-rustls",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:hyper-util@0.1.20",
       "name": "hyper-util",
       "version": "0.1.20",
@@ -4719,6 +4839,26 @@
       ]
     },
     {
+      "id": "cargo:jni@0.22.4",
+      "name": "jni",
+      "version": "0.22.4",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/jni-rs/jni-rs",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:jni-macros@0.22.4",
+      "name": "jni-macros",
+      "version": "0.22.4",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/jni-rs/jni-rs",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:jni-sys@0.3.1",
       "name": "jni-sys",
       "version": "0.3.1",
@@ -4744,6 +4884,16 @@
       "version": "0.4.1",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/jni-rs/jni-sys",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:jobserver@0.1.35",
+      "name": "jobserver",
+      "version": "0.1.35",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rust-lang/jobserver-rs",
       "surfaces": [
         "rust-host"
       ]
@@ -4999,6 +5149,16 @@
       ]
     },
     {
+      "id": "cargo:lru-slab@0.1.2",
+      "name": "lru-slab",
+      "version": "0.1.2",
+      "license": "MIT OR Apache-2.0 OR Zlib",
+      "source": "https://github.com/Ralith/lru-slab",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "iconify:lucide",
       "name": "Lucide icons",
       "version": "2026-08-14",
@@ -5116,6 +5276,16 @@
       "source": "https://www.npmjs.com/package/micromark-util-types/v/2.0.2",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "npm:midi-file@1.2.4",
+      "name": "midi-file",
+      "version": "1.2.4",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/midi-file/v/1.2.4",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -5599,6 +5769,16 @@
       ]
     },
     {
+      "id": "cargo:openssl-probe@0.2.1",
+      "name": "openssl-probe",
+      "version": "0.2.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rustls/openssl-probe",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:option-ext@0.2.0",
       "name": "option-ext",
       "version": "0.2.0",
@@ -6049,6 +6229,36 @@
       ]
     },
     {
+      "id": "cargo:quinn@0.11.11",
+      "name": "quinn",
+      "version": "0.11.11",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/quinn-rs/quinn",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:quinn-proto@0.11.17",
+      "name": "quinn-proto",
+      "version": "0.11.17",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/quinn-rs/quinn",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:quinn-udp@0.5.15",
+      "name": "quinn-udp",
+      "version": "0.5.15",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/quinn-rs/quinn",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:quote@1.0.46",
       "name": "quote",
       "version": "1.0.46",
@@ -6086,6 +6296,36 @@
       "source": "https://www.npmjs.com/package/radix-ui/v/1.6.2",
       "surfaces": [
         "app"
+      ]
+    },
+    {
+      "id": "cargo:rand@0.10.2",
+      "name": "rand",
+      "version": "0.10.2",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rust-random/rand",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:rand_core@0.10.1",
+      "name": "rand_core",
+      "version": "0.10.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rust-random/rand_core",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:rand_pcg@0.10.2",
+      "name": "rand_pcg",
+      "version": "0.10.2",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rust-random/rngs",
+      "surfaces": [
+        "rust-host"
       ]
     },
     {
@@ -6299,6 +6539,16 @@
       ]
     },
     {
+      "id": "cargo:ring@0.17.14",
+      "name": "ring",
+      "version": "0.17.14",
+      "license": "Apache-2.0 AND ISC",
+      "source": "https://github.com/briansmith/ring",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "npm:roarr@2.15.4",
       "name": "roarr",
       "version": "2.15.4",
@@ -6379,6 +6629,66 @@
       ]
     },
     {
+      "id": "cargo:rustls@0.23.43",
+      "name": "rustls",
+      "version": "0.23.43",
+      "license": "Apache-2.0 OR ISC OR MIT",
+      "source": "https://github.com/rustls/rustls",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:rustls-native-certs@0.8.4",
+      "name": "rustls-native-certs",
+      "version": "0.8.4",
+      "license": "Apache-2.0 OR ISC OR MIT",
+      "source": "https://github.com/rustls/rustls-native-certs",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:rustls-pki-types@1.15.1",
+      "name": "rustls-pki-types",
+      "version": "1.15.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rustls/pki-types",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:rustls-platform-verifier@0.7.0",
+      "name": "rustls-platform-verifier",
+      "version": "0.7.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rustls/rustls-platform-verifier",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:rustls-platform-verifier-android@0.1.1",
+      "name": "rustls-platform-verifier-android",
+      "version": "0.1.1",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rustls/rustls-platform-verifier",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:rustls-webpki@0.103.14",
+      "name": "rustls-webpki",
+      "version": "0.103.14",
+      "license": "ISC",
+      "source": "https://github.com/rustls/webpki",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:rustversion@1.0.23",
       "name": "rustversion",
       "version": "1.0.23",
@@ -6399,6 +6709,16 @@
       ]
     },
     {
+      "id": "cargo:ryu@1.0.23",
+      "name": "ryu",
+      "version": "1.0.23",
+      "license": "Apache-2.0 OR BSL-1.0",
+      "source": "https://github.com/dtolnay/ryu",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "npm:safer-buffer@2.1.2",
       "name": "safer-buffer",
       "version": "2.1.2",
@@ -6414,6 +6734,16 @@
       "version": "1.0.6",
       "license": "Unlicense/MIT",
       "source": "https://github.com/BurntSushi/same-file",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:schannel@0.1.29",
+      "name": "schannel",
+      "version": "0.1.29",
+      "license": "MIT",
+      "source": "https://github.com/steffengy/schannel-rs",
       "surfaces": [
         "rust-host"
       ]
@@ -6629,6 +6959,16 @@
       ]
     },
     {
+      "id": "cargo:serde_urlencoded@0.7.1",
+      "name": "serde_urlencoded",
+      "version": "0.7.1",
+      "license": "MIT/Apache-2.0",
+      "source": "https://github.com/nox/serde_urlencoded",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:serde_with@3.21.0",
       "name": "serde_with",
       "version": "3.21.0",
@@ -6769,11 +7109,31 @@
       ]
     },
     {
+      "id": "cargo:simd_cesu8@1.2.0",
+      "name": "simd_cesu8",
+      "version": "1.2.0",
+      "license": "Apache-2.0 OR MIT",
+      "source": "https://github.com/seancroach/simd_cesu8",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:simd-adler32@0.3.9",
       "name": "simd-adler32",
       "version": "0.3.9",
       "license": "MIT",
       "source": "https://github.com/mcountryman/simd-adler32",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:simdutf8@0.1.5",
+      "name": "simdutf8",
+      "version": "0.1.5",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rusticstuff/simdutf8",
       "surfaces": [
         "rust-host"
       ]
@@ -6886,6 +7246,16 @@
       "source": "https://github.com/storyyeller/stable_deref_trait",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "npm:standardized-audio-context@25.3.77",
+      "name": "standardized-audio-context",
+      "version": "25.3.77",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/standardized-audio-context/v/25.3.77",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -7389,6 +7759,16 @@
       ]
     },
     {
+      "id": "cargo:tokio-rustls@0.26.4",
+      "name": "tokio-rustls",
+      "version": "0.26.4",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rustls/tokio-rustls",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:tokio-util@0.7.18",
       "name": "tokio-util",
       "version": "0.7.18",
@@ -7506,6 +7886,16 @@
       "source": "https://github.com/toml-rs/toml",
       "surfaces": [
         "rust-host"
+      ]
+    },
+    {
+      "id": "npm:tone@15.1.22",
+      "name": "tone",
+      "version": "15.1.22",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/tone/v/15.1.22",
+      "surfaces": [
+        "app"
       ]
     },
     {
@@ -7807,6 +8197,16 @@
       "source": "https://www.npmjs.com/package/unist-util-visit-parents/v/6.0.2",
       "surfaces": [
         "generation-worker"
+      ]
+    },
+    {
+      "id": "cargo:untrusted@0.9.0",
+      "name": "untrusted",
+      "version": "0.9.0",
+      "license": "ISC",
+      "source": "https://github.com/briansmith/untrusted",
+      "surfaces": [
+        "rust-host"
       ]
     },
     {
@@ -8390,6 +8790,16 @@
       ]
     },
     {
+      "id": "cargo:web-time@1.1.0",
+      "name": "web-time",
+      "version": "1.1.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/daxpedda/web-time",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
       "id": "cargo:webkit2gtk@2.0.2",
       "name": "webkit2gtk",
       "version": "2.0.2",
@@ -8405,6 +8815,16 @@
       "version": "2.0.2",
       "license": "MIT",
       "source": "https://github.com/tauri-apps/webkit2gtk-rs",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:webpki-root-certs@1.0.9",
+      "name": "webpki-root-certs",
+      "version": "1.0.9",
+      "license": "CDLA-Permissive-2.0",
+      "source": "https://github.com/rustls/webpki-roots",
       "surfaces": [
         "rust-host"
       ]
@@ -8893,6 +9313,16 @@
       "id": "cargo:windows-sys@0.45.0",
       "name": "windows-sys",
       "version": "0.45.0",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/microsoft/windows-rs",
+      "surfaces": [
+        "rust-host"
+      ]
+    },
+    {
+      "id": "cargo:windows-sys@0.52.0",
+      "name": "windows-sys",
+      "version": "0.52.0",
       "license": "MIT OR Apache-2.0",
       "source": "https://github.com/microsoft/windows-rs",
       "surfaces": [

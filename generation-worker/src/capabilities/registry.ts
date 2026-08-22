@@ -21,6 +21,46 @@ export interface CapabilityDescriptor {
 const always = () => true;
 const userConfigurableCapabilities = new Set<CapabilityId>(USER_CONFIGURABLE_CAPABILITY_IDS);
 
+export const VIDEO_SCENE_KINDS = ["title", "text", "image", "split", "quote", "stat", "credits"] as const;
+export const VIDEO_TRANSITIONS = ["cut", "crossfade", "dip-black", "slide-left", "slide-up", "push", "wipe", "zoom", "blur"] as const;
+export const VIDEO_MOTIONS = ["still", "ken-burns-in", "ken-burns-out", "pan-left", "pan-right", "drift", "stagger", "credits-roll"] as const;
+export const VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "4:3", "3:2", "1:1", "4:5", "21:9"] as const;
+export const VIDEO_MUSIC_TRACKS = [
+  "ambient-glass", "documentary-pulse", "warm-memory", "investigative-low",
+  "night-drive", "playful-pluck", "minimal-piano", "soft-suspense",
+  "resolution-rise", "retro-digital", "quiet-nature", "credits-drift",
+] as const;
+
+export function hasVerifiedExternalMediaConnection(settings: GenerationSettings): boolean {
+  return settings.voice.provider === "elevenlabs"
+    && Boolean(settings.voice.mediaConnectionId)
+    && settings.voice.availableVoiceIds.length > 0;
+}
+
+function pseudoVideoBuilderContract(settings: GenerationSettings): string {
+  const hasVerifiedMediaConnection = hasVerifiedExternalMediaConnection(settings);
+  const voiceIds = settings.voice.engine === "cloud" && hasVerifiedMediaConnection
+    ? settings.voice.availableVoiceIds.slice(0, 100)
+    : [settings.voice.voice || "af_heart"];
+  const narration = settings.capabilities.audioSpeechEnabled
+    ? settings.voice.engine === "cloud" && (!settings.capabilities.externalMediaEnabled || !hasVerifiedMediaConnection)
+      ? "Cloud narration has no enabled verified connection. You may use one data-vibe-narration per scene for visible captions and transcript, but omit data-voice; playback will use a caption-only hold."
+      : `Narration is available through safe voice IDs: ${voiceIds.join("|")}. Put zero or one <p data-vibe-narration lang="..." data-voice="optional-listed-id">spoken text</p> inside each scene; it also becomes captions and transcript.`
+    : "Narration is disabled: do not emit data-vibe-narration.";
+  const music = settings.voice.musicMode === "off"
+    ? "Background music is disabled: use data-music-track=\"silence\"."
+    : `Music track IDs: ${VIDEO_MUSIC_TRACKS.join("|")}|inherit|silence.${settings.voice.musicMode === "generate-if-requested" && settings.capabilities.externalMediaEnabled && hasVerifiedMediaConnection ? " If none fits, put one short English data-music-intent on <vibe-video>." : " Do not request generated music."}`;
+  return [
+    `Use one <vibe-video aria-label="..." data-pacing="slow|balanced|fast" data-aspect-ratio="${VIDEO_ASPECT_RATIOS.join("|")}"> with 1-12 direct children marked data-vibe-scene. The ratio is mandatory and is the immutable visual viewport: YouTube/Vimeo and ordinary landscape video use 16:9; TikTok, Reels and Shorts use 9:16; square feeds use 1:1; portrait editorial uses 4:5; cinematic pages may use 21:9.`,
+    `Scene data-kind: ${VIDEO_SCENE_KINDS.join("|")}; data-transition: ${VIDEO_TRANSITIONS.join("|")}; data-motion: ${VIDEO_MOTIONS.join("|")}.`,
+    "data-duration-ms is optional desired hold time 1000..120000, never a speech cutoff. Put visible headings/copy/images in the scene and mark automatically animated children data-vibe-layer.",
+    narration,
+    music,
+    "Optional custom controls use data-vibe-video-action=play|pause|toggle|stop|mute|fullscreen, data-vibe-video-seek, data-vibe-video-volume, and data-vibe-video-time=current|duration. The trusted runtime supplies any missing controls, timing, captions and transcript.",
+    "Do not emit audio/video URLs, raw MIDI notes, executable code, autoplay, external requests, or fake controls.",
+  ].join(" ");
+}
+
 export function isCapabilityEnabled(settings: GenerationSettings, id: CapabilityId): boolean {
   return !userConfigurableCapabilities.has(id) || settings.capabilities.enabled[id] !== false;
 }
@@ -226,11 +266,11 @@ const descriptors: readonly CapabilityDescriptor[] = [
   },
   {
     id: "pseudo-video",
-    directorHint: "a real local scene timeline for YouTube and other video-centric pages; select this instead of slideshow for the primary video player",
-    builderContract: "Use one <section data-vibe-pseudo-video aria-label=\"...\"> containing 1-12 direct children marked data-vibe-video-scene. Each scene has data-duration-ms=\"1000..120000\", data-image-intent, an <img data-vibe-image=\"concrete English intent\" alt=\"...\">, and visible caption text. Optional bounded cues are child elements data-vibe-narration with data-at-ms and data-pause-after-ms, and data-vibe-music with data-at-ms, data-preset=\"calm-documentary|warm-memory|melancholy|investigative-tension|danger|resolution|silence\" and data-intensity=\"0..1\". Total duration must not exceed 600000ms. Do not emit audio/video URLs, MIDI notes, executable code, autoplay, or a fake Play label. The trusted runtime supplies Play/Pause, restart, seek, time, captions, transcript, and fullscreen controls.",
+    directorHint: "a real local scene timeline for YouTube and other video-centric pages; select this instead of slideshow for the primary player and preserve the source format (YouTube/Vimeo landscape, TikTok/Reels/Shorts vertical)",
+    builderContract: "Use one declarative <vibe-video> scene timeline. The trusted runtime owns time, audio and controls.",
     execution: "trusted-runtime",
     maxInstances: 1,
-    version: "1",
+    version: "3",
     noticeIds: [],
     compact: true,
     available: always,
@@ -345,7 +385,7 @@ export function resolveCapabilities(
     }
     return {
       id: descriptor.id,
-      builderContract: descriptor.builderContract,
+      builderContract: descriptor.id === "pseudo-video" ? pseudoVideoBuilderContract(settings) : descriptor.builderContract,
       execution: descriptor.execution,
       maxInstances: descriptor.maxInstances,
       version: descriptor.version,

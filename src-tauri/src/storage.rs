@@ -8,7 +8,8 @@ use thiserror::Error;
 
 use crate::protocol::{
     ArtifactRecord, GenerationActivityDetail, GenerationJobEventRecord, GenerationJobRecord,
-    GenerationStageRecord, ProviderConnectionRecord, SiteSessionRecord, SiteWorldRecord,
+    GenerationStageRecord, MediaConnectionRecord, ProviderConnectionRecord, SiteSessionRecord,
+    SiteWorldRecord,
 };
 
 const MAX_ARTIFACT_BYTES: usize = 4 * 1024 * 1024;
@@ -409,6 +410,7 @@ impl Storage {
             "page_summaries",
             "navigation_edges",
             "provider_connections",
+            "media_connections",
             "settings",
             "usage_records",
             "cached_assets",
@@ -660,6 +662,68 @@ impl Storage {
         Ok(self.connection_guard()?.execute(
             "UPDATE provider_connections SET status=?2, last_verified_at=?3 WHERE id=?1",
             params![id, status, last_verified_at],
+        )?)
+    }
+
+    pub fn upsert_media_connection(&self, connection: &MediaConnectionRecord) -> Result<(), StorageError> {
+        self.connection_guard()?.execute(
+            "INSERT INTO media_connections
+               (id, profile_id, provider, display_name, secret_ref, status, last_verified_at, voices)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(profile_id, id) DO UPDATE SET
+               provider=excluded.provider, display_name=excluded.display_name,
+               secret_ref=excluded.secret_ref, status=excluded.status,
+               last_verified_at=excluded.last_verified_at, voices=excluded.voices",
+            params![
+                connection.id,
+                connection.profile_id,
+                connection.provider,
+                connection.display_name,
+                connection.secret_ref,
+                connection.status,
+                connection.last_verified_at,
+                serde_json::to_string(&connection.voices)?,
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_media_connections(&self, profile_id: &str) -> Result<Vec<MediaConnectionRecord>, StorageError> {
+        let connection = self.connection_guard()?;
+        let mut statement = connection.prepare(
+            "SELECT id, profile_id, provider, display_name, secret_ref, status, last_verified_at, voices
+             FROM media_connections WHERE profile_id=?1 ORDER BY display_name",
+        )?;
+        let rows = statement.query_map([profile_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?,
+            ))
+        })?;
+        rows.map(|row| {
+            let row = row?;
+            Ok(MediaConnectionRecord {
+                id: row.0,
+                profile_id: row.1,
+                provider: row.2,
+                display_name: row.3,
+                secret_ref: row.4,
+                status: row.5,
+                last_verified_at: row.6,
+                voices: serde_json::from_str(&row.7)?,
+            })
+        }).collect()
+    }
+
+    pub fn media_connection(&self, profile_id: &str, id: &str) -> Result<Option<MediaConnectionRecord>, StorageError> {
+        Ok(self.list_media_connections(profile_id)?.into_iter().find(|connection| connection.id == id))
+    }
+
+    pub fn delete_media_connection(&self, profile_id: &str, id: &str) -> Result<usize, StorageError> {
+        Ok(self.connection_guard()?.execute(
+            "DELETE FROM media_connections WHERE profile_id=?1 AND id=?2",
+            params![profile_id, id],
         )?)
     }
 
@@ -942,6 +1006,19 @@ CREATE TABLE IF NOT EXISTS provider_connections (
 );
 CREATE INDEX IF NOT EXISTS providers_profile ON provider_connections(profile_id);
 
+CREATE TABLE IF NOT EXISTS media_connections (
+  id TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  display_name TEXT NOT NULL,
+  secret_ref TEXT NOT NULL,
+  status TEXT NOT NULL,
+  last_verified_at TEXT,
+  voices TEXT NOT NULL,
+  PRIMARY KEY(profile_id, id)
+);
+CREATE INDEX IF NOT EXISTS media_connections_profile ON media_connections(profile_id);
+
 CREATE TABLE IF NOT EXISTS settings (
   profile_id TEXT NOT NULL,
   key TEXT NOT NULL,
@@ -973,7 +1050,7 @@ CREATE TABLE IF NOT EXISTS cached_assets (
 mod tests {
     use serde_json::json;
 
-    use crate::protocol::SiteSessionRecord;
+    use crate::protocol::{MediaConnectionRecord, MediaVoiceRecord, SiteSessionRecord};
     use super::{ArtifactRecord, SiteWorldRecord, Storage};
 
     #[test]
@@ -1032,6 +1109,28 @@ mod tests {
                 .id,
             artifact.id
         );
+    }
+
+    #[test]
+    fn media_connections_are_profile_scoped_and_deleted_with_profile_data() {
+        let storage = Storage::open(std::path::Path::new(":memory:")).unwrap();
+        for profile_id in ["personal", "work"] {
+            storage.upsert_media_connection(&MediaConnectionRecord {
+                id: "elevenlabs".into(),
+                profile_id: profile_id.into(),
+                provider: "elevenlabs".into(),
+                display_name: "ElevenLabs media".into(),
+                secret_ref: format!("{profile_id}:elevenlabs"),
+                status: "valid".into(),
+                last_verified_at: Some("2026-08-22T00:00:00Z".into()),
+                voices: vec![MediaVoiceRecord { id: "voice-one".into(), name: "One".into(), category: Some("premade".into()) }],
+            }).unwrap();
+        }
+        assert_eq!(storage.list_media_connections("personal").unwrap().len(), 1);
+        assert_eq!(storage.list_media_connections("work").unwrap().len(), 1);
+        storage.delete_profile_data("personal").unwrap();
+        assert!(storage.list_media_connections("personal").unwrap().is_empty());
+        assert_eq!(storage.list_media_connections("work").unwrap().len(), 1);
     }
 
     #[test]

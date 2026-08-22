@@ -1012,7 +1012,7 @@
 }
 
 .generation-debug-matrix__table {
-  min-width: 760px;
+  min-width: 900px;
 }
 
 .generation-debug-matrix {
@@ -1026,7 +1026,7 @@
 
 .generation-debug-matrix__row {
   display: grid;
-  grid-template-columns: minmax(230px, 1.6fr) repeat(4, minmax(100px, .7fr));
+  grid-template-columns: minmax(230px, 1.6fr) repeat(5, minmax(100px, .7fr));
   align-items: center;
   min-height: 48px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);

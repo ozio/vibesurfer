@@ -78,6 +78,27 @@ pub struct ProviderConnectionRecord {
     pub payload: Value,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaVoiceRecord {
+    pub id: String,
+    pub name: String,
+    pub category: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaConnectionRecord {
+    pub id: String,
+    pub profile_id: String,
+    pub provider: String,
+    pub display_name: String,
+    pub secret_ref: String,
+    pub status: String,
+    pub last_verified_at: Option<String>,
+    pub voices: Vec<MediaVoiceRecord>,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeStatus {

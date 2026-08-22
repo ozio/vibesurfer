@@ -11,6 +11,7 @@ import {
 import {
   availableCapabilities,
   capabilityContractRecord,
+  hasVerifiedExternalMediaConnection,
   resolveCapabilities,
 } from "./capabilities/registry.js";
 import type { CapabilityId } from "./capabilities/types.js";
@@ -182,7 +183,7 @@ function stageInstruction(input: PromptInput): string {
         input.context.siteWorld && input.context.identityStrategy === "reuse"
           ? "The supplied SiteIdentity is frozen. Return only a page-specific direction and non-contradictory additions. Never return or revise identity, favicon, palette, typography, purpose, audience, locale, or era."
           : "Return a complete durable SiteIdentity plus the page direction. Give the origin a distinctive persistent favicon using one or two UTF characters, a legible foreground, a non-generic background color, and a circle, square, or rounded-square shape; it must remain usable at 16px and must not default every origin to the same blue tile. For an unknown hostname, invent an unusual, concrete entity and a visual language specific to its name; creative interpretation is required. For a recognizable hostname, preserve its canonical function and familiar interface.",
-        "Select fonts and capabilities only from the supplied versioned catalog. Select data-chart whenever the page presents statistics, markets, time series, or a data dashboard with tabular values. Select pseudo-video for the primary player on YouTube and other video-centric pages; slideshow remains a lightweight gallery. Select pattern-background only when the destination itself clearly calls for one restrained texture. Select dynamic-regions only for a genuinely live interface such as a chat, cart, wishlist, search, auction, changing feed, tracker, or status surface. Never add timers to an article, ordinary brochure, or static showcase merely because live regions are available. Choose iconSet by visual language from the supplied iconSets, or null when icons would not improve the design. Never return an unlisted prefix. Make palette roles explicit. Make composition and sections specific enough that Builder does not need to redesign the page. For original sites and inner pages, creativeRationale must explain why the chosen information flow avoids the routine logo/nav/content/sidebar shell. Recognizable canonical roots must retain their familiar geometry.",
+        "Select fonts and capabilities only from the supplied versioned catalog. Select data-chart whenever the page presents statistics, markets, time series, or a data dashboard with tabular values. Select pseudo-video for the primary player on YouTube and other video-centric pages; slideshow remains a lightweight gallery. When pseudo-video is selected, include videoIntent with kind, a concrete goal, pacing, narration and music; otherwise omit videoIntent. Select pattern-background only when the destination itself clearly calls for one restrained texture. Select dynamic-regions only for a genuinely live interface such as a chat, cart, wishlist, search, auction, changing feed, tracker, or status surface. Never add timers to an article, ordinary brochure, or static showcase merely because live regions are available. Choose iconSet by visual language from the supplied iconSets, or null when icons would not improve the design. Never return an unlisted prefix. Make palette roles explicit. Make composition and sections specific enough that Builder does not need to redesign the page. For original sites and inner pages, creativeRationale must explain why the chosen information flow avoids the routine logo/nav/content/sidebar shell. Recognizable canonical roots must retain their familiar geometry.",
       ].join(" ");
     case "page-builder":
       return `${BASE_PAGE_INSTRUCTION}\nImplement the approved brief exactly. Identity, favicon, role palette, fonts, locale, era, density, and composition are immutable. Do not return or redefine them. Produce only the internal page summary and one complete HTML document.`;
@@ -213,6 +214,11 @@ export function buildPrompt(input: PromptInput): PromptBundle {
   const system = worldInstruction
     ? `${IMMUTABLE_PROTOCOL_INSTRUCTION}\n\n${worldInstruction}`
     : IMMUTABLE_PROTOCOL_INSTRUCTION;
+  const verifiedExternalMedia = input.settings.capabilities.externalMediaEnabled
+    && hasVerifiedExternalMediaConnection(input.settings);
+  const narrationPreference = !input.settings.capabilities.audioSpeechEnabled
+    ? "disabled"
+    : input.settings.voice.engine === "cloud" && !verifiedExternalMedia ? "caption-only-no-verified-provider" : input.settings.voice.engine;
   const promptSections = [
     `<task_stage>${input.stage}</task_stage>`,
     `<requested_url>${input.url}</requested_url>`,
@@ -225,6 +231,9 @@ export function buildPrompt(input: PromptInput): PromptBundle {
       tailwind: input.settings.tailwindEnabled ? "utility-first-required" : "unavailable",
       generatedJavaScript: input.settings.allowGeneratedScripts ? "local-dom-only" : "disabled",
       dynamicRegions: input.settings.dynamicMode === "off" ? "disabled" : "host-mediated-when-useful",
+      narration: narrationPreference,
+      backgroundMusic: input.settings.voice.musicMode,
+      externalMedia: verifiedExternalMedia ? "enabled-with-verified-connection" : "disabled",
       meaningfulLinkContext: "data-vibe-context-required",
     }, null, 2)}\n</rendering_preferences>`,
     `<navigation_context>\n${JSON.stringify(compactContext(input.context), null, 2)}\n</navigation_context>`,

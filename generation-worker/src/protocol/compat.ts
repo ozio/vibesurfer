@@ -258,13 +258,22 @@ function normalizeImageMode(settings: Record<string, unknown>): "off" | "local" 
 
 function normalizeVoiceSettings(settings: Record<string, unknown>) {
   const voice = record(settings.voice);
+  const mediaConnectionId = string(voice.mediaConnectionId);
+  const legacyMusicEnabled = boolean(voice.musicEnabled);
   return {
     engine: voice.engine === "system" || voice.engine === "cloud" ? voice.engine : "local" as const,
     provider: voice.provider === "elevenlabs" || voice.provider === "deepgram" ? voice.provider : "openai" as const,
+    ...(mediaConnectionId ? { mediaConnectionId: mediaConnectionId.slice(0, 128) } : {}),
     model: (string(voice.model) ?? "kokoro-82m-q8").slice(0, 120),
     voice: (string(voice.voice) ?? "af_heart").slice(0, 120),
+    availableVoiceIds: Array.isArray(voice.availableVoiceIds)
+      ? voice.availableVoiceIds.flatMap((id) => typeof id === "string" && id.trim() ? [id.trim().slice(0, 120)] : []).slice(0, 100)
+      : [(string(voice.voice) ?? "af_heart").slice(0, 120)],
     speed: Math.min(1.5, Math.max(0.6, number(voice.speed) ?? 1)),
-    musicEnabled: boolean(voice.musicEnabled) ?? true,
+    musicMode: voice.musicMode === "off" || voice.musicMode === "generate-if-requested"
+      ? voice.musicMode
+      : legacyMusicEnabled === false ? "off" : "built-in" as const,
+    musicVolume: Math.min(1, Math.max(0, number(voice.musicVolume) ?? 0.22)),
   };
 }
 

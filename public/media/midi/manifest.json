@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "license": "CC0-1.0",
+  "author": "VibeSurfer",
+  "tracks": [
+    { "id": "ambient-glass", "file": "ambient-glass.mid", "tags": ["ambient", "calm", "glass"], "bpm": 72, "key": "C minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "documentary-pulse", "file": "documentary-pulse.mid", "tags": ["documentary", "neutral", "pulse"], "bpm": 96, "key": "A minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "warm-memory", "file": "warm-memory.mid", "tags": ["warm", "memory", "nostalgic"], "bpm": 82, "key": "D minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "investigative-low", "file": "investigative-low.mid", "tags": ["investigative", "low", "tension"], "bpm": 88, "key": "D minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "night-drive", "file": "night-drive.mid", "tags": ["night", "drive", "steady"], "bpm": 112, "key": "F minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "playful-pluck", "file": "playful-pluck.mid", "tags": ["playful", "light", "pluck"], "bpm": 124, "key": "G minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "minimal-piano", "file": "minimal-piano.mid", "tags": ["minimal", "piano", "melancholy"], "bpm": 68, "key": "C minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "soft-suspense", "file": "soft-suspense.mid", "tags": ["soft", "suspense", "dark"], "bpm": 78, "key": "E minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "resolution-rise", "file": "resolution-rise.mid", "tags": ["resolution", "hopeful", "rise"], "bpm": 92, "key": "G minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "retro-digital", "file": "retro-digital.mid", "tags": ["retro", "digital", "technology"], "bpm": 118, "key": "A minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "quiet-nature", "file": "quiet-nature.mid", "tags": ["quiet", "nature", "gentle"], "bpm": 64, "key": "D minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" },
+    { "id": "credits-drift", "file": "credits-drift.mid", "tags": ["credits", "drift", "ending"], "bpm": 76, "key": "B flat minor", "loopStart": 0, "loopEnd": 15.899, "license": "CC0-1.0" }
+  ]
+}

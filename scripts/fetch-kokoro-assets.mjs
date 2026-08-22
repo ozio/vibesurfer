@@ -45,7 +45,15 @@ for (const [relativePath, expectedHash] of assets) {
 
 const ortDestination = resolve(root, "public/ort");
 await mkdir(ortDestination, { recursive: true });
-for (const filename of ["ort-wasm-simd-threaded.wasm", "ort-wasm-simd-threaded.jsep.wasm"]) {
+// onnxruntime loads a small ESM bootstrap next to each WASM binary. Copy both
+// halves of the selected backends so the trusted worker stays completely
+// offline in development and in the packaged application.
+for (const filename of [
+  "ort-wasm-simd-threaded.mjs",
+  "ort-wasm-simd-threaded.wasm",
+  "ort-wasm-simd-threaded.jsep.mjs",
+  "ort-wasm-simd-threaded.jsep.wasm",
+]) {
   await copyFile(resolve(root, "node_modules/onnxruntime-web/dist", filename), resolve(ortDestination, filename));
 }
 

@@ -14,7 +14,16 @@ import {
   type ElementNode,
   type Node,
 } from "../html/tree.js";
-import { CAPABILITY_REGISTRY, resolveCapabilities } from "./registry.js";
+import {
+  CAPABILITY_REGISTRY,
+  VIDEO_ASPECT_RATIOS,
+  VIDEO_MOTIONS,
+  VIDEO_MUSIC_TRACKS,
+  VIDEO_SCENE_KINDS,
+  VIDEO_TRANSITIONS,
+  hasVerifiedExternalMediaConnection,
+  resolveCapabilities,
+} from "./registry.js";
 import { renderMermaidIsolated } from "./renderer-process.js";
 import type { ArtifactCapabilityUse, CapabilityId } from "./types.js";
 import type { BrowserTheme, GenerationSettings } from "../domain.js";
@@ -36,10 +45,12 @@ const STATIC_ELEMENT_CAPABILITIES: Readonly<Record<string, CapabilityId>> = {
   "vibe-qr": "qr-code",
   "vibe-avatar": "avatar",
   "vibe-map": "synthetic-map",
+  "vibe-video": "pseudo-video",
 };
 
 export interface CompileCapabilitiesInput {
   document: DocumentNode;
+  pageUrl?: string;
   settings: GenerationSettings;
   browserTheme: BrowserTheme;
   selectedCapabilities: readonly CapabilityId[];
@@ -264,7 +275,7 @@ function countRuntimeMarkers(document: DocumentNode, capability: CapabilityId): 
     case "micro-widgets": return all.filter((element) => getAttribute(element, "data-vibe-widget")).length;
     case "carousel": return all.filter((element) => getAttribute(element, "data-vibe-carousel") !== undefined).length;
     case "slideshow": return all.filter((element) => getAttribute(element, "data-vibe-slideshow") !== undefined).length;
-    case "pseudo-video": return all.filter((element) => getAttribute(element, "data-vibe-pseudo-video") !== undefined).length;
+    case "pseudo-video": return all.filter((element) => element.tagName === "vibe-video" || getAttribute(element, "data-vibe-pseudo-video") !== undefined).length;
     case "speech": return all.filter((element) => getAttribute(element, "data-vibe-speak") !== undefined).length;
     case "sound": return all.filter((element) => getAttribute(element, "data-vibe-sound") !== undefined).length;
     case "dynamic-regions": return all.filter((element) => getAttribute(element, "data-vibe-region") !== undefined).length;
@@ -339,10 +350,23 @@ function enforceCapabilityBudgets(document: DocumentNode, selected: ReadonlySet<
   return warnings;
 }
 
-const VIDEO_MUSIC_PRESETS = new Set([
-  "calm-documentary", "warm-memory", "melancholy", "investigative-tension",
-  "danger", "resolution", "silence",
-]);
+const VIDEO_SCENE_KIND_SET = new Set<string>(VIDEO_SCENE_KINDS);
+const VIDEO_TRANSITION_SET = new Set<string>(VIDEO_TRANSITIONS);
+const VIDEO_MOTION_SET = new Set<string>(VIDEO_MOTIONS);
+const VIDEO_MUSIC_TRACK_SET = new Set<string>([...VIDEO_MUSIC_TRACKS, "inherit", "silence"]);
+const VIDEO_CONTROL_ACTION_SET = new Set(["play", "pause", "toggle", "stop", "mute", "fullscreen"]);
+const VIDEO_TIME_ROLE_SET = new Set(["current", "duration"]);
+const UNSAFE_MEDIA_VALUE = /(?:https?:|data:|blob:|file:|javascript:)/i;
+const SAFE_MEDIA_IDENTIFIER = /^[A-Za-z0-9_-]{1,160}$/;
+const LEGACY_VIDEO_MUSIC: Readonly<Record<string, string>> = {
+  "calm-documentary": "documentary-pulse",
+  "warm-memory": "warm-memory",
+  melancholy: "minimal-piano",
+  "investigative-tension": "investigative-low",
+  danger: "soft-suspense",
+  resolution: "resolution-rise",
+  silence: "silence",
+};
 
 function isWithin(element: ElementNode, container: ElementNode): boolean {
   let candidate: Node | undefined = element;
@@ -358,45 +382,135 @@ function boundedInteger(value: string | undefined, minimum: number, maximum: num
   return Math.min(maximum, Math.max(minimum, Number.isFinite(parsed) ? parsed : fallback));
 }
 
-function sanitizePseudoVideo(document: DocumentNode, selected: ReadonlySet<CapabilityId>): ArtifactWarning[] {
+function inferredVideoAspectRatio(pageUrl?: string): string {
+  try {
+    const url = new URL(pageUrl ?? "https://video.invalid/");
+    const host = url.hostname.toLowerCase();
+    const path = url.pathname.toLowerCase();
+    if (host === "tiktok.com" || host.endsWith(".tiktok.com")
+        || (host === "youtube.com" || host.endsWith(".youtube.com") || host === "youtu.be") && path.startsWith("/shorts/")
+        || (host === "instagram.com" || host.endsWith(".instagram.com")) && (path.startsWith("/reel/") || path.startsWith("/reels/"))) return "9:16";
+  } catch { /* malformed source URLs already fail at the outer transform boundary */ }
+  return "16:9";
+}
+
+function sanitizePseudoVideo(document: DocumentNode, selected: ReadonlySet<CapabilityId>, settings: GenerationSettings, pageUrl?: string): ArtifactWarning[] {
   if (!selected.has("pseudo-video")) return [];
   const warnings: ArtifactWarning[] = [];
-  const videos = elements(document).filter((element) => getAttribute(element, "data-vibe-pseudo-video") !== undefined);
+  const videos = elements(document).filter((element) => element.tagName === "vibe-video" || getAttribute(element, "data-vibe-pseudo-video") !== undefined);
+  for (const extra of videos.slice(1)) replaceFailure(extra, "pseudo-video", compactText(nodeText(extra), 1_000));
   for (const video of videos.slice(0, 1)) {
-    const scenes = elements(document).filter((element) => getAttribute(element, "data-vibe-video-scene") !== undefined && isWithin(element, video));
+    if (video.tagName !== "vibe-video") {
+      video.nodeName = "vibe-video";
+      video.tagName = "vibe-video";
+      removeAttribute(video, "data-vibe-pseudo-video");
+      setAttribute(video, "data-vibe-legacy", "");
+    }
+    const videoIdCandidate = compactText(getAttribute(video, "id") ?? "", 160);
+    const videoId = SAFE_MEDIA_IDENTIFIER.test(videoIdCandidate) ? videoIdCandidate : "vibe-video-1";
+    setAttribute(video, "id", videoId);
+    const pacing = getAttribute(video, "data-pacing");
+    setAttribute(video, "data-pacing", pacing === "slow" || pacing === "fast" ? pacing : "balanced");
+    const requestedAspectRatio = getAttribute(video, "data-aspect-ratio") ?? getAttribute(video, "data-video-aspect-ratio");
+    setAttribute(video, "data-aspect-ratio", VIDEO_ASPECT_RATIOS.includes(requestedAspectRatio as typeof VIDEO_ASPECT_RATIOS[number])
+      ? requestedAspectRatio!
+      : inferredVideoAspectRatio(pageUrl));
+    removeAttribute(video, "data-video-aspect-ratio");
+    const musicIntent = compactText(getAttribute(video, "data-music-intent") ?? "", 160);
+    if (musicIntent && !UNSAFE_MEDIA_VALUE.test(musicIntent) && settings.capabilities.externalMediaEnabled
+        && hasVerifiedExternalMediaConnection(settings) && settings.voice.musicMode === "generate-if-requested") setAttribute(video, "data-music-intent", musicIntent);
+    else removeAttribute(video, "data-music-intent");
+
+    for (const control of elements(document).filter((element) => isWithin(element, video))) {
+      removeAttribute(control, "autoplay");
+      for (const attribute of [...control.attrs]) {
+        if (/(?:midi|audio-url|voice-url|music-url|music-src)/i.test(attribute.name)) removeAttribute(control, attribute.name);
+      }
+      const action = getAttribute(control, "data-vibe-video-action");
+      if (action !== undefined && !VIDEO_CONTROL_ACTION_SET.has(action)) removeAttribute(control, "data-vibe-video-action");
+      const timeRole = getAttribute(control, "data-vibe-video-time");
+      if (timeRole !== undefined && !VIDEO_TIME_ROLE_SET.has(timeRole)) removeAttribute(control, "data-vibe-video-time");
+    }
+
+    const scenes = elements(document).filter((element) => (getAttribute(element, "data-vibe-scene") !== undefined
+      || getAttribute(element, "data-vibe-video-scene") !== undefined) && isWithin(element, video));
+    for (const mediaElement of elements(document).filter((element) => ["audio", "video", "source", "track", "script"].includes(element.tagName) && isWithin(element, video))) {
+      removeNode(mediaElement);
+      warnings.push({ code: "pseudo-video-media-url-removed", message: "Pseudo-video media and behavior must use trusted declarative voice, music and control identifiers." });
+    }
     let total = 0;
     let removed = 0;
+    const sceneIds = new Set<string>();
     for (const [index, scene] of scenes.entries()) {
       if (index >= 12 || total >= 600_000) {
         removeNode(scene);
         removed += 1;
         continue;
       }
-      const duration = Math.min(boundedInteger(getAttribute(scene, "data-duration-ms"), 1_000, 120_000, 5_000), 600_000 - total);
+      setAttribute(scene, "data-vibe-scene", "");
+      removeAttribute(scene, "data-vibe-video-scene");
+      const sceneIdCandidate = compactText(getAttribute(scene, "id") ?? "", 160);
+      let sceneId = SAFE_MEDIA_IDENTIFIER.test(sceneIdCandidate) && !sceneIds.has(sceneIdCandidate)
+        ? sceneIdCandidate
+        : `${videoId}-scene-${index + 1}`;
+      for (let suffix = 2; sceneIds.has(sceneId); suffix += 1) sceneId = `${videoId}-scene-${index + 1}-${suffix}`;
+      setAttribute(scene, "id", sceneId);
+      sceneIds.add(sceneId);
+      const kindCandidate = getAttribute(scene, "data-kind") ?? (elements(document, "img").some((image) => isWithin(image, scene)) ? "image" : "text");
+      const kind = VIDEO_SCENE_KIND_SET.has(kindCandidate) ? kindCandidate : "text";
+      const transitionCandidate = getAttribute(scene, "data-transition") ?? "crossfade";
+      const motionCandidate = getAttribute(scene, "data-motion") ?? "still";
+      setAttribute(scene, "data-kind", kind);
+      setAttribute(scene, "data-transition", VIDEO_TRANSITION_SET.has(transitionCandidate) ? transitionCandidate : "crossfade");
+      setAttribute(scene, "data-motion", VIDEO_MOTION_SET.has(motionCandidate) ? motionCandidate : "still");
+      const durationFallback = kind === "title" ? 2_500 : kind === "credits" ? 6_000 : 4_000;
+      const hasDuration = getAttribute(scene, "data-duration-ms") !== undefined;
+      const duration = Math.min(boundedInteger(getAttribute(scene, "data-duration-ms"), 1_000, 120_000, durationFallback), 600_000 - total);
       if (duration < 1_000) {
         removeNode(scene);
         removed += 1;
         continue;
       }
-      setAttribute(scene, "data-duration-ms", String(duration));
+      if (hasDuration) setAttribute(scene, "data-duration-ms", String(duration));
       total += duration;
+
+      const narrations = elements(document).filter((element) => getAttribute(element, "data-vibe-narration") !== undefined && isWithin(element, scene));
+      for (const cue of narrations.slice(1)) removeNode(cue);
+      const narration = narrations[0];
+      if (narration && settings.capabilities.audioSpeechEnabled) {
+        const text = compactText(nodeText(narration), 800);
+        if (text) replaceChildren(narration, escapeHtml(text));
+        else removeNode(narration);
+        const voiceId = getAttribute(narration, "data-voice");
+        const allowedVoices = new Set(settings.voice.engine === "cloud" && settings.voice.availableVoiceIds.length
+          ? settings.voice.availableVoiceIds
+          : [settings.voice.voice]);
+        if (voiceId && !allowedVoices.has(voiceId)) removeAttribute(narration, "data-voice");
+        const lang = compactText(getAttribute(narration, "lang") ?? "", 24);
+        if (lang && /^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(lang)) setAttribute(narration, "lang", lang);
+        else removeAttribute(narration, "lang");
+        removeAttribute(narration, "data-at-ms");
+        removeAttribute(narration, "data-pause-after-ms");
+      } else if (narration) {
+        // Narration is also author-visible scene copy. Disabling synthesized
+        // speech must not erase that content from the compiled artifact; only
+        // remove the trusted-runtime marker and voice metadata.
+        removeAttribute(narration, "data-vibe-narration");
+        removeAttribute(narration, "data-voice");
+        removeAttribute(narration, "data-at-ms");
+        removeAttribute(narration, "data-pause-after-ms");
+      }
+
+      const legacyMusic = elements(document).find((element) => getAttribute(element, "data-vibe-music") !== undefined && isWithin(element, scene));
+      const legacyPreset = (legacyMusic ? getAttribute(legacyMusic, "data-preset") : undefined) ?? getAttribute(scene, "data-music-preset");
+      const requestedTrack = getAttribute(scene, "data-music-track") ?? (legacyPreset ? LEGACY_VIDEO_MUSIC[legacyPreset] : undefined) ?? (index === 0 ? "silence" : "inherit");
+      setAttribute(scene, "data-music-track", settings.voice.musicMode !== "off" && VIDEO_MUSIC_TRACK_SET.has(requestedTrack) ? requestedTrack : "silence");
+      if (legacyMusic) removeNode(legacyMusic);
+      removeAttribute(scene, "data-music-preset");
+      removeAttribute(scene, "data-music-intensity");
     }
     setAttribute(video, "data-vibe-duration-ms", String(total));
     if (removed > 0) warnings.push({ code: "pseudo-video-scenes-capped", message: "Pseudo-video was limited to 12 scenes and 10 minutes." });
-
-    for (const cue of elements(document).filter((element) => isWithin(element, video))) {
-      if (getAttribute(cue, "data-vibe-narration") !== undefined) {
-        setAttribute(cue, "data-at-ms", String(boundedInteger(getAttribute(cue, "data-at-ms"), 0, Math.max(0, total - 1), 0)));
-        setAttribute(cue, "data-pause-after-ms", String(boundedInteger(getAttribute(cue, "data-pause-after-ms"), 0, 30_000, 0)));
-      }
-      if (getAttribute(cue, "data-vibe-music") !== undefined) {
-        const preset = getAttribute(cue, "data-preset") ?? "silence";
-        setAttribute(cue, "data-preset", VIDEO_MUSIC_PRESETS.has(preset) ? preset : "silence");
-        const intensity = Math.min(1, Math.max(0, Number.parseFloat(getAttribute(cue, "data-intensity") ?? "0.45") || 0));
-        setAttribute(cue, "data-intensity", intensity.toFixed(2));
-        setAttribute(cue, "data-at-ms", String(boundedInteger(getAttribute(cue, "data-at-ms"), 0, Math.max(0, total - 1), 0)));
-      }
-    }
   }
   return warnings;
 }
@@ -440,7 +554,7 @@ export async function compileCapabilities(input: CompileCapabilitiesInput): Prom
   const warnings = [
     ...stripUnavailableMarkers(input.document, selected),
     ...enforceCapabilityBudgets(input.document, selected),
-    ...sanitizePseudoVideo(input.document, selected),
+    ...sanitizePseudoVideo(input.document, selected, input.settings, input.pageUrl),
   ];
   const counts = new Map<CapabilityId, number>();
   let remainingHeavy = MAX_HEAVY_INSTANCES;

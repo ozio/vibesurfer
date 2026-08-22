@@ -2,7 +2,7 @@
   "use strict";
 
   const PROTOCOL = "vibesurfer:artifact-bridge";
-  const VERSION = 3;
+  const VERSION = 4;
   const MAX_ARTIFACT_ID_LENGTH = 512;
   const MAX_NONCE_LENGTH = 128;
   const MAX_PAGE_URL_LENGTH = 4_096;
@@ -162,7 +162,8 @@
   let audioContext = null;
   const pseudoVideoStates = new WeakMap();
   let dynamicManifest = null;
-  let voiceSettings = { engine: "system", voice: "", speed: 1, musicEnabled: true };
+  let voiceSettings = { musicMode: "built-in" };
+  let mediaPermissions = { narrationEnabled: true, externalMediaEnabled: false };
   let sessionRevision = 0;
   const regionRevisions = new Map();
   const dynamicRequests = new Map();
@@ -538,227 +539,460 @@
     const minutes = Math.floor(seconds / 60);
     return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
   };
+  const VIDEO_KINDS = new Set(["title", "text", "image", "split", "quote", "stat", "credits"]);
+  const VIDEO_TRANSITIONS = new Set(["cut", "crossfade", "dip-black", "slide-left", "slide-up", "push", "wipe", "zoom", "blur"]);
+  const VIDEO_MOTIONS = new Set(["still", "ken-burns-in", "ken-burns-out", "pan-left", "pan-right", "drift", "stagger", "credits-roll"]);
+  const VIDEO_ASPECT_RATIOS = new Set(["16:9", "9:16", "4:3", "3:2", "1:1", "4:5", "21:9"]);
+  const VIDEO_TRACKS = new Set(["ambient-glass", "documentary-pulse", "warm-memory", "investigative-low", "night-drive", "playful-pluck", "minimal-piano", "soft-suspense", "resolution-rise", "retro-digital", "quiet-nature", "credits-drift", "inherit", "silence"]);
+  const LEGACY_VIDEO_MUSIC = { "calm-documentary": "documentary-pulse", "warm-memory": "warm-memory", melancholy: "minimal-piano", "investigative-tension": "investigative-low", danger: "soft-suspense", resolution: "resolution-rise", silence: "silence" };
+  const UNSAFE_MEDIA_VALUE = /(?:https?:|data:|blob:|file:|javascript:)/i;
+  const safeMediaIdentifier = (value, fallback) => /^[A-Za-z0-9_-]{1,160}$/.test(value || "") ? value : fallback;
 
-  const pseudoVideoScenes = (container) => Array.from(container.querySelectorAll("[data-vibe-video-scene]"))
-    .slice(0, 12)
-    .map((element) => ({
-      element,
-      duration: Math.max(1_000, Math.min(120_000, Number(element.getAttribute("data-duration-ms")) || 5_000)),
-    }));
+  const videoContainers = () => Array.from(document.querySelectorAll("vibe-video, [data-vibe-pseudo-video]"));
+  const pseudoVideoScenes = (container) => Array.from(container.querySelectorAll("[data-vibe-scene], [data-vibe-video-scene]"))
+    .filter((element) => element.closest("vibe-video, [data-vibe-pseudo-video]") === container)
+    .slice(0, 12);
 
-  const stopPseudoMusic = (state, fadeSeconds = 0.25) => {
-    if (!state.music) return;
-    const music = state.music;
-    state.music = null;
-    const now = music.context.currentTime;
+  const provisionalSceneDuration = (scene, pacing) => {
+    if (!scene) return pacing === "slow" ? 5_000 : pacing === "fast" ? 3_200 : 4_000;
+    const kind = scene.getAttribute("data-kind") || "text";
+    const base = kind === "title" ? 2_500 : kind === "credits" ? 6_000 : 4_000;
+    const multiplier = pacing === "slow" ? 1.25 : pacing === "fast" ? 0.8 : 1;
+    const desired = Number(scene.getAttribute("data-duration-ms"));
+    return Math.max(1_000, Math.min(120_000, Number.isFinite(desired) && desired > 0 ? desired : base * multiplier));
+  };
+
+  const syncVideoAspectRatio = (container) => {
+    const aspectRatio = VIDEO_ASPECT_RATIOS.has(container.getAttribute("data-aspect-ratio"))
+      ? container.getAttribute("data-aspect-ratio") : "16:9";
+    if (container.getAttribute("data-aspect-ratio") !== aspectRatio) container.setAttribute("data-aspect-ratio", aspectRatio);
+    const cssAspectRatio = aspectRatio.replace(":", " / ");
+    if (container.style.getPropertyValue("--vibe-video-aspect-ratio") !== cssAspectRatio
+        || container.style.getPropertyPriority("--vibe-video-aspect-ratio") !== "important") {
+      // Trusted inline !important wins over generated page CSS, so scene
+      // content can never resize the media viewport.
+      container.style.setProperty("--vibe-video-aspect-ratio", cssAspectRatio, "important");
+    }
+    return aspectRatio;
+  };
+
+  const createVideoPlan = (state) => {
+    const pacing = ["slow", "balanced", "fast"].includes(state.container.getAttribute("data-pacing"))
+      ? state.container.getAttribute("data-pacing") : "balanced";
+    const scenes = pseudoVideoScenes(state.container).map((element, index) => {
+      element.setAttribute("data-vibe-scene", "");
+      const kindValue = element.getAttribute("data-kind");
+      const transitionValue = element.getAttribute("data-transition");
+      const motionValue = element.getAttribute("data-motion");
+      const trackValue = element.getAttribute("data-music-track");
+      const narration = element.querySelector("[data-vibe-narration]");
+      const desired = Number(element.getAttribute("data-duration-ms"));
+      return {
+        id: element.id || `${state.videoId}-scene-${index + 1}`,
+        kind: VIDEO_KINDS.has(kindValue) ? kindValue : element.querySelector("img") ? "image" : "text",
+        transition: VIDEO_TRANSITIONS.has(transitionValue) ? transitionValue : "crossfade",
+        motion: VIDEO_MOTIONS.has(motionValue) ? motionValue : "still",
+        musicTrack: voiceSettings.musicMode !== "off" && VIDEO_TRACKS.has(trackValue) ? trackValue : index === 0 ? "silence" : "inherit",
+        ...(Number.isFinite(desired) && desired >= 1_000 ? { desiredDurationMs: Math.min(120_000, desired) } : {}),
+        ...(mediaPermissions.narrationEnabled && narration && compact(narration.textContent, 800) ? { narration: {
+          text: compact(narration.textContent, 800),
+          lang: compact(narration.getAttribute("lang") || document.documentElement.lang || "en", 40),
+          ...(compact(narration.getAttribute("data-voice"), 120) ? { voice: compact(narration.getAttribute("data-voice"), 120) } : {}),
+        } } : {}),
+      };
+    });
+    const requestedIntent = mediaPermissions.externalMediaEnabled && voiceSettings.musicMode === "generate-if-requested"
+      ? compact(state.container.getAttribute("data-music-intent"), 160) : "";
+    const intent = requestedIntent && !UNSAFE_MEDIA_VALUE.test(requestedIntent) ? requestedIntent : "";
+    const aspectRatio = syncVideoAspectRatio(state.container);
+    return { videoId: state.videoId, aspectRatio, pacing, loop: state.container.hasAttribute("loop") || state.container.hasAttribute("data-loop"), ...(intent ? { musicIntent: intent } : {}), scenes };
+  };
+
+  const sceneIndexAtVideoTime = (state, currentMs) => {
+    if (!state.timeline?.scenes?.length) return 0;
+    const index = state.timeline.scenes.findIndex((scene) => currentMs < scene.startMs + scene.durationMs);
+    return index >= 0 ? index : state.timeline.scenes.length - 1;
+  };
+
+  const transitionFrames = (name) => {
+    const frames = {
+      cut: [{ opacity: 1 }, { opacity: 1 }],
+      crossfade: [{ opacity: 0 }, { opacity: 1 }],
+      "dip-black": [{ opacity: 0, filter: "brightness(0)" }, { opacity: 1, filter: "brightness(1)" }],
+      "slide-left": [{ opacity: 0, transform: "translateX(9%)" }, { opacity: 1, transform: "translateX(0)" }],
+      "slide-up": [{ opacity: 0, transform: "translateY(9%)" }, { opacity: 1, transform: "translateY(0)" }],
+      push: [{ opacity: 0, transform: "translateX(16%) scale(.98)" }, { opacity: 1, transform: "translateX(0) scale(1)" }],
+      wipe: [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0 0 0)" }],
+      zoom: [{ opacity: 0, transform: "scale(1.12)" }, { opacity: 1, transform: "scale(1)" }],
+      blur: [{ opacity: 0, filter: "blur(18px)" }, { opacity: 1, filter: "blur(0)" }],
+    };
+    return frames[name] || frames.crossfade;
+  };
+
+  const motionFrames = (name) => {
+    const frames = {
+      "ken-burns-in": [{ transform: "scale(1)" }, { transform: "scale(1.09)" }],
+      "ken-burns-out": [{ transform: "scale(1.1)" }, { transform: "scale(1)" }],
+      "pan-left": [{ transform: "scale(1.07) translateX(2.5%)" }, { transform: "scale(1.07) translateX(-2.5%)" }],
+      "pan-right": [{ transform: "scale(1.07) translateX(-2.5%)" }, { transform: "scale(1.07) translateX(2.5%)" }],
+      drift: [{ transform: "scale(1.04) translate3d(-1%,1%,0)" }, { transform: "scale(1.08) translate3d(1%,-1%,0)" }],
+      "credits-roll": [{ transform: "translateY(16%)" }, { transform: "translateY(-16%)" }],
+    };
+    return frames[name] || null;
+  };
+
+  const cancelVideoAnimations = (state) => {
+    for (const animation of state.animations.splice(0)) {
+      try { animation.cancel(); } catch { /* unavailable */ }
+    }
+  };
+
+  const createVideoAnimation = (target, frames, timing) => {
+    // Element.animate() starts immediately. Calling pause() on that pending
+    // play task and then assigning currentTime on every media tick is racy in
+    // both Chromium and WebKit: once the effect finishes, it can become a new
+    // pending play at time zero. A manually constructed Animation starts idle;
+    // assigning currentTime gives it a stable hold time without ever playing.
+    if (typeof window.Animation === "function" && typeof window.KeyframeEffect === "function" && document.timeline) {
+      try {
+        return new window.Animation(new window.KeyframeEffect(target, frames, timing), document.timeline);
+      } catch { /* fall through for partial WAAPI implementations */ }
+    }
+    const animation = target.animate(frames, timing);
     try {
-      music.gain.gain.cancelScheduledValues(now);
-      music.gain.gain.setValueAtTime(Math.max(0.0001, music.gain.gain.value), now);
-      music.gain.gain.exponentialRampToValueAtTime(0.0001, now + fadeSeconds);
-      for (const oscillator of music.oscillators) oscillator.stop(now + fadeSeconds + 0.05);
-    } catch { /* The audio graph may already be stopped. */ }
+      animation.playbackRate = 0;
+      animation.pause();
+    } catch { /* currentTime below still provides the best available fallback */ }
+    return animation;
   };
 
-  const setPseudoMusic = (state, preset, intensity) => {
-    const allowed = {
-      "calm-documentary": [196, 246.94, 293.66],
-      "warm-memory": [220, 277.18, 329.63],
-      melancholy: [174.61, 220, 261.63],
-      "investigative-tension": [146.83, 174.61, 233.08],
-      danger: [110, 116.54, 164.81],
-      resolution: [261.63, 329.63, 392],
-    };
-    if (!voiceSettings.musicEnabled || !state.playing || preset === "silence" || !allowed[preset]) {
-      stopPseudoMusic(state);
-      state.musicPreset = "silence";
-      return;
-    }
-    if (state.musicPreset === preset && state.music) return;
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
-    if (!audioContext || audioContext.state === "closed") audioContext = new AudioContext();
-    const context = audioContext;
-    void context.resume();
-    const gain = context.createGain();
-    const now = context.currentTime;
-    const level = Math.max(0.012, Math.min(0.09, (Number(intensity) || 0.45) * 0.08));
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(level, now + 0.5);
-    gain.connect(context.destination);
-    const oscillators = allowed[preset].map((frequency, index) => {
-      const oscillator = context.createOscillator();
-      oscillator.type = preset === "danger" ? "sawtooth" : index === 0 ? "sine" : "triangle";
-      oscillator.frequency.setValueAtTime(frequency, now);
-      oscillator.detune.setValueAtTime((index - 1) * 3, now);
-      oscillator.connect(gain);
-      oscillator.start(now);
-      return oscillator;
-    });
-    stopPseudoMusic(state, 0.6);
-    state.music = { context, gain, oscillators, level };
-    state.musicPreset = preset;
+  const seekVideoAnimation = (animation, currentTime) => {
+    try {
+      // The media timeline is the only clock. Never call play()/pause() here:
+      // either operation can enqueue a new WAAPI playback task while scrubbing.
+      animation.currentTime = Math.max(0, currentTime);
+    } catch { /* a removed layer may invalidate its animation */ }
   };
 
-  const duckPseudoMusic = (state, ducked) => {
-    if (!state.music) return;
-    const { context, gain, level } = state.music;
-    const now = context.currentTime;
-    gain.gain.cancelScheduledValues(now);
-    gain.gain.setTargetAtTime(ducked ? Math.max(0.004, level * 0.22) : level, now, ducked ? 0.04 : 0.2);
-  };
-
-  const pausePseudoVideo = (state, preserveSpeech = false) => {
-    if (state.playing) state.currentMs = Math.min(state.totalMs, performance.now() - state.startedAt);
-    state.playing = false;
-    if (state.timer) window.clearInterval(state.timer);
-    state.timer = 0;
-    if (!preserveSpeech) {
-      if (state.activeSpeechRequest) send("speech-cancel", { requestId: state.activeSpeechRequest });
-      state.activeSpeechRequest = "";
-      try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch { /* unavailable */ }
-    }
-    stopPseudoMusic(state);
-  };
-
-  const narratePseudoCue = (state, cue) => {
-    const text = compact(cue.textContent, 4_000);
-    if (!text) return;
-    const lang = cue.getAttribute("lang") || document.documentElement.lang || "en";
-    const pauseAfter = Math.max(0, Math.min(30_000, Number(cue.getAttribute("data-pause-after-ms")) || 0));
-    const finish = () => {
-      duckPseudoMusic(state, false);
-      if (!pauseAfter || !state.playing) return;
-      pausePseudoVideo(state, true);
-      state.pauseTimer = window.setTimeout(() => playPseudoVideo(state), pauseAfter);
-    };
-    const russianFallback = /^ru(?:-|$)/i.test(lang) || /[А-Яа-яЁё]/.test(text);
-    if (!russianFallback && (voiceSettings.engine === "local" || voiceSettings.engine === "cloud")) {
-      const requestId = `speech-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-      state.activeSpeechRequest = requestId;
-      state.finishSpeech = finish;
-      duckPseudoMusic(state, true);
-      send("speech-request", { requestId, engine: voiceSettings.engine, text, lang, voice: voiceSettings.voice || "af_heart", speed: voiceSettings.speed || 1 });
-      return;
-    }
-    if (!window.speechSynthesis || !window.SpeechSynthesisUtterance) return;
-    window.speechSynthesis.cancel();
-    duckPseudoMusic(state, true);
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang;
-    utterance.rate = Math.max(0.6, Math.min(1.5, Number(state.container.getAttribute("data-vibe-speech-rate")) || voiceSettings.speed || 1));
-    const selectedVoice = window.speechSynthesis.getVoices().find((voice) => voice.name === voiceSettings.voice || voice.lang.toLowerCase().startsWith(lang.toLowerCase().split("-")[0]));
-    if (selectedVoice) utterance.voice = selectedVoice;
-    utterance.onerror = () => duckPseudoMusic(state, false);
-    utterance.onend = finish;
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const renderPseudoVideo = (state, previousMs = state.currentMs) => {
+  const activateVideoScene = (state, index, sceneTime, duration) => {
     const scenes = pseudoVideoScenes(state.container);
-    state.totalMs = Math.min(600_000, scenes.reduce((sum, scene) => sum + scene.duration, 0));
-    state.currentMs = Math.max(0, Math.min(state.totalMs, state.currentMs));
-    let cursor = 0;
-    let activeIndex = Math.max(0, scenes.length - 1);
-    for (const [index, scene] of scenes.entries()) {
-      if (state.currentMs < cursor + scene.duration) { activeIndex = index; break; }
-      cursor += scene.duration;
-    }
-    scenes.forEach((scene, index) => {
-      scene.element.toggleAttribute("hidden", index !== activeIndex);
-      scene.element.setAttribute("aria-hidden", index === activeIndex ? "false" : "true");
-      scene.element.style.setProperty("--vibe-video-progress", String(Math.max(0, Math.min(1, (state.currentMs - cursor) / scene.duration))));
+    const previous = state.sceneIndex;
+    state.sceneIndex = Math.max(0, Math.min(scenes.length - 1, index));
+    scenes.forEach((scene, candidate) => {
+      scene.toggleAttribute("hidden", candidate !== state.sceneIndex);
+      scene.setAttribute("aria-hidden", candidate === state.sceneIndex ? "false" : "true");
     });
-    const active = scenes[activeIndex]?.element;
+    const active = scenes[state.sceneIndex];
+    if (!active) return;
+    if (previous !== state.sceneIndex) {
+      state.container.dispatchEvent(new CustomEvent("scenechange", { detail: { activeSceneIndex: state.sceneIndex } }));
+    }
+    active.style.setProperty("--vibe-video-progress", String(Math.max(0, Math.min(1, sceneTime / Math.max(1, duration)))));
+    if (previous === state.sceneIndex && state.animations.length) {
+      for (const animation of state.animations) {
+        seekVideoAnimation(animation, sceneTime);
+      }
+      return;
+    }
+    cancelVideoAnimations(state);
+    if (reducedMotion() || typeof active.animate !== "function") return;
+    const transition = active.getAttribute("data-transition") || "crossfade";
+    const transitionAnimation = createVideoAnimation(active, transitionFrames(transition), { duration: Math.min(800, duration), easing: "cubic-bezier(.2,.8,.2,1)", fill: "both" });
+    seekVideoAnimation(transitionAnimation, Math.min(sceneTime, 800));
+    state.animations.push(transitionAnimation);
+    const motion = active.getAttribute("data-motion") || "still";
+    const layers = Array.from(active.querySelectorAll("[data-vibe-layer]"));
+    const targets = layers.length ? layers : [active.querySelector("img")].filter(Boolean);
+    const frames = motionFrames(motion);
+    if (frames) for (const [layerIndex, layer] of targets.entries()) {
+      const animation = createVideoAnimation(layer, frames, { duration, delay: motion === "stagger" ? layerIndex * 90 : 0, easing: "ease-in-out", fill: "both" });
+      seekVideoAnimation(animation, sceneTime);
+      state.animations.push(animation);
+    } else if (motion === "stagger") for (const [layerIndex, layer] of layers.entries()) {
+      const animation = createVideoAnimation(layer, [{ opacity: 0, transform: "translateY(12px)" }, { opacity: 1, transform: "translateY(0)" }], { duration: 480, delay: layerIndex * 90, fill: "both", easing: "cubic-bezier(.2,.8,.2,1)" });
+      seekVideoAnimation(animation, Math.min(sceneTime, 480 + layerIndex * 90));
+      state.animations.push(animation);
+    }
+  };
+
+  const setVideoCaption = (state, activeIndex, localMs) => {
     const caption = state.container.querySelector("[data-vibe-video-caption]");
-    if (caption) caption.textContent = compact(active?.getAttribute("data-caption") || active?.querySelector("figcaption, [data-caption]")?.textContent || "", 1_000);
+    if (!caption) return;
+    const scene = pseudoVideoScenes(state.container)[activeIndex];
+    const narration = compact(scene?.querySelector("[data-vibe-narration]")?.textContent, 800);
+    const fallback = compact(scene?.getAttribute("data-caption") || scene?.querySelector("figcaption, [data-caption]")?.textContent, 1_000);
+    const words = state.timeline?.scenes?.[activeIndex]?.captionWords;
+    if (!words?.length || !narration) {
+      if (caption.textContent !== (narration || fallback)) caption.textContent = narration || fallback;
+      return;
+    }
+    const activeWord = words.findIndex((word) => localMs >= word.startMs + 350 && localMs < word.endMs + 350);
+    if (caption.dataset.vibeCaptionScene === String(activeIndex) && caption.dataset.vibeCaptionWord === String(activeWord)) return;
+    caption.replaceChildren(...words.map((word, index) => {
+      const span = document.createElement("span");
+      span.textContent = `${word.text}${index < words.length - 1 ? " " : ""}`;
+      if (index === activeWord) span.setAttribute("data-vibe-caption-active", "");
+      return span;
+    }));
+    caption.dataset.vibeCaptionScene = String(activeIndex);
+    caption.dataset.vibeCaptionWord = String(activeWord);
+  };
+
+  const renderPseudoVideo = (state) => {
+    let currentMs = state.currentMs;
+    if (state.status === "playing") currentMs += Math.max(0, performance.now() - state.syncedAt);
+    const displayCurrentMs = Math.max(0, Math.min(state.totalMs || currentMs, currentMs));
+    state.displayCurrentMs = displayCurrentMs;
+    const activeIndex = state.timeline ? sceneIndexAtVideoTime(state, displayCurrentMs) : Math.max(0, state.sceneIndex);
+    const timing = state.timeline?.scenes?.[activeIndex];
+    const localMs = timing ? displayCurrentMs - timing.startMs : 0;
+    const duration = timing?.durationMs || provisionalSceneDuration(pseudoVideoScenes(state.container)[activeIndex], state.container.getAttribute("data-pacing"));
+    activateVideoScene(state, activeIndex, localMs, duration);
+    setVideoCaption(state, activeIndex, localMs);
+    state.container.dataset.vibeVideoState = state.status;
+    state.container.toggleAttribute("aria-busy", state.status === "preparing" || state.status === "waiting");
+
     const range = state.container.querySelector("[data-vibe-video-seek]");
     if (range) {
+      range.setAttribute("min", "0");
+      range.setAttribute("step", "100");
       range.max = String(Math.max(1, state.totalMs));
-      range.value = String(Math.round(state.currentMs));
-      range.setAttribute("aria-valuetext", `${formatMediaTime(state.currentMs)} of ${formatMediaTime(state.totalMs)}`);
+      range.value = String(Math.round(displayCurrentMs));
+      range.disabled = !state.timeline;
+      range.setAttribute("aria-valuemin", "0");
+      range.setAttribute("aria-valuemax", String(Math.max(1, state.totalMs)));
+      range.setAttribute("aria-valuenow", String(Math.round(displayCurrentMs)));
+      range.setAttribute("aria-valuetext", state.timeline ? `${formatMediaTime(displayCurrentMs)} of ${formatMediaTime(state.totalMs)}` : "Timeline is preparing");
+      if (!range.hasAttribute("aria-label")) range.setAttribute("aria-label", "Video timeline");
     }
-    const elapsed = state.container.querySelector("[data-vibe-video-elapsed]");
-    const total = state.container.querySelector("[data-vibe-video-total]");
-    if (elapsed) elapsed.textContent = formatMediaTime(state.currentMs);
-    if (total) total.textContent = formatMediaTime(state.totalMs);
-    const play = state.container.querySelector("[data-vibe-video-play]");
-    if (play) {
-      play.textContent = state.playing ? "Pause" : "Play";
-      play.setAttribute("aria-pressed", state.playing ? "true" : "false");
+    for (const elapsed of state.container.querySelectorAll('[data-vibe-video-time="current"], [data-vibe-video-elapsed]')) elapsed.textContent = formatMediaTime(displayCurrentMs);
+    for (const total of state.container.querySelectorAll('[data-vibe-video-time="duration"], [data-vibe-video-total]')) total.textContent = state.timeline ? formatMediaTime(state.totalMs) : "--:--";
+    for (const play of state.container.querySelectorAll('[data-vibe-video-action="toggle"], [data-vibe-video-play]')) {
+      const playing = state.status === "playing";
+      play.setAttribute("aria-pressed", playing ? "true" : "false");
+      if (!play.hasAttribute("data-keep-label")) play.textContent = playing ? (play.getAttribute("data-pause-label") || "Pause") : (play.getAttribute("data-play-label") || "Play");
     }
-
-    if (state.playing && activeIndex !== state.sceneIndex) {
-      state.sceneIndex = activeIndex;
-      const musicCue = active?.querySelector("[data-vibe-music]");
-      setPseudoMusic(state, musicCue?.getAttribute("data-preset") || active?.getAttribute("data-music-preset") || "silence", musicCue?.getAttribute("data-intensity") || active?.getAttribute("data-music-intensity"));
+    for (const mute of state.container.querySelectorAll('[data-vibe-video-action="mute"]')) mute.setAttribute("aria-pressed", state.muted ? "true" : "false");
+    for (const skip of state.container.querySelectorAll('[data-vibe-video-action="skip-music"]')) {
+      skip.hidden = !(state.status === "waiting" && state.progress?.label === "Preparing music");
     }
-    let sceneStart = 0;
-    for (const scene of scenes) {
-      for (const cue of scene.element.querySelectorAll("[data-vibe-narration]")) {
-        const cueAt = sceneStart + Math.max(0, Math.min(scene.duration - 1, Number(cue.getAttribute("data-at-ms")) || 0));
-        const key = `${scenes.indexOf(scene)}:${cueAt}:${compact(cue.textContent, 80)}`;
-        if (state.playing && previousMs <= cueAt && state.currentMs >= cueAt && !state.firedCues.has(key)) {
-          state.firedCues.add(key);
-          narratePseudoCue(state, cue);
-        }
-      }
-      sceneStart += scene.duration;
+    const volume = state.container.querySelector("[data-vibe-video-volume]");
+    if (volume) {
+      volume.setAttribute("min", "0");
+      volume.setAttribute("max", "1");
+      volume.setAttribute("step", "0.05");
+      volume.setAttribute("aria-valuemin", "0");
+      volume.setAttribute("aria-valuemax", "1");
+      volume.setAttribute("aria-valuenow", String(state.volume));
+      if (!volume.hasAttribute("aria-label")) volume.setAttribute("aria-label", "Video volume");
+      if (document.activeElement !== volume) volume.value = String(state.volume);
+    }
+    const status = state.container.querySelector("[data-vibe-video-status]");
+    if (status) {
+      const labels = { idle: "Ready to prepare", preparing: "Preparing video", ready: "Ready", playing: "Playing", paused: "Paused", waiting: "Buffering", ended: "Ended", error: "Playback error" };
+      status.textContent = state.progress ? `${state.progress.label} ${state.progress.completed}/${state.progress.total}` : state.message || labels[state.status] || "";
     }
   };
 
-  const playPseudoVideo = (state) => {
-    if (!state.totalMs) renderPseudoVideo(state);
-    if (state.currentMs >= state.totalMs) {
-      state.currentMs = 0;
-      state.firedCues.clear();
-    }
-    state.playing = true;
-    state.startedAt = performance.now() - state.currentMs;
-    renderPseudoVideo(state, Math.max(0, state.currentMs - 1));
-    if (state.timer) window.clearInterval(state.timer);
-    state.timer = window.setInterval(() => {
-      const previous = state.currentMs;
-      state.currentMs = Math.min(state.totalMs, performance.now() - state.startedAt);
-      renderPseudoVideo(state, previous);
-      if (state.currentMs >= state.totalMs) {
-        pausePseudoVideo(state);
-        renderPseudoVideo(state, state.currentMs);
+  const ensureVideoAnimationLoop = (state) => {
+    if (state.raf) return;
+    const schedule = typeof window.requestAnimationFrame === "function"
+      ? (callback) => window.requestAnimationFrame(callback)
+      : (callback) => window.setTimeout(() => callback(performance.now()), 16);
+    const update = () => {
+      state.raf = 0;
+      if (state.status !== "playing") return;
+      renderPseudoVideo(state);
+      state.raf = schedule(update);
+    };
+    state.raf = schedule(update);
+  };
+
+  const requestVideoPlay = (state, trustedGesture = false) => {
+    if (!state.timeline) {
+      if (state.status === "error") {
+        state.prepareRequestId = "";
+        state.pendingPlay = false;
+        state.playPromise = null;
+        state.resolvePlay = null;
+        state.rejectPlay = null;
+        state.message = "";
       }
-    }, 100);
+      if (!trustedGesture && !navigator.userActivation?.isActive) {
+        const error = new DOMException("Video preparation requires a user gesture.", "NotAllowedError");
+        return Promise.reject(error);
+      }
+      if (!state.prepareRequestId) {
+        state.prepareRequestId = `media-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+        state.pendingPlay = true;
+        state.status = "preparing";
+        state.container.dispatchEvent(new Event("loadstart"));
+        send("media-prepare", { requestId: state.prepareRequestId, plan: createVideoPlan(state) });
+        renderPseudoVideo(state);
+      } else state.pendingPlay = true;
+      return state.playPromise || (state.playPromise = new Promise((resolve, reject) => { state.resolvePlay = resolve; state.rejectPlay = reject; }));
+    }
+    if (state.status === "ended") send("media-command", { videoId: state.videoId, action: "seek", currentTimeMs: 0 });
+    send("media-command", { videoId: state.videoId, action: "play" });
+    return Promise.resolve();
+  };
+
+  const setVideoCurrentTime = (state, milliseconds) => {
+    const value = Math.max(0, Math.min(state.totalMs, Number(milliseconds) || 0));
+    state.currentMs = value;
+    state.syncedAt = performance.now();
+    renderPseudoVideo(state);
+    if (state.timeline) send("media-command", { videoId: state.videoId, action: "seek", currentTimeMs: value });
+  };
+
+  const attachVideoApi = (container, state) => {
+    if (container.dataset.vibeVideoApi === "true") return;
+    container.dataset.vibeVideoApi = "true";
+    const define = (name, descriptor) => { try { Object.defineProperty(container, name, Object.assign({ configurable: true }, descriptor)); } catch { /* host element may reserve a property */ } };
+    define("play", { value: () => requestVideoPlay(state) });
+    define("pause", { value: () => send("media-command", { videoId: state.videoId, action: "pause" }) });
+    define("stop", { value: () => send("media-command", { videoId: state.videoId, action: "stop" }) });
+    define("fastSeek", { value: (seconds) => setVideoCurrentTime(state, Number(seconds) * 1_000) });
+    define("currentTime", { get: () => (state.displayCurrentMs ?? state.currentMs) / 1_000, set: (seconds) => setVideoCurrentTime(state, Number(seconds) * 1_000) });
+    define("duration", { get: () => state.totalMs / 1_000 });
+    define("volume", { get: () => state.volume, set: (value) => send("media-command", { videoId: state.videoId, action: "set-volume", volume: Math.max(0, Math.min(1, Number(value) || 0)) }) });
+    define("muted", { get: () => state.muted, set: (value) => send("media-command", { videoId: state.videoId, action: "set-muted", muted: Boolean(value) }) });
+    define("paused", { get: () => state.status !== "playing" });
+    define("readyState", { get: () => state.timeline ? 4 : 0 });
+    define("activeSceneIndex", { get: () => state.sceneIndex });
   };
 
   const ensurePseudoVideo = (container) => {
+    if (container.hasAttribute("data-vibe-pseudo-video")) container.setAttribute("data-vibe-legacy", "");
+    let state = pseudoVideoStates.get(container);
+    const position = Math.max(0, videoContainers().indexOf(container));
+    const videoId = state?.videoId ?? safeMediaIdentifier(compact(container.id, 160), `video-${position + 1}`);
+    container.id = videoId;
+    syncVideoAspectRatio(container);
+    const scenes = pseudoVideoScenes(container);
+    const sceneIds = new Set();
+    if (!container.hasAttribute("tabindex")) container.tabIndex = 0;
+    if (!container.hasAttribute("role")) container.setAttribute("role", "region");
+    if (!container.hasAttribute("aria-label")) container.setAttribute("aria-label", "Video player");
+    scenes.forEach((scene, index) => {
+      scene.setAttribute("data-vibe-scene", "");
+      const candidateId = safeMediaIdentifier(compact(scene.id, 160), `${videoId}-scene-${index + 1}`);
+      let sceneId = sceneIds.has(candidateId) ? `${videoId}-scene-${index + 1}` : candidateId;
+      for (let suffix = 2; sceneIds.has(sceneId); suffix += 1) sceneId = `${videoId}-scene-${index + 1}-${suffix}`;
+      scene.id = sceneId;
+      sceneIds.add(scene.id);
+      if (!scene.hasAttribute("data-kind")) scene.setAttribute("data-kind", scene.querySelector("img") ? "image" : "text");
+      if (!scene.hasAttribute("data-transition")) scene.setAttribute("data-transition", "crossfade");
+      if (!scene.hasAttribute("data-motion")) scene.setAttribute("data-motion", "still");
+      const legacyMusic = scene.querySelector("[data-vibe-music]");
+      const legacyPreset = legacyMusic?.getAttribute("data-preset") || scene.getAttribute("data-music-preset");
+      if (!scene.hasAttribute("data-music-track")) scene.setAttribute("data-music-track", LEGACY_VIDEO_MUSIC[legacyPreset] || (index ? "inherit" : "silence"));
+      legacyMusic?.remove();
+      scene.removeAttribute("data-music-preset");
+      scene.removeAttribute("data-music-intensity");
+      const narrationCues = Array.from(scene.querySelectorAll("[data-vibe-narration]"));
+      if (narrationCues.length) {
+        narrationCues[0].textContent = compact(narrationCues.map((cue) => cue.textContent).join(" "), 800);
+        narrationCues[0].removeAttribute("data-at-ms");
+        narrationCues[0].removeAttribute("data-pause-after-ms");
+        for (const cue of narrationCues.slice(1)) cue.remove();
+      }
+    });
     let controls = container.querySelector(":scope > [data-vibe-video-controls]");
     if (!controls) {
       controls = document.createElement("div");
       controls.setAttribute("data-vibe-video-controls", "");
-      controls.innerHTML = '<button type="button" data-vibe-video-play aria-pressed="false">Play</button><button type="button" data-vibe-video-restart>Restart</button><label>Timeline <input type="range" min="0" value="0" step="100" data-vibe-video-seek></label><span><span data-vibe-video-elapsed>0:00</span> / <span data-vibe-video-total>0:00</span></span><button type="button" data-vibe-video-fullscreen>Fullscreen</button>';
       container.append(controls);
     }
+    if (!controls.querySelector('[data-vibe-video-action="play"], [data-vibe-video-action="toggle"], [data-vibe-video-play]')) controls.insertAdjacentHTML("beforeend", '<button type="button" data-vibe-video-action="toggle" data-vibe-video-play aria-pressed="false">Play</button>');
+    if (!controls.querySelector('[data-vibe-video-action="stop"], [data-vibe-video-restart]')) controls.insertAdjacentHTML("beforeend", '<button type="button" data-vibe-video-action="stop" data-vibe-video-restart>Stop</button>');
+    if (!controls.querySelector("[data-vibe-video-seek]")) controls.insertAdjacentHTML("beforeend", '<label>Timeline <input type="range" min="0" value="0" step="100" data-vibe-video-seek aria-label="Video timeline"></label>');
+    if (!controls.querySelector('[data-vibe-video-time="current"], [data-vibe-video-elapsed]')) controls.insertAdjacentHTML("beforeend", '<output data-vibe-video-time="current" data-vibe-video-elapsed>0:00</output>');
+    if (!controls.querySelector('[data-vibe-video-time="duration"], [data-vibe-video-total]')) controls.insertAdjacentHTML("beforeend", '<span aria-hidden="true"> / </span><output data-vibe-video-time="duration" data-vibe-video-total>--:--</output>');
+    if (!controls.querySelector('[data-vibe-video-action="mute"]')) controls.insertAdjacentHTML("beforeend", '<button type="button" data-vibe-video-action="mute" aria-pressed="false">Mute</button>');
+    if (!controls.querySelector("[data-vibe-video-volume]")) controls.insertAdjacentHTML("beforeend", '<label>Volume <input type="range" min="0" max="1" value="1" step="0.05" data-vibe-video-volume></label>');
+    if (!controls.querySelector('[data-vibe-video-action="fullscreen"], [data-vibe-video-fullscreen]')) controls.insertAdjacentHTML("beforeend", '<button type="button" data-vibe-video-action="fullscreen" data-vibe-video-fullscreen>Fullscreen</button>');
+    if (!controls.querySelector('[data-vibe-video-action="skip-music"]')) controls.insertAdjacentHTML("beforeend", '<button type="button" data-vibe-video-action="skip-music" hidden>Play without music</button>');
+    if (!controls.isConnected) {
+      container.append(controls);
+    }
+    for (const legacy of controls.querySelectorAll("[data-vibe-video-play]")) if (!legacy.hasAttribute("data-vibe-video-action")) legacy.setAttribute("data-vibe-video-action", "toggle");
+    for (const legacy of controls.querySelectorAll("[data-vibe-video-restart]")) if (!legacy.hasAttribute("data-vibe-video-action")) legacy.setAttribute("data-vibe-video-action", "stop");
+    for (const legacy of controls.querySelectorAll("[data-vibe-video-fullscreen]")) if (!legacy.hasAttribute("data-vibe-video-action")) legacy.setAttribute("data-vibe-video-action", "fullscreen");
     if (!container.querySelector(":scope > [data-vibe-video-caption]")) {
       const caption = document.createElement("p");
       caption.setAttribute("data-vibe-video-caption", "");
       caption.setAttribute("aria-live", "polite");
       container.append(caption);
     }
+    if (!container.querySelector(":scope > [data-vibe-video-status]")) {
+      const status = document.createElement("p");
+      status.setAttribute("data-vibe-video-status", "");
+      status.setAttribute("role", "status");
+      container.append(status);
+    }
     if (!container.querySelector(":scope > details[data-vibe-video-transcript]")) {
       const details = document.createElement("details");
       details.setAttribute("data-vibe-video-transcript", "");
-      const lines = Array.from(container.querySelectorAll("[data-vibe-narration]"), (cue) => `<p>${compact(cue.textContent, 4_000).replaceAll("&", "&amp;").replaceAll("<", "&lt;")}</p>`).join("");
-      details.innerHTML = `<summary>Transcript</summary>${lines || "<p>No narration.</p>"}`;
+      const summary = document.createElement("summary");
+      summary.textContent = "Transcript";
+      details.append(summary);
+      const narrations = Array.from(container.querySelectorAll("[data-vibe-narration]"));
+      if (narrations.length) for (const narration of narrations) {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = compact(narration.textContent, 800);
+        details.append(paragraph);
+      } else {
+        const paragraph = document.createElement("p");
+        paragraph.textContent = "No narration.";
+        details.append(paragraph);
+      }
       container.append(details);
     }
-    let state = pseudoVideoStates.get(container);
     if (!state) {
-      state = { container, currentMs: 0, totalMs: 0, playing: false, startedAt: 0, timer: 0, pauseTimer: 0, sceneIndex: -1, firedCues: new Set(), music: null, musicPreset: "silence", activeSpeechRequest: "", finishSpeech: null };
+      const aspectObserver = new MutationObserver(() => syncVideoAspectRatio(container));
+      aspectObserver.observe(container, { attributes: true, attributeFilter: ["data-aspect-ratio"] });
+      state = { container, videoId, timeline: null, currentMs: 0, displayCurrentMs: 0, totalMs: 0, status: "idle", syncedAt: performance.now(), sceneIndex: -1, volume: 1, muted: false, pendingPlay: false, prepareRequestId: "", progress: null, message: "", raf: 0, animations: [], aspectObserver, playPromise: null, resolvePlay: null, rejectPlay: null };
       pseudoVideoStates.set(container, state);
+      attachVideoApi(container, state);
       capabilityCleanups.push(() => {
-        pausePseudoVideo(state);
-        if (state.pauseTimer) window.clearTimeout(state.pauseTimer);
+        if (state.raf) {
+          if (typeof window.cancelAnimationFrame === "function") window.cancelAnimationFrame(state.raf);
+          else window.clearTimeout(state.raf);
+        }
+        state.aspectObserver.disconnect();
+        cancelVideoAnimations(state);
+        send("media-command", { videoId: state.videoId, action: "stop" });
       });
     }
     renderPseudoVideo(state);
     return state;
+  };
+
+  if (window.customElements && !window.customElements.get("vibe-video")) {
+    class VibeVideoElement extends HTMLElement {
+      play() { return requestVideoPlay(ensurePseudoVideo(this)); }
+      pause() { const state = ensurePseudoVideo(this); send("media-command", { videoId: state.videoId, action: "pause" }); }
+      stop() { const state = ensurePseudoVideo(this); send("media-command", { videoId: state.videoId, action: "stop" }); }
+      fastSeek(seconds) { setVideoCurrentTime(ensurePseudoVideo(this), Number(seconds) * 1_000); }
+      get currentTime() { const state = ensurePseudoVideo(this); return (state.displayCurrentMs ?? state.currentMs) / 1_000; }
+      set currentTime(seconds) { setVideoCurrentTime(ensurePseudoVideo(this), Number(seconds) * 1_000); }
+      get duration() { return ensurePseudoVideo(this).totalMs / 1_000; }
+      get volume() { return ensurePseudoVideo(this).volume; }
+      set volume(value) { const state = ensurePseudoVideo(this); send("media-command", { videoId: state.videoId, action: "set-volume", volume: Math.max(0, Math.min(1, Number(value) || 0)) }); }
+      get muted() { return ensurePseudoVideo(this).muted; }
+      set muted(value) { const state = ensurePseudoVideo(this); send("media-command", { videoId: state.videoId, action: "set-muted", muted: Boolean(value) }); }
+      get paused() { return ensurePseudoVideo(this).status !== "playing"; }
+      get readyState() { return ensurePseudoVideo(this).timeline ? 4 : 0; }
+      get activeSceneIndex() { return ensurePseudoVideo(this).sceneIndex; }
+    }
+    window.customElements.define("vibe-video", VibeVideoElement);
+  }
+
+  const toggleVideoFullscreen = (video) => {
+    if (document.fullscreenElement === video && document.exitFullscreen) return document.exitFullscreen();
+    if (video.requestFullscreen) return video.requestFullscreen();
+    return Promise.resolve();
   };
 
   const updateCountdown = (element) => {
@@ -797,7 +1031,7 @@
       if (!alreadyEnhanced && slideshow.hasAttribute("data-autoplay") && !reducedMotion()) setSlideshowPlaying(slideshow, true);
     }
 
-    for (const video of document.querySelectorAll("[data-vibe-pseudo-video]")) ensurePseudoVideo(video);
+    for (const video of videoContainers()) ensurePseudoVideo(video);
 
     for (const progress of document.querySelectorAll('[data-vibe-widget="progress"]')) {
       const value = Math.max(0, Number(progress.getAttribute("data-value")) || 0);
@@ -823,22 +1057,29 @@
   const handleCapabilityClick = (event) => {
     const target = event.target instanceof Element ? event.target.closest("button, [role=button]") : null;
     if (!target) return false;
-    const video = target.closest("[data-vibe-pseudo-video]");
-    if (video && (target.hasAttribute("data-vibe-video-play") || target.hasAttribute("data-vibe-video-restart") || target.hasAttribute("data-vibe-video-fullscreen"))) {
+    const video = target.closest("vibe-video, [data-vibe-pseudo-video]");
+    const videoAction = target.getAttribute("data-vibe-video-action")
+      || (target.hasAttribute("data-vibe-video-play") ? "toggle" : target.hasAttribute("data-vibe-video-restart") ? "stop" : target.hasAttribute("data-vibe-video-fullscreen") ? "fullscreen" : "");
+    if (video && ["play", "pause", "toggle", "stop", "mute", "fullscreen", "skip-music"].includes(videoAction)) {
       event.preventDefault();
       event.stopPropagation();
       const state = ensurePseudoVideo(video);
-      if (target.hasAttribute("data-vibe-video-play")) {
-        if (state.playing) pausePseudoVideo(state); else playPseudoVideo(state);
-        renderPseudoVideo(state);
-      } else if (target.hasAttribute("data-vibe-video-restart")) {
-        pausePseudoVideo(state);
-        state.currentMs = 0;
-        state.sceneIndex = -1;
-        state.firedCues.clear();
-        renderPseudoVideo(state);
-      } else if (video.requestFullscreen) {
-        void video.requestFullscreen().catch(() => undefined);
+      if (videoAction === "play" || (videoAction === "toggle" && state.status !== "playing")) {
+        void requestVideoPlay(state, event.isTrusted).catch((error) => {
+          state.message = error instanceof Error ? error.message : "Playback could not start.";
+          state.status = "error";
+          renderPseudoVideo(state);
+        });
+      } else if (videoAction === "pause" || videoAction === "toggle") {
+        send("media-command", { videoId: state.videoId, action: "pause" });
+      } else if (videoAction === "stop") {
+        send("media-command", { videoId: state.videoId, action: "stop" });
+      } else if (videoAction === "mute") {
+        send("media-command", { videoId: state.videoId, action: "set-muted", muted: !state.muted });
+      } else if (videoAction === "skip-music") {
+        send("media-command", { videoId: state.videoId, action: "skip-music" });
+      } else if (videoAction === "fullscreen") {
+        void toggleVideoFullscreen(video).catch(() => undefined);
       }
       return true;
     }
@@ -993,17 +1234,15 @@
   }, true);
 
   document.addEventListener("input", (event) => {
-    const target = event.target instanceof Element ? event.target.closest("[data-vibe-video-seek]") : null;
-    const video = target?.closest("[data-vibe-pseudo-video]");
+    const target = event.target instanceof Element ? event.target.closest("[data-vibe-video-seek], [data-vibe-video-volume]") : null;
+    const video = target?.closest("vibe-video, [data-vibe-pseudo-video]");
     if (!target || !video) return;
     const state = ensurePseudoVideo(video);
-    const wasPlaying = state.playing;
-    pausePseudoVideo(state);
-    state.currentMs = Math.max(0, Math.min(state.totalMs, Number(target.value) || 0));
-    state.sceneIndex = -1;
-    state.firedCues.clear();
-    renderPseudoVideo(state);
-    if (wasPlaying) playPseudoVideo(state);
+    if (target.hasAttribute("data-vibe-video-volume")) {
+      send("media-command", { videoId: state.videoId, action: "set-volume", volume: Math.max(0, Math.min(1, Number(target.value) || 0)) });
+    } else {
+      setVideoCurrentTime(state, Number(target.value) || 0);
+    }
   }, true);
 
   document.addEventListener("auxclick", (event) => {
@@ -1046,6 +1285,25 @@
         : event.key === "End" ? tabs[tabs.length - 1]
           : tabs[(current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
       if (next) activateTab(next);
+      return;
+    }
+    const video = event.target instanceof Element ? event.target.closest("vibe-video, [data-vibe-pseudo-video]") : null;
+    const typing = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement || event.target?.isContentEditable;
+    if (video && !typing && !event.metaKey && !event.ctrlKey && !event.altKey
+        && [" ", "k", "K", "ArrowLeft", "ArrowRight", "m", "M", "f", "F"].includes(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const state = ensurePseudoVideo(video);
+      if (event.key === " " || event.key.toLowerCase() === "k") {
+        if (state.status === "playing") send("media-command", { videoId: state.videoId, action: "pause" });
+        else void requestVideoPlay(state, event.isTrusted).catch(() => undefined);
+      } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        setVideoCurrentTime(state, (state.displayCurrentMs ?? state.currentMs) + (event.key === "ArrowRight" ? 5_000 : -5_000));
+      } else if (event.key.toLowerCase() === "m") {
+        send("media-command", { videoId: state.videoId, action: "set-muted", muted: !state.muted });
+      } else if (event.key.toLowerCase() === "f") {
+        void toggleVideoFullscreen(video).catch(() => undefined);
+      }
       return;
     }
     const dynamicForm = event.target instanceof Element ? event.target.closest("form[data-vibe-action]") : null;
@@ -1199,10 +1457,10 @@
         || !Number.isInteger(message.revision) || message.revision < 0
         || (message.renderMode !== "preview" && message.renderMode !== "final")
         || (message.voiceSettings !== undefined && (!message.voiceSettings || typeof message.voiceSettings !== "object"
-          || !["local", "system", "cloud"].includes(message.voiceSettings.engine)
-          || typeof message.voiceSettings.voice !== "string" || message.voiceSettings.voice.length > 120
-          || typeof message.voiceSettings.speed !== "number" || message.voiceSettings.speed < 0.6 || message.voiceSettings.speed > 1.5
-          || typeof message.voiceSettings.musicEnabled !== "boolean"))
+          || !["off", "built-in", "generate-if-requested"].includes(message.voiceSettings.musicMode)))
+        || (message.mediaPermissions !== undefined && (!message.mediaPermissions || typeof message.mediaPermissions !== "object"
+          || typeof message.mediaPermissions.narrationEnabled !== "boolean"
+          || typeof message.mediaPermissions.externalMediaEnabled !== "boolean"))
         || (message.executeScripts !== undefined && typeof message.executeScripts !== "boolean")
         || estimateBytes(message) > MAX_RENDER_MESSAGE_BYTES) {
       reportError("The artifact render payload was rejected.");
@@ -1258,6 +1516,7 @@
     pageUrl = nextPageUrl.href;
     if (message.renderMode === "final") {
       if (message.voiceSettings) voiceSettings = { ...message.voiceSettings };
+      if (message.mediaPermissions) mediaPermissions = { ...message.mediaPermissions };
       dynamicManifest = nextDynamicManifest;
       sessionRevision = 0;
       regionRevisions.clear();
@@ -1286,14 +1545,66 @@
       void renderArtifact(message);
       return;
     }
-    if (rendered && message.type === "speech-state" && typeof message.requestId === "string") {
-      for (const container of document.querySelectorAll("[data-vibe-pseudo-video]")) {
-        const state = pseudoVideoStates.get(container);
-        if (!state || state.activeSpeechRequest !== message.requestId) continue;
-        state.activeSpeechRequest = "";
-        if (message.status === "completed") state.finishSpeech?.();
-        else duckPseudoMusic(state, false);
-        state.finishSpeech = null;
+    if (rendered && message.type === "media-timeline" && typeof message.requestId === "string"
+        && message.timeline && typeof message.timeline === "object" && Array.isArray(message.timeline.scenes)) {
+      const state = videoContainers().map((container) => pseudoVideoStates.get(container))
+        .find((candidate) => candidate?.prepareRequestId === message.requestId && candidate.videoId === message.timeline.videoId);
+      if (!state || !Number.isFinite(message.timeline.durationMs) || message.timeline.durationMs < 1_000 || message.timeline.durationMs > 3_600_000
+          || message.timeline.scenes.length !== pseudoVideoScenes(state.container).length) return;
+      state.timeline = message.timeline;
+      state.totalMs = message.timeline.durationMs;
+      state.status = "ready";
+      state.progress = null;
+      state.currentMs = 0;
+      state.displayCurrentMs = 0;
+      state.syncedAt = performance.now();
+      state.container.dispatchEvent(new Event("durationchange"));
+      state.container.dispatchEvent(new Event("ready"));
+      renderPseudoVideo(state);
+      if (state.pendingPlay) {
+        state.pendingPlay = false;
+        send("media-command", { videoId: state.videoId, action: "play" });
+      }
+      return;
+    }
+    if (rendered && message.type === "media-state" && message.state && typeof message.state === "object") {
+      const next = message.state;
+      const state = videoContainers().map((container) => pseudoVideoStates.get(container)).find((candidate) => candidate?.videoId === next.videoId);
+      if (!state || !["idle", "preparing", "ready", "playing", "paused", "waiting", "ended", "error"].includes(next.status)
+          || !Number.isFinite(next.currentTimeMs) || !Number.isFinite(next.durationMs)
+          || typeof next.muted !== "boolean" || !Number.isFinite(next.volume)) return;
+      const previousStatus = state.status;
+      const previousMuted = state.muted;
+      const previousVolume = state.volume;
+      state.status = next.status;
+      state.currentMs = Math.max(0, Math.min(next.durationMs || next.currentTimeMs, next.currentTimeMs));
+      state.displayCurrentMs = state.currentMs;
+      state.totalMs = Math.max(0, next.durationMs);
+      state.syncedAt = performance.now();
+      state.muted = next.muted;
+      state.volume = Math.max(0, Math.min(1, next.volume));
+      state.progress = next.progress || null;
+      state.message = compact(next.message, 1_024);
+      renderPseudoVideo(state);
+      state.container.dispatchEvent(new Event("timeupdate"));
+      if (previousMuted !== state.muted || previousVolume !== state.volume) state.container.dispatchEvent(new Event("volumechange"));
+      if (previousStatus !== next.status) {
+        if (next.status === "playing") state.container.dispatchEvent(new Event("play"));
+        else if (next.status === "paused") state.container.dispatchEvent(new Event("pause"));
+        else if (["waiting", "ended", "error"].includes(next.status)) state.container.dispatchEvent(new Event(next.status));
+        if (next.status === "playing") {
+          state.resolvePlay?.();
+          state.resolvePlay = null;
+          state.rejectPlay = null;
+          state.playPromise = null;
+          ensureVideoAnimationLoop(state);
+        } else if (next.status === "error") {
+          const error = new Error(state.message || "Video playback failed.");
+          state.rejectPlay?.(error);
+          state.resolvePlay = null;
+          state.rejectPlay = null;
+          state.playPromise = null;
+        }
       }
       return;
     }

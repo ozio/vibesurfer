@@ -444,6 +444,7 @@ export async function transformPreviewHtml(input: TransformPreviewHtmlInput): Pr
   compileIconify(document, input.selectedIconSet ?? null);
   await compileCapabilities({
     document,
+    pageUrl: pageUrl.href,
     settings: input.settings,
     browserTheme: input.browserTheme ?? "native",
     selectedCapabilities: input.selectedCapabilities
@@ -469,6 +470,7 @@ export async function transformHtml(input: TransformHtmlInput): Promise<Transfor
   const iconify = compileIconify(document, input.selectedIconSet ?? null);
   const capabilities = await compileCapabilities({
     document,
+    pageUrl: pageUrl.href,
     settings: input.settings,
     browserTheme: input.browserTheme ?? "native",
     selectedCapabilities: input.selectedCapabilities

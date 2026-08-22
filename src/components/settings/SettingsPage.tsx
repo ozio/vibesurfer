@@ -40,6 +40,13 @@ import {
 } from "../../generation/host-api";
 import { GENERATION_CAPABILITY_OPTIONS } from "../../generation/capability-settings";
 import { isTauri, openExternal } from "../../lib/platform";
+import {
+  listMediaConnections,
+  removeMediaConnection,
+  saveMediaConnection,
+  verifyMediaConnection,
+  type MediaConnection,
+} from "../../media/media-host-api";
 import { useBrowserStore } from "../../store/browser-store";
 import type { Density, DynamicMode, ProviderConnection, ProviderKind, TabLayout, ThemeId } from "../../types/browser";
 
@@ -171,6 +178,78 @@ function GenerationSettings() {
   const patchPrivacySettings = useBrowserStore((state) => state.patchPrivacySettings);
   const openCapabilities = useBrowserStore((state) => state.openCapabilities);
   const openGenerationDebug = useBrowserStore((state) => state.openGenerationDebug);
+  const activeProfileId = useBrowserStore((state) => state.activeProfileId);
+  const [mediaConnections, setMediaConnections] = useState<MediaConnection[]>([]);
+  const [mediaName, setMediaName] = useState("ElevenLabs media");
+  const [mediaKey, setMediaKey] = useState("");
+  const [mediaBusy, setMediaBusy] = useState("");
+  const [mediaMessage, setMediaMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    void listMediaConnections(activeProfileId)
+      .then((connections) => {
+        if (cancelled) return;
+        setMediaConnections(connections);
+        if (settings.voice.mediaConnectionId
+            && !connections.some((connection) => connection.id === settings.voice.mediaConnectionId && connection.status === "valid")) {
+          patchVoiceSettings({ mediaConnectionId: undefined, voice: "", availableVoiceIds: [] });
+        }
+      })
+      .catch((error) => { if (!cancelled) setMediaMessage(errorMessage(error)); });
+    return () => { cancelled = true; };
+  }, [activeProfileId, patchVoiceSettings, settings.voice.mediaConnectionId]);
+
+  const connectMedia = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!mediaKey.trim() || mediaBusy) return;
+    const id = `elevenlabs-media-${crypto.randomUUID()}`;
+    setMediaBusy("new");
+    setMediaMessage("Checking the key and loading voices…");
+    try {
+      const connection = await saveMediaConnection({ id, profileId: activeProfileId, displayName: mediaName.trim() || "ElevenLabs media", apiKey: mediaKey });
+      setMediaConnections((current) => [...current.filter((candidate) => candidate.id !== connection.id), connection]);
+      setMediaKey("");
+      patchVoiceSettings({ engine: "cloud", provider: "elevenlabs", mediaConnectionId: connection.id, model: "eleven_multilingual_v2", voice: connection.voices[0]?.id ?? "", availableVoiceIds: connection.voices.map((voice) => voice.id) });
+      setMediaMessage(`${connection.displayName} is verified; ${connection.voices.length} voices are available.`);
+    } catch (error) {
+      setMediaMessage(errorMessage(error));
+    } finally {
+      setMediaBusy("");
+    }
+  };
+
+  const verifyMedia = async (connection: MediaConnection) => {
+    setMediaBusy(connection.id);
+    try {
+      const verified = await verifyMediaConnection(activeProfileId, connection.id);
+      setMediaConnections((current) => current.map((candidate) => candidate.id === verified.id ? verified : candidate));
+      if (settings.voice.mediaConnectionId === verified.id) patchVoiceSettings({ availableVoiceIds: verified.voices.map((voice) => voice.id) });
+      setMediaMessage(`${verified.displayName} is valid; ${verified.voices.length} voices refreshed.`);
+    } catch (error) {
+      setMediaConnections((current) => current.map((candidate) => candidate.id === connection.id ? { ...candidate, status: "invalid" } : candidate));
+      if (settings.voice.mediaConnectionId === connection.id) patchVoiceSettings({ mediaConnectionId: undefined, voice: "", availableVoiceIds: [] });
+      setMediaMessage(errorMessage(error));
+    } finally {
+      setMediaBusy("");
+    }
+  };
+
+  const deleteMedia = async (connection: MediaConnection) => {
+    setMediaBusy(connection.id);
+    try {
+      await removeMediaConnection(activeProfileId, connection.id);
+      setMediaConnections((current) => current.filter((candidate) => candidate.id !== connection.id));
+      if (settings.voice.mediaConnectionId === connection.id) patchVoiceSettings({ mediaConnectionId: undefined, voice: "", availableVoiceIds: [] });
+      setMediaMessage(`${connection.displayName} and its Keychain credential were removed.`);
+    } catch (error) {
+      setMediaMessage(errorMessage(error));
+    } finally {
+      setMediaBusy("");
+    }
+  };
+
+  const selectedMedia = mediaConnections.find((connection) => connection.id === settings.voice.mediaConnectionId);
 
   return (
     <>
@@ -314,21 +393,51 @@ function GenerationSettings() {
       </section>
       <section className="settings-group voice-audio-settings">
         <h2>Voice &amp; Audio</h2>
+        <GenerationToggle title="Narration" description="Allow pseudo-video scenes to turn their visible narration text into seekable speech, captions, and transcript." checked={settings.capabilities.audioSpeechEnabled} onCheckedChange={(audioSpeechEnabled) => patchCapabilitySettings({ audioSpeechEnabled })} />
         <label className="settings-field">
           <span><strong>Speech engine</strong><small>Russian automatically uses the macOS system voice because Kokoro has no Russian voice.</small></span>
-          <select value={settings.voice.engine} onChange={(event) => patchVoiceSettings({ engine: event.target.value as "local" | "system" | "cloud" })}>
+          <select value={settings.voice.engine} onChange={(event) => {
+            const engine = event.target.value as "local" | "system" | "cloud";
+            if (engine === "local") patchVoiceSettings({ engine, model: "kokoro-82m-q8", voice: "af_heart" });
+            else if (engine === "system") patchVoiceSettings({ engine, model: "macos-system", voice: "default" });
+            else {
+              const connection = mediaConnections.find((candidate) => candidate.id === settings.voice.mediaConnectionId && candidate.status === "valid");
+              patchVoiceSettings({ engine, provider: "elevenlabs", voice: connection?.voices[0]?.id ?? "", availableVoiceIds: connection?.voices.map((voice) => voice.id) ?? [] });
+            }
+          }}>
             <option value="local">Local Kokoro</option><option value="system">macOS system</option><option value="cloud">Cloud provider</option>
           </select>
         </label>
         {settings.voice.engine === "cloud" && <>
-          <label className="settings-field"><span><strong>Provider</strong><small>Credentials stay in Keychain and are never exposed to the page.</small></span><select value={settings.voice.provider} onChange={(event) => patchVoiceSettings({ provider: event.target.value as "openai" | "elevenlabs" | "deepgram" })}><option value="openai">OpenAI</option><option value="elevenlabs">ElevenLabs</option><option value="deepgram">Deepgram</option></select></label>
+          <label className="settings-field"><span><strong>Provider</strong><small>ElevenLabs media uses a separate profile-scoped Keychain connection.</small></span><select value={settings.voice.provider} onChange={(event) => patchVoiceSettings({ provider: event.target.value as "openai" | "elevenlabs" | "deepgram" })}><option value="elevenlabs">ElevenLabs</option><option value="openai" disabled>OpenAI (not available for video)</option><option value="deepgram" disabled>Deepgram (not available for video)</option></select></label>
+          <label className="settings-field"><span><strong>Media connection</strong><small>Only verified connections are offered to the Builder.</small></span><select value={settings.voice.mediaConnectionId ?? ""} onChange={(event) => {
+            const connection = mediaConnections.find((candidate) => candidate.id === event.target.value);
+            patchVoiceSettings({ mediaConnectionId: connection?.id, provider: "elevenlabs", voice: connection?.voices[0]?.id ?? "", availableVoiceIds: connection?.voices.map((voice) => voice.id) ?? [] });
+          }}><option value="">No external media</option>{mediaConnections.map((connection) => <option key={connection.id} value={connection.id} disabled={connection.status !== "valid"}>{connection.displayName} · {connection.status}</option>)}</select></label>
           <label className="settings-field"><span><strong>Model</strong><small>Provider model identifier.</small></span><input value={settings.voice.model} onChange={(event) => patchVoiceSettings({ model: event.target.value.slice(0, 120) })} /></label>
         </>}
-        <label className="settings-field"><span><strong>Voice</strong><small>Local asset, system voice name, or provider voice ID.</small></span><input value={settings.voice.voice} onChange={(event) => patchVoiceSettings({ voice: event.target.value.slice(0, 120) })} /></label>
+        {settings.voice.engine === "cloud" && selectedMedia ? <label className="settings-field"><span><strong>Voice</strong><small>Verified ElevenLabs voice ID.</small></span><select value={settings.voice.voice} onChange={(event) => patchVoiceSettings({ voice: event.target.value })}>{selectedMedia.voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name}{voice.category ? ` · ${voice.category}` : ""}</option>)}</select></label>
+          : <label className="settings-field"><span><strong>Voice</strong><small>Local asset or macOS system voice name.</small></span><input value={settings.voice.voice} onChange={(event) => patchVoiceSettings({ voice: event.target.value.slice(0, 120) })} /></label>}
         <label className="settings-field"><span><strong>Speed</strong><small>{settings.voice.speed.toFixed(2)}×</small></span><input type="range" min="0.6" max="1.5" step="0.05" value={settings.voice.speed} onChange={(event) => patchVoiceSettings({ speed: Number(event.target.value) })} /></label>
-        <GenerationToggle title="Procedural music" description="Allow the trusted player to synthesize the Director's bounded mood presets. Music starts only after Play and ducks under narration." checked={settings.voice.musicEnabled} onCheckedChange={(musicEnabled) => patchVoiceSettings({ musicEnabled })} />
+        <label className="settings-field">
+          <span><strong>Background music</strong><small>Built-in MIDI stays offline. External generation is requested only when both this setting and External media permit it.</small></span>
+          <select value={settings.voice.musicMode} onChange={(event) => patchVoiceSettings({ musicMode: event.target.value as "off" | "built-in" | "generate-if-requested" })}>
+            <option value="off">Off</option><option value="built-in">Built-in MIDI</option><option value="generate-if-requested">Generate if requested</option>
+          </select>
+        </label>
+        <label className="settings-field"><span><strong>Music volume</strong><small>{Math.round(settings.voice.musicVolume * 100)}%, automatically ducked under narration.</small></span><input type="range" min="0" max="1" step="0.01" value={settings.voice.musicVolume} onChange={(event) => patchVoiceSettings({ musicVolume: Number(event.target.value) })} /></label>
         <button className="button voice-test-button" type="button" onClick={() => testSystemVoice(settings.voice.speed)}><Play aria-hidden="true" /> Test Voice</button>
-        <p className="settings-inline-note" role="note">Cloud speech is requested only from an explicit player action. Pause, seek and tab close cancel the active cue scheduler.</p>
+        <p className="settings-inline-note" role="note">Narration is rendered on first Play. The page receives only timeline state; keys and audio bytes never enter the sandbox bridge.</p>
+        <details className="settings-details">
+          <summary>ElevenLabs media connections</summary>
+          <div className="provider-list">
+            {mediaConnections.map((connection) => <article key={connection.id} className="provider-row"><span className={`provider-row__status provider-row__status--${connection.status}`} /><span><strong>{connection.displayName}</strong><small>{connection.voices.length} voices · profile scoped</small></span><button className="button" type="button" disabled={Boolean(mediaBusy)} onClick={() => void verifyMedia(connection)}><RefreshCw aria-hidden="true" /> Verify</button><button className="icon-danger" type="button" aria-label={`Remove ${connection.displayName}`} disabled={Boolean(mediaBusy)} onClick={() => void deleteMedia(connection)}><Trash2 aria-hidden="true" /></button></article>)}
+          </div>
+          <form className="provider-form" onSubmit={(event) => void connectMedia(event)}>
+            <div className="provider-form__grid"><label><span>Connection name</span><input value={mediaName} maxLength={120} onChange={(event) => setMediaName(event.target.value)} /></label><label><span>ElevenLabs API key</span><input type="password" value={mediaKey} autoComplete="off" onChange={(event) => setMediaKey(event.target.value)} /></label></div>
+            <div className="provider-form__footer"><small>{mediaMessage || (isTauri() ? "The key is verified by Rust, then stored in Keychain." : "Connections are available in the packaged desktop app.")}</small><button className="button button--primary" type="submit" disabled={!isTauri() || !mediaKey.trim() || Boolean(mediaBusy)}><KeyRound aria-hidden="true" /> Verify &amp; save</button></div>
+          </form>
+        </details>
       </section>
       <section className="settings-group">
         <h2>Continuity</h2>
@@ -727,7 +836,7 @@ function ProfileSettings() {
       <section className="settings-group">
         <h2>Danger zone</h2>
         <div className="setting-row"><span><strong>Start profile from scratch</strong><small>Closes all tabs and archives every active SiteWorld. History and static artifacts are preserved.</small></span><button className="button icon-danger" type="button" onClick={() => { if (window.confirm("Archive active sites and close every tab in this profile?")) void archivePersistedProfileSiteWorlds(profile.id).then(startProfileFromScratch).catch((error) => window.alert(errorMessage(error))); }}>Start from scratch</button></div>
-        <div className="setting-row"><span><strong>Delete profile</strong><small>Removes its workspace, sites, artifacts, jobs, and provider connections. The last profile cannot be deleted.</small></span><button className="button icon-danger" type="button" disabled={profiles.length <= 1} onClick={() => { if (window.confirm(`Delete ${profile.name}?`)) void deletePersistedProfileData(profile.id).then(() => deleteProfile(profile.id)).catch((error) => window.alert(errorMessage(error))); }}>Delete profile</button></div>
+        <div className="setting-row"><span><strong>Delete profile</strong><small>Removes its workspace, sites, artifacts, jobs, provider and media connections, and cached media. The last profile cannot be deleted.</small></span><button className="button icon-danger" type="button" disabled={profiles.length <= 1} onClick={() => { if (window.confirm(`Delete ${profile.name}?`)) void deletePersistedProfileData(profile.id).then(() => deleteProfile(profile.id)).catch((error) => window.alert(errorMessage(error))); }}>Delete profile</button></div>
       </section>
     </>
   );

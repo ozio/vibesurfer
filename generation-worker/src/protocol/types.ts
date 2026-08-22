@@ -115,7 +115,7 @@ export const GenerateCommandSchema = z
         experimentalEnabled: false,
         enabled: {},
       },
-      voice: { engine: "local", provider: "openai", model: "kokoro-82m-q8", voice: "af_heart", speed: 1, musicEnabled: true },
+      voice: { engine: "local", provider: "openai", model: "kokoro-82m-q8", voice: "af_heart", availableVoiceIds: ["af_heart"], speed: 1, musicMode: "built-in", musicVolume: 0.22 },
       images: { mode: "tag-placeholder", fetchExternal: true, safeContent: true },
       maxOutputTokens: 20_000,
       minInternalLinks: 4,

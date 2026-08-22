@@ -8,7 +8,7 @@
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "npm run kokoro:assets && npm run notices:check && npm run worker:build && tsc -b && vite build && node scripts/verify-frame-shell.mjs",
     "build:desktop": "npm run desktop:build",
-    "desktop:build": "npm run worker:sidecar && npm run worker:sidecar:smoke && tauri build --config src-tauri/tauri.bundle.conf.json",
+    "desktop:build": "npm run worker:sidecar && npm run worker:sidecar:smoke && npm run media:sidecar && npm run media:sidecar:smoke && tauri build --config src-tauri/tauri.bundle.conf.json",
     "preview": "vite preview --host 127.0.0.1 --port 4173",
     "notices:generate": "node scripts/generate-third-party-notices.mjs",
     "notices:check": "node scripts/generate-third-party-notices.mjs --check",
@@ -23,6 +23,8 @@
     "worker:sidecar": "npm run sidecar:build --prefix generation-worker",
     "worker:smoke": "node scripts/smoke-worker.mjs --dist",
     "worker:sidecar:smoke": "node scripts/smoke-worker.mjs --sidecar",
+    "media:sidecar": "bun run scripts/build-media-sidecar.mjs",
+    "media:sidecar:smoke": "node scripts/smoke-media-sidecar.mjs",
     "verify": "npm run notices:check && npm run typecheck && npm test && npm run test-storybook && npm run worker:verify && npm run worker:smoke && cargo test --locked --manifest-path src-tauri/Cargo.toml",
     "tauri": "tauri",
     "storybook": "storybook dev --host 127.0.0.1 -p 6006",
@@ -56,6 +58,7 @@
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-deep-link": "^2.4.9",
     "@tauri-apps/plugin-opener": "^2.5.4",
+    "@tonejs/midi": "2.0.28",
     "kokoro-js": "1.2.1",
     "lucide-react": "^1.24.0",
     "motion": "^12.42.2",
@@ -63,6 +66,7 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.18.1",
+    "tone": "15.1.22",
     "zustand": "^5.0.14"
   },
   "devDependencies": {

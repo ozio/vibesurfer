@@ -1,5 +1,8 @@
-import { BarChart3, Captions, ChevronLeft, ChevronRight, Pause, Play, Presentation, Sparkles, Volume2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { BarChart3, ChevronLeft, ChevronRight, Presentation, Sparkles, Volume2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { buildReferenceVideoMarkup } from "../../generation/debug-fixture";
+import { useBrowserStore } from "../../store/browser-store";
+import { ArtifactSandboxFrame } from "./ArtifactSandboxFrame";
 
 const scenes = [
   { title: "Calm documentary", image: "https://loremflickr.com/960/540/tram,city?lock=7101", className: "is-calm" },
@@ -8,16 +11,18 @@ const scenes = [
 ];
 
 export function CapabilityLabPage() {
-  const [playing, setPlaying] = useState(false);
-  const [scene, setScene] = useState(0);
   const [slide, setSlide] = useState(0);
   const [motionKey, setMotionKey] = useState(0);
-  useEffect(() => {
-    if (!playing) return;
-    const timer = window.setInterval(() => setScene((value) => (value + 1) % scenes.length), 3_000);
-    return () => window.clearInterval(timer);
-  }, [playing]);
-  const current = scenes[scene];
+  const settings = useBrowserStore((state) => state.generationSettings);
+  const videoDocument = useMemo(() => {
+    const video = buildReferenceVideoMarkup({
+      imagesEnabled: settings.images.enabled && settings.images.allowExternalRequests,
+      narrationEnabled: settings.capabilities.audioSpeechEnabled,
+      musicMode: settings.voice.musicMode,
+      externalMediaEnabled: settings.capabilities.externalMediaEnabled,
+    });
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Real media runtime</title><style>*{box-sizing:border-box}body{margin:0;background:#070a10;color:#f6f8fc;font:14px/1.45 Arial,sans-serif}vibe-video{display:block;min-height:100vh;overflow:hidden;background:radial-gradient(circle at 20% 10%,#24334d,#080b11 55%)}vibe-video>[data-vibe-scene]{min-height:390px;padding:36px;display:grid;align-content:center;gap:12px;position:relative}vibe-video>[data-vibe-scene][hidden]{display:none}vibe-video img{display:block;width:100%;height:300px;object-fit:cover;border-radius:12px}vibe-video [data-kind="split"]{grid-template-columns:1.15fr .85fr;align-items:center}h2{margin:0;font-size:clamp(32px,5vw,64px);line-height:1}.video-kicker{color:#9eb2d5;letter-spacing:.16em;text-transform:uppercase}.video-stat{font-size:72px}[data-vibe-narration]{max-width:58ch;color:#d7deeb}[data-vibe-video-controls]{position:sticky;bottom:0;display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:12px 16px;background:#111722ee;backdrop-filter:blur(14px)}button{padding:8px 12px;border:1px solid #64748b;border-radius:8px;background:#1f2937;color:white}label{display:flex;align-items:center;gap:8px;flex:1 1 230px}input{flex:1}[data-vibe-video-caption],[data-vibe-video-status]{margin:0;padding:8px 16px;background:#0c111a;color:#e8edf7}[data-vibe-video-transcript]{padding:8px 16px;background:#0c111a}@media(max-width:650px){vibe-video [data-kind="split"]{grid-template-columns:1fr}vibe-video>[data-vibe-scene]{padding:22px}}</style></head><body>${video}</body></html>`;
+  }, [settings.capabilities.audioSpeechEnabled, settings.capabilities.externalMediaEnabled, settings.images.allowExternalRequests, settings.images.enabled, settings.voice.musicMode]);
   return (
     <main className="capability-lab">
       <header><span>vibe://capabilities</span><h1>Capability lab</h1><p>Deterministic examples for testing trusted renderers without relying on a particular generated link.</p></header>
@@ -26,7 +31,7 @@ export function CapabilityLabPage() {
         <section className="capability-demo capability-demo--diagram"><h2><Presentation aria-hidden="true" /> Diagram</h2><div className="lab-diagram"><span>Director</span><i>→</i><span>Builder</span><i>→</i><span>Trusted compiler</span></div><p>Only approved semantic contracts enter the generated page.</p></section>
         <section className="capability-demo capability-demo--motion"><h2><Sparkles aria-hidden="true" /> Motion</h2><div className="lab-motion" key={motionKey}><i/><i/><i/><span>New nodes animate once</span></div><button type="button" onClick={() => setMotionKey((value) => value + 1)}>Replay new element</button><p>Unchanged nodes keep their identity while streaming snapshots arrive.</p></section>
         <section className="capability-demo capability-demo--slideshow"><h2><Presentation aria-hidden="true" /> Slideshow</h2><div className="lab-slideshow"><img src={scenes[slide].image} alt={scenes[slide].title}/><span>{scenes[slide].title}</span><div><button type="button" aria-label="Previous slide" onClick={() => setSlide((value) => (value + scenes.length - 1) % scenes.length)}><ChevronLeft aria-hidden="true" /></button><em>{slide + 1} / {scenes.length}</em><button type="button" aria-label="Next slide" onClick={() => setSlide((value) => (value + 1) % scenes.length)}><ChevronRight aria-hidden="true" /></button></div></div><p>A lightweight gallery without narration, timeline or music.</p></section>
-        <section className="capability-demo capability-demo--video"><h2><Volume2 aria-hidden="true" /> Pseudo-video</h2><div className={`lab-video ${current.className}`}><img src={current.image} alt="Capability demonstration scene"/><span>{current.title}</span><div><button type="button" onClick={() => setPlaying((value) => !value)}>{playing ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}{playing ? "Pause" : "Play"}</button><i><b style={{ width: `${((scene + 1) / scenes.length) * 100}%` }}/></i><em>{scene + 1} / {scenes.length}</em></div></div><p><Captions aria-hidden="true" /> Scene captions, pauses and changing music presets are controlled by the trusted runtime.</p></section>
+        <section className="capability-demo capability-demo--video"><h2><Volume2 aria-hidden="true" /> Pseudo-video media engine</h2><ArtifactSandboxFrame html={videoDocument} title="Real pseudo-video capability" pageUrl="https://capabilities.vibe.local/video" /><p>The exact same sandbox, bridge v4, narration preparation, MIDI transport, captions and media controls used by generated pages.</p></section>
       </div>
     </main>
   );

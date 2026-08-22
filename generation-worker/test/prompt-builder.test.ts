@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { IMMUTABLE_PROTOCOL_INSTRUCTION, THEME_WORLD_INSTRUCTIONS, buildPrompt } from "../src/prompt-builder.js";
+import { IMMUTABLE_PROTOCOL_INSTRUCTION, THEME_WORLD_INSTRUCTIONS, approveCapabilitySelection, buildPrompt } from "../src/prompt-builder.js";
 import { PageDirectionSchema, type ApprovedPageBrief } from "../src/domain.js";
 import { ICON_SET_IDS, iconifyPack } from "../src/iconify/catalog.js";
 import { generationCommand } from "./helpers.js";
@@ -189,5 +189,102 @@ describe("two-stage prompt layering", () => {
     expect(bundle.prompt).toContain("Selected Iconify set: `null`");
     expect(bundle.prompt).toContain("do not use <iconify-icon>");
     expect(bundle.prompt).not.toContain("Allowed semantic map:");
+  });
+
+  it("advertises the video catalog only in Full and gives Builder only selected, enabled media layers", () => {
+    const request = generationCommand();
+    const disabledSettings = {
+      ...request.settings,
+      capabilities: { ...request.settings.capabilities, audioSpeechEnabled: false, externalMediaEnabled: false },
+      voice: { ...request.settings.voice, musicMode: "off" as const, availableVoiceIds: ["must-not-leak"] },
+    };
+    const director = buildPrompt({ stage: "page-director", url: request.url, settings: disabledSettings, worldPromptSnapshot: request.worldPromptSnapshot, context: request.context });
+    expect(director.prompt).toContain('"pseudo-video":');
+    expect(director.prompt).toContain("include videoIntent");
+
+    const noVideoDirector = buildPrompt({
+      stage: "page-director",
+      url: request.url,
+      settings: { ...disabledSettings, capabilities: { ...disabledSettings.capabilities, enabled: { ...disabledSettings.capabilities.enabled, "pseudo-video": false } } },
+      worldPromptSnapshot: request.worldPromptSnapshot,
+      context: request.context,
+    });
+    expect(noVideoDirector.prompt).not.toContain('"pseudo-video":');
+
+    const videoDirection = {
+      ...direction,
+      selectedCapabilities: ["semantic-navigation", "favicon-glyph", "inline-page-css", "pseudo-video"] as const,
+      videoIntent: { kind: "documentary" as const, goal: "Explain the night tram", pacing: "balanced" as const, narration: "none" as const, music: "none" as const },
+    };
+    const videoBrief: ApprovedPageBrief = {
+      ...brief,
+      direction: videoDirection,
+      selectedCapabilityContracts: approveCapabilitySelection(disabledSettings, "native", videoDirection.fonts, [...videoDirection.selectedCapabilities]),
+    };
+    const builder = buildPrompt({ stage: "page-builder", url: request.url, settings: disabledSettings, worldPromptSnapshot: request.worldPromptSnapshot, context: request.context, approvedBrief: videoBrief });
+    expect(builder.prompt).toContain("pseudo-video:");
+    expect(builder.prompt).toContain('data-aspect-ratio="16:9|9:16|4:3|3:2|1:1|4:5|21:9"');
+    expect(builder.prompt).toContain("TikTok, Reels and Shorts use 9:16");
+    expect(builder.prompt).toContain("Narration is disabled");
+    expect(builder.prompt).toContain('data-music-track="silence"');
+    expect(builder.prompt).not.toContain("must-not-leak");
+    expect(builder.prompt).not.toContain("data-music-intent on");
+  });
+
+  it("shares safe verified voice and media IDs without connection secrets or URLs", () => {
+    const request = generationCommand();
+    const settings = {
+      ...request.settings,
+      capabilities: { ...request.settings.capabilities, externalMediaEnabled: true },
+      voice: {
+        ...request.settings.voice,
+        engine: "cloud" as const,
+        provider: "elevenlabs" as const,
+        mediaConnectionId: "personal-elevenlabs-secret-ref",
+        voice: "voice-safe-1",
+        availableVoiceIds: ["voice-safe-1", "voice-safe-2"],
+        musicMode: "generate-if-requested" as const,
+      },
+    };
+    const videoDirection = {
+      ...direction,
+      selectedCapabilities: ["semantic-navigation", "favicon-glyph", "inline-page-css", "pseudo-video"] as const,
+      videoIntent: { kind: "documentary" as const, goal: "Explain the night tram", pacing: "balanced" as const, narration: "voiceover" as const, music: "generate-if-available" as const },
+    };
+    const videoBrief: ApprovedPageBrief = { ...brief, direction: videoDirection, selectedCapabilityContracts: approveCapabilitySelection(settings, "native", videoDirection.fonts, [...videoDirection.selectedCapabilities]) };
+    const builder = buildPrompt({ stage: "page-builder", url: request.url, settings, worldPromptSnapshot: request.worldPromptSnapshot, context: request.context, approvedBrief: videoBrief });
+    expect(builder.prompt).toContain("voice-safe-1|voice-safe-2");
+    expect(builder.prompt).toContain("data-music-intent");
+    expect(builder.prompt).not.toContain("personal-elevenlabs-secret-ref");
+    expect(builder.prompt).not.toContain("api.elevenlabs.io");
+  });
+
+  it("does not advertise stale cloud voices or generated music without a verified connection", () => {
+    const request = generationCommand();
+    const settings = {
+      ...request.settings,
+      capabilities: { ...request.settings.capabilities, externalMediaEnabled: true },
+      voice: {
+        ...request.settings.voice,
+        engine: "cloud" as const,
+        provider: "elevenlabs" as const,
+        mediaConnectionId: undefined,
+        voice: "stale-cloud-voice",
+        availableVoiceIds: ["stale-cloud-voice"],
+        musicMode: "generate-if-requested" as const,
+      },
+    };
+    const videoDirection = {
+      ...direction,
+      selectedCapabilities: ["semantic-navigation", "favicon-glyph", "inline-page-css", "pseudo-video"] as const,
+      videoIntent: { kind: "documentary" as const, goal: "Explain the night tram", pacing: "balanced" as const, narration: "voiceover" as const, music: "generate-if-available" as const },
+    };
+    const videoBrief: ApprovedPageBrief = { ...brief, direction: videoDirection, selectedCapabilityContracts: approveCapabilitySelection(settings, "native", videoDirection.fonts, [...videoDirection.selectedCapabilities]) };
+    const builder = buildPrompt({ stage: "page-builder", url: request.url, settings, worldPromptSnapshot: request.worldPromptSnapshot, context: request.context, approvedBrief: videoBrief });
+
+    expect(builder.prompt).toContain("caption-only hold");
+    expect(builder.prompt).toContain("Do not request generated music");
+    expect(builder.prompt).not.toContain("stale-cloud-voice");
+    expect(builder.prompt).not.toContain("data-music-intent on");
   });
 });

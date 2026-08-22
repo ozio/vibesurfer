@@ -97,12 +97,68 @@ describe("capability compiler", () => {
     const settings = { ...generationCommand().settings, images: { mode: "tag-placeholder" as const, fetchExternal: false, safeContent: true }, minInternalLinks: 4 };
     const scenes = Array.from({ length: 14 }, (_, index) => `<figure data-vibe-video-scene data-duration-ms="120000"><img data-vibe-image="tram night" alt="Scene ${index}"><figcaption>Scene ${index}</figcaption><span data-vibe-narration data-at-ms="999999" data-pause-after-ms="999999">Narration ${index}</span><i data-vibe-music data-preset="arbitrary-code" data-intensity="9"></i></figure>`).join("");
     const result = await transformHtml({ html: `<!doctype html><html><head><title>Video</title></head><body><a href="/one">One</a><a href="/two">Two</a><a href="/three">Three</a><a href="/four">Four</a><section data-vibe-pseudo-video>${scenes}</section></body></html>`, url: "https://youtube.example/watch?v=tram", title: "Video", settings, selectedCapabilities: ["pseudo-video", "image-intents"], browserTheme: "native", artifactSeed: "video", signal: new AbortController().signal });
-    expect(result.html.match(/data-vibe-video-scene/g)?.length).toBeLessThanOrEqual(12);
+    expect(result.html.match(/data-vibe-scene=""/g)?.length ?? 0).toBeLessThanOrEqual(12);
+    expect(result.html).toContain("<vibe-video");
+    expect(result.html).toContain('data-aspect-ratio="16:9"');
+    expect(result.html).not.toContain("data-vibe-video-scene");
     expect(result.html).toContain('data-vibe-duration-ms="600000"');
     expect(result.html).not.toContain("arbitrary-code");
-    expect(result.html).toContain('data-preset="silence"');
-    expect(result.html).toContain('data-intensity="1.00"');
+    expect(result.html).toContain('data-music-track="silence"');
+    expect(result.html).not.toContain("data-vibe-music");
+    expect(result.html).not.toContain("data-at-ms");
     expect(result.capabilityManifest).toContainEqual(expect.objectContaining({ id: "pseudo-video", instances: 1 }));
+  });
+
+  it("accepts every declarative video preset and normalizes unknown IDs without executable media", async () => {
+    const settings = { ...generationCommand().settings, images: { mode: "off" as const, fetchExternal: false, safeContent: true }, minInternalLinks: 0 };
+    const kinds = ["title", "text", "image", "split", "quote", "stat", "credits"];
+    const transitions = ["cut", "crossfade", "dip-black", "slide-left", "slide-up", "push", "wipe", "zoom", "blur"];
+    const motions = ["still", "ken-burns-in", "ken-burns-out", "pan-left", "pan-right", "drift", "stagger", "credits-roll", "unknown-motion"];
+    const scenes = transitions.map((transition, index) => `<section data-vibe-scene data-kind="${index === 8 ? "unknown-kind" : kinds[index % kinds.length]}" data-transition="${transition}" data-motion="${motions[index]}" data-music-track="${index === 8 ? "https://evil.example/song.mid" : "ambient-glass"}" data-midi-notes="60,64,67"><p data-vibe-narration data-voice="unlisted-paid-voice" lang="invalid language">${"word ".repeat(index === 0 ? 200 : 2)}</p><audio src="https://evil.example/voice.mp3"></audio><script>window.badVideoCode=true</script><button autoplay data-vibe-video-action="eval-code">Bad control</button><output data-vibe-video-time="clock"></output></section>`).join("");
+    const result = await transformHtml({ html: `<!doctype html><html><head><title>Video presets</title></head><body><vibe-video autoplay data-pacing="slow" data-aspect-ratio="calc(100vh)" data-music-intent="https://evil.example/generate">${scenes}</vibe-video></body></html>`, url: "https://video.example/watch", title: "Video presets", settings, selectedCapabilities: ["pseudo-video"], browserTheme: "native", artifactSeed: "presets", signal: new AbortController().signal });
+    for (const transition of transitions) expect(result.html).toContain(`data-transition="${transition}"`);
+    for (const motion of motions.slice(0, -1)) expect(result.html).toContain(`data-motion="${motion}"`);
+    for (const kind of kinds) expect(result.html).toContain(`data-kind="${kind}"`);
+    expect(result.html).toContain('data-motion="still"');
+    expect(result.html).toContain('data-kind="text"');
+    expect(result.html).toContain('data-aspect-ratio="16:9"');
+    expect(result.html).not.toContain("calc(100vh)");
+    expect(result.html).toContain('data-music-track="silence"');
+    expect(result.html).not.toContain("evil.example");
+    expect(result.html).not.toContain("data-music-intent");
+    expect(result.html).not.toContain("unlisted-paid-voice");
+    expect(result.html).not.toContain("invalid language");
+    expect(result.html).not.toContain("autoplay");
+    expect(result.html).not.toContain("eval-code");
+    expect(result.html).not.toContain('data-vibe-video-time="clock"');
+    expect(result.html).not.toContain("data-midi-notes");
+    expect(result.html).not.toContain("badVideoCode");
+    expect(result.html).not.toContain("word ".repeat(161));
+  });
+
+  it("pins a safe source-aware viewport ratio for landscape and vertical video pages", async () => {
+    const settings = { ...generationCommand().settings, images: { mode: "off" as const, fetchExternal: false, safeContent: true }, minInternalLinks: 0 };
+    const markup = (aspect = "") => `<!doctype html><html><head><title>Ratio</title></head><body><vibe-video${aspect}><section data-vibe-scene data-kind="image">Frame</section></vibe-video></body></html>`;
+    const compile = (url: string, aspect = "") => transformHtml({ html: markup(aspect), url, title: "Ratio", settings, selectedCapabilities: ["pseudo-video"], browserTheme: "native" as const, artifactSeed: "ratio", signal: new AbortController().signal });
+    expect((await compile("https://www.youtube.com/watch?v=tram")).html).toContain('data-aspect-ratio="16:9"');
+    expect((await compile("https://www.youtube.com/shorts/tram")).html).toContain('data-aspect-ratio="9:16"');
+    expect((await compile("https://www.tiktok.com/@north/video/123")).html).toContain('data-aspect-ratio="9:16"');
+    expect((await compile("https://vimeo.com/123", ' data-aspect-ratio="4:5"')).html).toContain('data-aspect-ratio="4:5"');
+  });
+
+  it("switches narration, music and external generation independently", async () => {
+    const base = generationCommand().settings;
+    const markup = `<!doctype html><html><head><title>Layers</title></head><body><vibe-video data-music-intent="quiet glass score"><section data-vibe-scene data-kind="text" data-transition="cut" data-motion="still" data-music-track="ambient-glass"><p data-vibe-narration>Spoken caption</p></section></vibe-video></body></html>`;
+    const compile = (settings: typeof base) => transformHtml({ html: markup, url: "https://video.example/watch", title: "Layers", settings: { ...settings, minInternalLinks: 0 }, selectedCapabilities: ["pseudo-video"], browserTheme: "native" as const, artifactSeed: "layers", signal: new AbortController().signal });
+    const narrationOff = await compile({ ...base, capabilities: { ...base.capabilities, audioSpeechEnabled: false } });
+    expect(narrationOff.html).not.toContain("data-vibe-narration");
+    expect(narrationOff.html).toContain("Spoken caption");
+    expect(narrationOff.html).toContain('data-music-track="ambient-glass"');
+    const musicOff = await compile({ ...base, voice: { ...base.voice, musicMode: "off" } });
+    expect(musicOff.html).toContain("data-vibe-narration");
+    expect(musicOff.html).toContain('data-music-track="silence"');
+    const externalOn = await compile({ ...base, capabilities: { ...base.capabilities, externalMediaEnabled: true }, voice: { ...base.voice, provider: "elevenlabs", mediaConnectionId: "media-1", availableVoiceIds: ["voice-one"], musicMode: "generate-if-requested" } });
+    expect(externalOn.html).toContain('data-music-intent="quiet glass score"');
   });
 
   it("turns selected semantic markers into bounded offline artifacts and records actual usage", async () => {

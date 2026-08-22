@@ -201,8 +201,10 @@ export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
     provider: "openai",
     model: "kokoro-82m-q8",
     voice: "af_heart",
+    availableVoiceIds: ["af_heart"],
     speed: 1,
-    musicEnabled: true,
+    musicMode: "built-in",
+    musicVolume: 0.22,
   },
   privacy: {
     includeNavigationHistory: true,
@@ -1382,7 +1384,7 @@ export const useBrowserStore = create<BrowserState>()(
     }),
     {
       name: "vibesurfer-browser-state",
-      version: 12,
+      version: 13,
       skipHydration: import.meta.env.VIBESURFER_STORYBOOK === true,
       migrate: (persistedState, version) => migrateBrowserState(persistedState, version) as BrowserState,
       partialize: (state) => ({
@@ -2075,7 +2077,7 @@ function migrateProfileWorkspace(value: unknown, profile: BrowserProfile): Profi
       theme: profile.chromeSkin,
     } as BrowserPreferences,
     codexSelection: migrateCodexSelection(value.codexSelection),
-    generationSettings: migrateGenerationSettings(value.generationSettings, 12),
+    generationSettings: migrateGenerationSettings(value.generationSettings, 13),
   };
 }
 
@@ -2298,7 +2300,7 @@ function migrateBrowsingHistoryEntry(
   }];
 }
 
-function migrateGenerationSettings(value: unknown, version: number): GenerationSettings {
+export function migrateGenerationSettings(value: unknown, version: number): GenerationSettings {
   const source = isRecord(value) ? value : {};
   const style = isRecord(source.style) ? source.style : {};
   const images = isRecord(source.images) ? source.images : {};
@@ -2357,10 +2359,17 @@ function migrateGenerationSettings(value: unknown, version: number): GenerationS
     voice: {
       engine: voice.engine === "system" || voice.engine === "cloud" ? voice.engine : "local",
       provider: voice.provider === "elevenlabs" || voice.provider === "deepgram" ? voice.provider : "openai",
+      ...(optionalString(voice.mediaConnectionId) ? { mediaConnectionId: optionalString(voice.mediaConnectionId) } : {}),
       model: optionalString(voice.model) ?? DEFAULT_GENERATION_SETTINGS.voice.model,
       voice: optionalString(voice.voice) ?? DEFAULT_GENERATION_SETTINGS.voice.voice,
+      availableVoiceIds: Array.isArray(voice.availableVoiceIds)
+        ? voice.availableVoiceIds.flatMap((id) => typeof id === "string" && id.trim() ? [id.trim().slice(0, 120)] : []).slice(0, 100)
+        : [optionalString(voice.voice) ?? DEFAULT_GENERATION_SETTINGS.voice.voice],
       speed: Math.min(1.5, Math.max(0.6, numberValue(voice.speed) ?? DEFAULT_GENERATION_SETTINGS.voice.speed)),
-      musicEnabled: booleanValue(voice.musicEnabled) ?? DEFAULT_GENERATION_SETTINGS.voice.musicEnabled,
+      musicMode: voice.musicMode === "off" || voice.musicMode === "generate-if-requested"
+        ? voice.musicMode
+        : booleanValue(voice.musicEnabled) === false ? "off" : "built-in",
+      musicVolume: Math.min(1, Math.max(0, numberValue(voice.musicVolume) ?? DEFAULT_GENERATION_SETTINGS.voice.musicVolume)),
     },
     privacy: {
       includeNavigationHistory: booleanValue(privacy.includeNavigationHistory)

@@ -3,6 +3,7 @@ use thiserror::Error;
 use zeroize::Zeroizing;
 
 const SERVICE: &str = "com.vibesurfer.browser.providers";
+const MEDIA_SERVICE: &str = "com.vibesurfer.browser.media";
 
 #[derive(Debug, Error)]
 pub enum SecretError {
@@ -74,6 +75,52 @@ impl SecretVault {
     }
 }
 
+#[derive(Clone, Default)]
+pub struct MediaSecretVault;
+
+impl MediaSecretVault {
+    pub fn ensure_connection_scope(
+        &self,
+        profile_id: &str,
+        connection_id: &str,
+        secret_ref: &str,
+    ) -> Result<(), SecretError> {
+        let expected = secret_reference(profile_id, connection_id)?;
+        validate_secret_ref(secret_ref)?;
+        if secret_ref == expected { Ok(()) } else { Err(SecretError::InvalidIdentifier) }
+    }
+
+    pub fn put(
+        &self,
+        profile_id: &str,
+        connection_id: &str,
+        secret: Zeroizing<String>,
+    ) -> Result<String, SecretError> {
+        let secret_ref = secret_reference(profile_id, connection_id)?;
+        if secret.trim().is_empty() { return Err(SecretError::InvalidIdentifier); }
+        media_entry(&secret_ref)?
+            .set_password(secret.as_str())
+            .map_err(|error| SecretError::Store(error.to_string()))?;
+        Ok(secret_ref)
+    }
+
+    pub fn get(&self, secret_ref: &str) -> Result<Zeroizing<String>, SecretError> {
+        validate_secret_ref(secret_ref)?;
+        let secret = media_entry(secret_ref)?
+            .get_password()
+            .map_err(|error| SecretError::Store(error.to_string()))?;
+        Ok(Zeroizing::new(secret))
+    }
+
+    pub fn delete(&self, secret_ref: &str) -> Result<(), SecretError> {
+        validate_secret_ref(secret_ref)?;
+        match media_entry(secret_ref)?.delete_credential() {
+            Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+            Err(error) => Err(SecretError::Store(error.to_string())),
+        }
+    }
+}
+
 fn secret_reference(profile_id: &str, connection_id: &str) -> Result<String, SecretError> {
     validate_identifier(profile_id)?;
     validate_identifier(connection_id)?;
@@ -82,6 +129,10 @@ fn secret_reference(profile_id: &str, connection_id: &str) -> Result<String, Sec
 
 fn entry(secret_ref: &str) -> Result<Entry, SecretError> {
     Entry::new(SERVICE, secret_ref).map_err(|error| SecretError::Store(error.to_string()))
+}
+
+fn media_entry(secret_ref: &str) -> Result<Entry, SecretError> {
+    Entry::new(MEDIA_SERVICE, secret_ref).map_err(|error| SecretError::Store(error.to_string()))
 }
 
 fn validate_secret_ref(value: &str) -> Result<(), SecretError> {

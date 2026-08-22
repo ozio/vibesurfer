@@ -39,6 +39,7 @@ export interface GeneratedArtifactDocumentInput {
   browserTheme?: ThemeId;
   dynamicManifest?: DynamicManifest;
   voiceSettings?: VoiceAudioSettings;
+  mediaPermissions?: ArtifactRenderPayload["mediaPermissions"];
 }
 
 export type ArtifactSanitizationWarningCode =
@@ -93,7 +94,10 @@ export function compileGeneratedArtifactDocument(
       html: srcDoc,
       executeScripts: allowGeneratedScripts,
       ...(input.dynamicManifest ? { dynamicManifest: input.dynamicManifest } : {}),
-      ...(input.voiceSettings ? { voiceSettings: { engine: input.voiceSettings.engine, voice: input.voiceSettings.voice, speed: input.voiceSettings.speed, musicEnabled: input.voiceSettings.musicEnabled } } : {}),
+      ...(input.voiceSettings ? { voiceSettings: {
+        musicMode: input.voiceSettings.musicMode,
+      } } : {}),
+      ...(input.mediaPermissions ? { mediaPermissions: input.mediaPermissions } : {}),
     },
     srcDoc,
     warnings: warnings.toArray(),

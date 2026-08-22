@@ -1,7 +1,17 @@
 import type { DynamicManifest, VoiceAudioSettings } from "../types/browser";
+import {
+  VIDEO_ASPECT_RATIOS,
+  VIDEO_MOTIONS,
+  VIDEO_MUSIC_TRACK_IDS,
+  VIDEO_SCENE_KINDS,
+  VIDEO_TRANSITIONS,
+  type VideoMediaState,
+  type VideoPlan,
+  type VideoTimeline,
+} from "../media/video-types";
 
 export const ARTIFACT_BRIDGE_PROTOCOL = "vibesurfer:artifact-bridge" as const;
-export const ARTIFACT_BRIDGE_VERSION = 3 as const;
+export const ARTIFACT_BRIDGE_VERSION = 4 as const;
 
 export const MAX_BRIDGE_MESSAGE_BYTES = 256 * 1024;
 export const MAX_DYNAMIC_ACTION_BYTES = 32 * 1024;
@@ -50,7 +60,11 @@ export interface ArtifactRenderPayload {
   html: string;
   executeScripts?: boolean;
   dynamicManifest?: DynamicManifest;
-  voiceSettings?: Pick<VoiceAudioSettings, "engine" | "voice" | "speed" | "musicEnabled">;
+  voiceSettings?: Pick<VoiceAudioSettings, "musicMode">;
+  mediaPermissions?: {
+    narrationEnabled: boolean;
+    externalMediaEnabled: boolean;
+  };
 }
 
 export interface ArtifactRenderCommand extends ArtifactFrameEventBase, ArtifactRenderPayload {
@@ -135,6 +149,21 @@ export interface ArtifactSpeechCancelEvent extends ArtifactFrameEventBase {
   requestId?: string;
 }
 
+export interface ArtifactMediaPrepareEvent extends ArtifactFrameEventBase {
+  type: "media-prepare";
+  requestId: string;
+  plan: VideoPlan;
+}
+
+export interface ArtifactMediaCommandEvent extends ArtifactFrameEventBase {
+  type: "media-command";
+  videoId: string;
+  action: "play" | "pause" | "stop" | "seek" | "set-volume" | "set-muted" | "skip-music";
+  currentTimeMs?: number;
+  volume?: number;
+  muted?: boolean;
+}
+
 export interface ArtifactDynamicRegionSnapshot {
   regionId: string;
   html: string;
@@ -170,6 +199,8 @@ export type ArtifactFrameEvent =
   | ArtifactDynamicSnapshotEvent
   | ArtifactSpeechRequestEvent
   | ArtifactSpeechCancelEvent
+  | ArtifactMediaPrepareEvent
+  | ArtifactMediaCommandEvent
   | ArtifactRuntimeErrorEvent;
 
 export type ArtifactHostCommand =
@@ -197,7 +228,9 @@ export type ArtifactHostCommand =
       snapshots: ArtifactDynamicRegionSnapshot[];
     })
   | (ArtifactFrameEventBase & { type: "dynamic-snapshot-request"; requestId: string; regionIds: string[] })
-  | (ArtifactFrameEventBase & { type: "speech-state"; requestId: string; status: "completed" | "failed" | "cancelled"; message?: string });
+  | (ArtifactFrameEventBase & { type: "speech-state"; requestId: string; status: "completed" | "failed" | "cancelled"; message?: string })
+  | (ArtifactFrameEventBase & { type: "media-timeline"; requestId: string; timeline: VideoTimeline })
+  | (ArtifactFrameEventBase & { type: "media-state"; state: VideoMediaState });
 
 export type ArtifactHostDynamicCommandInput =
   | { type: "dynamic-pending"; requestId: string; regionIds: string[] }
@@ -205,7 +238,9 @@ export type ArtifactHostDynamicCommandInput =
   | { type: "dynamic-error"; requestId: string; regionIds: string[]; message: string; retryable: boolean }
   | { type: "state-sync"; requestId?: string; sessionRevision: number; bindings: Record<string, string>; snapshots: ArtifactDynamicRegionSnapshot[] }
   | { type: "dynamic-snapshot-request"; requestId: string; regionIds: string[] }
-  | { type: "speech-state"; requestId: string; status: "completed" | "failed" | "cancelled"; message?: string };
+  | { type: "speech-state"; requestId: string; status: "completed" | "failed" | "cancelled"; message?: string }
+  | { type: "media-timeline"; requestId: string; timeline: VideoTimeline }
+  | { type: "media-state"; state: VideoMediaState };
 
 export type ArtifactBridgeParseResult =
   | { ok: true; event: ArtifactFrameEvent }
@@ -256,6 +291,7 @@ export function createArtifactRenderCommand(
     executeScripts: payload.executeScripts === true,
     ...(payload.dynamicManifest ? { dynamicManifest: validateDynamicManifest(payload.dynamicManifest) } : {}),
     ...(payload.voiceSettings ? { voiceSettings: payload.voiceSettings } : {}),
+    ...(payload.mediaPermissions ? { mediaPermissions: payload.mediaPermissions } : {}),
   };
   if (!Number.isFinite(payload.revision) || !["preview", "final"].includes(payload.renderMode)) {
     throw new Error("Artifact render revision is invalid");
@@ -390,6 +426,34 @@ export function parseArtifactFrameEvent(
       if (value.requestId !== undefined && !requestId) return invalid("Invalid speech cancellation");
       return valid({ ...base, type: "speech-cancel", ...(requestId ? { requestId } : {}) });
     }
+    case "media-prepare": {
+      const requestId = boundedIdentifier(value.requestId);
+      const plan = parseVideoPlan(value.plan);
+      if (!requestId || !plan) return invalid("Invalid media preparation request");
+      return valid({ ...base, type: "media-prepare", requestId, plan });
+    }
+    case "media-command": {
+      const videoId = boundedIdentifier(value.videoId);
+      const action = value.action;
+      if (!videoId || !["play", "pause", "stop", "seek", "set-volume", "set-muted", "skip-music"].includes(String(action))) {
+        return invalid("Invalid media command");
+      }
+      const currentTimeMs = value.currentTimeMs === undefined ? undefined : boundedNumber(value.currentTimeMs, 0, 3_600_000);
+      const volume = value.volume === undefined ? undefined : boundedNumber(value.volume, 0, 1);
+      const muted = value.muted === undefined ? undefined : typeof value.muted === "boolean" ? value.muted : undefined;
+      if ((action === "seek" && currentTimeMs === undefined)
+          || (action === "set-volume" && volume === undefined)
+          || (action === "set-muted" && muted === undefined)) return invalid("Invalid media command value");
+      return valid({
+        ...base,
+        type: "media-command",
+        videoId,
+        action: action as ArtifactMediaCommandEvent["action"],
+        ...(currentTimeMs !== undefined ? { currentTimeMs } : {}),
+        ...(volume !== undefined ? { volume } : {}),
+        ...(muted !== undefined ? { muted } : {}),
+      });
+    }
     case "runtime-error": {
       const message = boundedString(value.message, MAX_CONTEXT_LENGTH);
       if (!message) return invalid("Invalid runtime error event");
@@ -465,6 +529,57 @@ function parseRegionSnapshots(value: unknown): ArtifactDynamicRegionSnapshot[] |
   return snapshots;
 }
 
+function parseVideoPlan(value: unknown): VideoPlan | undefined {
+  if (!isRecord(value)) return undefined;
+  const videoId = boundedIdentifier(value.videoId);
+  const aspectRatio = value.aspectRatio === undefined
+    ? "16:9"
+    : VIDEO_ASPECT_RATIOS.find((entry) => entry === value.aspectRatio);
+  const pacing = value.pacing === "slow" || value.pacing === "fast" ? value.pacing : value.pacing === "balanced" ? "balanced" : undefined;
+  if (!videoId || !aspectRatio || !pacing || typeof value.loop !== "boolean" || !Array.isArray(value.scenes) || value.scenes.length < 1 || value.scenes.length > 12) return undefined;
+  const musicIntent = value.musicIntent === undefined ? undefined : optionalBoundedString(value.musicIntent, 160);
+  if (value.musicIntent !== undefined && (musicIntent === undefined || /(?:https?:|data:|blob:|file:|javascript:)/i.test(musicIntent))) return undefined;
+  const scenes: VideoPlan["scenes"] = [];
+  const ids = new Set<string>();
+  let desiredTotalMs = 0;
+  for (const candidate of value.scenes) {
+    if (!isRecord(candidate)) return undefined;
+    const id = boundedIdentifier(candidate.id);
+    const desiredDurationMs = candidate.desiredDurationMs === undefined
+      ? undefined
+      : boundedNumber(candidate.desiredDurationMs, 1_000, 120_000);
+    const kind = VIDEO_SCENE_KINDS.find((entry) => entry === candidate.kind);
+    const transition = VIDEO_TRANSITIONS.find((entry) => entry === candidate.transition);
+    const motion = VIDEO_MOTIONS.find((entry) => entry === candidate.motion);
+    const musicTrack = ([...VIDEO_MUSIC_TRACK_IDS, "inherit", "silence"] as const).find((entry) => entry === candidate.musicTrack);
+    if (!id || ids.has(id) || !kind || !transition || !motion || !musicTrack
+        || (candidate.desiredDurationMs !== undefined && desiredDurationMs === undefined)) return undefined;
+    desiredTotalMs += desiredDurationMs ?? 0;
+    if (desiredTotalMs > 600_000) return undefined;
+    ids.add(id);
+    let narration: VideoPlan["scenes"][number]["narration"];
+    if (candidate.narration !== undefined) {
+      if (!isRecord(candidate.narration)) return undefined;
+      const text = boundedString(candidate.narration.text, 800);
+      const lang = boundedString(candidate.narration.lang, 40);
+      const voice = candidate.narration.voice === undefined ? undefined : boundedIdentifier(candidate.narration.voice);
+      if (!text || !lang || !/^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$/i.test(lang)
+          || (candidate.narration.voice !== undefined && voice === undefined)) return undefined;
+      narration = { text, lang, ...(voice ? { voice } : {}) };
+    }
+    scenes.push({
+      id,
+      kind,
+      transition,
+      motion,
+      musicTrack,
+      ...(desiredDurationMs !== undefined ? { desiredDurationMs } : {}),
+      ...(narration ? { narration } : {}),
+    });
+  }
+  return { videoId, aspectRatio, pacing, loop: value.loop, ...(musicIntent ? { musicIntent } : {}), scenes };
+}
+
 function validateDynamicManifest(value: DynamicManifest): DynamicManifest {
   if (value.version !== 1 || value.regions.length > 16 || value.actions.length > 32 || value.bindings.length > 64) {
     throw new Error("Dynamic manifest is invalid");
@@ -490,6 +605,10 @@ function validateDynamicManifest(value: DynamicManifest): DynamicManifest {
 
 function boundedIdentifier(value: unknown) {
   return typeof value === "string" && /^[A-Za-z0-9_-]{1,160}$/.test(value) ? value : undefined;
+}
+
+function boundedNumber(value: unknown, minimum: number, maximum: number) {
+  return typeof value === "number" && Number.isFinite(value) && value >= minimum && value <= maximum ? value : undefined;
 }
 
 function boundedRegionId(value: unknown) {

@@ -18,7 +18,7 @@ const markerSelectors: Record<(typeof USER_CONFIGURABLE_CAPABILITY_IDS)[number],
   "micro-widgets": "[data-vibe-widget]",
   carousel: "[data-vibe-carousel]",
   slideshow: "[data-vibe-slideshow]",
-  "pseudo-video": "[data-vibe-pseudo-video]",
+  "pseudo-video": "vibe-video",
   speech: "[data-vibe-speak]",
   sound: "[data-vibe-sound]",
 };
@@ -37,6 +37,11 @@ describe("generation debug fixture", () => {
       expect(document.querySelector(markerSelectors[id]), id).not.toBeNull();
     }
     expect(document.querySelector('[data-debug-feature="image-intents"] img')?.getAttribute("src")).toContain("loremflickr.com");
+    expect(document.querySelectorAll("vibe-video > [data-vibe-scene]")).toHaveLength(6);
+    expect(document.querySelector("vibe-video")?.getAttribute("data-aspect-ratio")).toBe("16:9");
+    expect(document.querySelector("vibe-video [data-vibe-narration]")?.textContent).toContain("Every evening");
+    expect(document.querySelector('[data-music-track="documentary-pulse"]')).not.toBeNull();
+    expect(document.querySelector('[data-kind="credits"]')).not.toBeNull();
   });
 
   it("removes each capability marker independently when its setting is off", () => {

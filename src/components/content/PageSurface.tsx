@@ -13,6 +13,7 @@ import { openExternal } from "../../lib/platform";
 import { activatePersistedSiteWorld } from "../../generation/host-api";
 import { attachDynamicFrame, handleDynamicAction } from "../../dynamic/runtime";
 import { LocalSpeechPlayer } from "../../audio/local-speech";
+import { FrameMediaController } from "../../media/frame-media-controller";
 import { useBrowserStore } from "../../store/browser-store";
 import type {
   BrowserTab,
@@ -83,6 +84,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
   const markFrameReady = useBrowserStore((state) => state.markFrameReady);
   const restoreSiteWorld = useBrowserStore((state) => state.restoreSiteWorld);
   const activeProfileId = useBrowserStore((state) => state.activeProfileId);
+  const currentGenerationSettings = useBrowserStore((state) => state.generationSettings);
   const archivedSiteWorld = useBrowserStore((state) => {
     const id = tab.archivedSiteWorldId ?? tab.siteWorldId;
     const world = id ? state.siteWorlds[id] : undefined;
@@ -95,6 +97,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
   } | null>(null);
   const detachDynamicFrameRef = useRef<(() => void) | null>(null);
   const speechPlayerRef = useRef<LocalSpeechPlayer | null>(null);
+  const mediaControllerRef = useRef<FrameMediaController | null>(null);
   const readyKeyRef = useRef<string | undefined>(undefined);
   const [readyKey, setReadyKey] = useState<string>();
   const [armedKey, setArmedKey] = useState<string>();
@@ -141,6 +144,10 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
           html: job.previewHtml,
           browserTheme: theme,
           voiceSettings: job.generationSettingsSnapshot.voice,
+          mediaPermissions: {
+            narrationEnabled: job.generationSettingsSnapshot.capabilities.audioSpeechEnabled,
+            externalMediaEnabled: job.generationSettingsSnapshot.capabilities.externalMediaEnabled,
+          },
         });
         return {
           ok: true as const,
@@ -162,6 +169,12 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
           dynamicManifest: artifact.dynamicManifest,
           browserTheme: theme,
           voiceSettings: artifact.voiceSettings ?? job?.generationSettingsSnapshot.voice,
+          mediaPermissions: {
+            narrationEnabled: job?.generationSettingsSnapshot.capabilities.audioSpeechEnabled
+              ?? currentGenerationSettings.capabilities.audioSpeechEnabled,
+            externalMediaEnabled: job?.generationSettingsSnapshot.capabilities.externalMediaEnabled
+              ?? currentGenerationSettings.capabilities.externalMediaEnabled,
+          },
         });
         return {
           ok: true as const,
@@ -190,7 +203,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
         message: error instanceof Error ? error.message : "The generated document could not be prepared.",
       };
     }
-  }, [artifact, frameIdentity.key, frameIdentity.nonce, generationFailed, hasPreview, hasRecoverableArtifact, isGenerating, job, legacyArtifactId, legacyPrompt, legacyUrl, tab.location, tab.title, tab.virtualLocation?.url, theme]);
+  }, [artifact, currentGenerationSettings.capabilities.audioSpeechEnabled, currentGenerationSettings.capabilities.externalMediaEnabled, frameIdentity.key, frameIdentity.nonce, generationFailed, hasPreview, hasRecoverableArtifact, isGenerating, job, legacyArtifactId, legacyPrompt, legacyUrl, tab.location, tab.title, tab.virtualLocation?.url, theme]);
 
   const documentKey = compiledResult?.ok
     ? `${compiledResult.document.artifactId}:${compiledResult.document.nonce}:${tab.reloadKey}`
@@ -228,6 +241,8 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       detachDynamicFrameRef.current = null;
       speechPlayerRef.current?.dispose();
       speechPlayerRef.current = null;
+      mediaControllerRef.current?.dispose();
+      mediaControllerRef.current = null;
     };
   }, [documentKey, onLinkHover]);
 
@@ -303,6 +318,11 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       }).catch((error: unknown) => {
         connectionRef.current?.connection.setSpeechState({ requestId: event.requestId, status: error instanceof DOMException && error.name === "AbortError" ? "cancelled" : "failed", message: error instanceof Error ? error.message : "Speech failed." });
       });
+      return;
+    }
+
+    if (event.type === "media-prepare" || event.type === "media-command") {
+      mediaControllerRef.current?.handle(event);
       return;
     }
 
@@ -443,7 +463,17 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
       },
     });
     connectionRef.current = { key: documentKey, connection };
-  }, [compiledResult, documentKey, handleFrameEvent]);
+    const mediaVoice = artifact?.voiceSettings ?? job?.generationSettingsSnapshot.voice ?? currentGenerationSettings.voice;
+    const mediaCapabilities = job?.generationSettingsSnapshot.capabilities ?? currentGenerationSettings.capabilities;
+    mediaControllerRef.current?.dispose();
+    mediaControllerRef.current = new FrameMediaController({
+      profileId: activeProfileId,
+      voice: mediaVoice,
+      narrationEnabled: mediaCapabilities.audioSpeechEnabled,
+      externalMediaEnabled: mediaCapabilities.externalMediaEnabled,
+      getConnection: () => connectionRef.current?.connection,
+    });
+  }, [activeProfileId, artifact?.voiceSettings, compiledResult, currentGenerationSettings.capabilities, currentGenerationSettings.voice, documentKey, handleFrameEvent, job?.generationSettingsSnapshot.capabilities, job?.generationSettingsSnapshot.voice]);
 
   // Register the parent listener in one synchronous commit, then mount the
   // static trusted shell in the next so its first bootstrap cannot race us.

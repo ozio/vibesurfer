@@ -9,6 +9,7 @@ import {
   type ArtifactRenderPayload,
   type ArtifactDynamicRegionSnapshot,
 } from "./bridge-protocol";
+import type { VideoMediaState, VideoTimeline } from "../media/video-types";
 
 const DEFAULT_HANDSHAKE_TIMEOUT_MS = 4_000;
 const MAX_PROTOCOL_VIOLATIONS = 3;
@@ -34,6 +35,8 @@ export interface ArtifactFrameConnection {
   syncState: (input: { requestId?: string; sessionRevision: number; bindings: Record<string, string>; snapshots?: ArtifactDynamicRegionSnapshot[] }) => void;
   requestDynamicSnapshot: (regionIds: string[]) => Promise<ArtifactDynamicRegionSnapshot[]>;
   setSpeechState: (input: { requestId: string; status: "completed" | "failed" | "cancelled"; message?: string }) => void;
+  setMediaTimeline: (requestId: string, timeline: VideoTimeline) => void;
+  setMediaState: (state: VideoMediaState) => void;
 }
 
 /**
@@ -68,6 +71,8 @@ export function connectArtifactFrame({
       syncState: () => undefined,
       requestDynamicSnapshot: async () => [],
       setSpeechState: () => undefined,
+      setMediaTimeline: () => undefined,
+      setMediaState: () => undefined,
     };
   }
 
@@ -246,5 +251,7 @@ export function connectArtifactFrame({
     syncState: (input) => postDynamic({ type: "state-sync", ...input, snapshots: input.snapshots ?? [] }),
     requestDynamicSnapshot,
     setSpeechState: (input) => postDynamic({ type: "speech-state", ...input }),
+    setMediaTimeline: (requestId, timeline) => postDynamic({ type: "media-timeline", requestId, timeline }),
+    setMediaState: (state) => postDynamic({ type: "media-state", state }),
   };
 }

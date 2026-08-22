@@ -1,4 +1,6 @@
 mod codex_adapter;
+mod media;
+mod media_worker;
 mod native_menu;
 mod protocol;
 mod secrets;
@@ -13,12 +15,13 @@ use std::{
 };
 
 use codex_adapter::CodexCatalog;
+use media::{LocalSpeechCacheRequest, MediaAssetResponse, MediaMusicRequest, MediaService, MediaSpeechRequest, SaveMediaConnectionInput, StoreLocalSpeechCacheRequest};
 use native_menu::{build_native_menu, emit_native_menu_command, update_native_menu_state};
 use protocol::{
-    ArtifactRecord, GenerationActivityDetail, GenerationJobRecord, GenerationStartRequest, GenerationStartResult, ProviderConnectionRecord,
+    ArtifactRecord, GenerationActivityDetail, GenerationJobRecord, GenerationStartRequest, GenerationStartResult, MediaConnectionRecord, ProviderConnectionRecord,
     ProviderVerifyRequest, RuntimeStatus, SiteSessionRecord, SiteWorldRecord, WORKER_PROTOCOL_VERSION,
 };
-use secrets::SecretVault;
+use secrets::{MediaSecretVault, SecretVault};
 use serde::Serialize;
 use serde_json::{json, Value};
 use storage::Storage;
@@ -30,6 +33,8 @@ use zeroize::Zeroizing;
 struct AppRuntime {
     storage: Arc<Storage>,
     secrets: SecretVault,
+    media_secrets: MediaSecretVault,
+    media: MediaService,
     worker: WorkerManager,
 }
 
@@ -610,6 +615,17 @@ fn delete_profile_data(
             .delete(&provider.secret_ref)
             .map_err(|error| error.to_string())?;
     }
+    let media_connections = runtime
+        .storage
+        .list_media_connections(&profile_id)
+        .map_err(|error| error.to_string())?;
+    for connection in &media_connections {
+        runtime
+            .media_secrets
+            .delete(&connection.secret_ref)
+            .map_err(|error| error.to_string())?;
+    }
+    runtime.media.delete_profile_cache(&profile_id)?;
     runtime
         .storage
         .delete_profile_data(&profile_id)
@@ -722,6 +738,168 @@ async fn verify_provider_connection(
         .update_provider_status(&provider_record.id, status, verified_at.as_deref())
         .map_err(|error| error.to_string())?;
     result.map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn save_media_connection(
+    input: SaveMediaConnectionInput,
+    runtime: State<'_, AppRuntime>,
+) -> Result<MediaConnectionRecord, String> {
+    media::validate_identifier(&input.id)?;
+    media::validate_identifier(&input.profile_id)?;
+    let display_name = input.display_name.trim();
+    if display_name.is_empty() || display_name.chars().count() > 120 {
+        return Err("media connection name must contain 1 to 120 characters".into());
+    }
+    let api_key = Zeroizing::new(input.api_key);
+    if api_key.trim().is_empty() || api_key.len() > 16_384 {
+        return Err("ElevenLabs API key is invalid".into());
+    }
+    let voices = runtime.media.verify_elevenlabs(api_key.as_str()).await?;
+    let secret_ref = runtime
+        .media_secrets
+        .put(&input.profile_id, &input.id, api_key)
+        .map_err(|error| error.to_string())?;
+    let record = MediaConnectionRecord {
+        id: input.id,
+        profile_id: input.profile_id,
+        provider: "elevenlabs".into(),
+        display_name: display_name.to_owned(),
+        secret_ref,
+        status: "valid".into(),
+        last_verified_at: Some(chrono::Utc::now().to_rfc3339()),
+        voices,
+    };
+    if let Err(error) = runtime.storage.upsert_media_connection(&record) {
+        let _ = runtime.media_secrets.delete(&record.secret_ref);
+        return Err(error.to_string());
+    }
+    Ok(record)
+}
+
+#[tauri::command]
+fn list_media_connections(
+    profile_id: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<Vec<MediaConnectionRecord>, String> {
+    media::validate_identifier(&profile_id)?;
+    runtime.storage.list_media_connections(&profile_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn verify_media_connection(
+    profile_id: String,
+    id: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<MediaConnectionRecord, String> {
+    media::validate_identifier(&profile_id)?;
+    media::validate_identifier(&id)?;
+    let mut record = runtime.storage.media_connection(&profile_id, &id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "media connection was not found".to_owned())?;
+    if record.provider != "elevenlabs" { return Err("unsupported media provider".into()); }
+    runtime.media_secrets.ensure_connection_scope(&profile_id, &id, &record.secret_ref)
+        .map_err(|error| error.to_string())?;
+    let api_key = runtime.media_secrets.get(&record.secret_ref).map_err(|error| error.to_string())?;
+    match runtime.media.verify_elevenlabs(api_key.as_str()).await {
+        Ok(voices) => {
+            record.voices = voices;
+            record.status = "valid".into();
+            record.last_verified_at = Some(chrono::Utc::now().to_rfc3339());
+            runtime.storage.upsert_media_connection(&record).map_err(|error| error.to_string())?;
+            Ok(record)
+        }
+        Err(error) => {
+            record.status = "invalid".into();
+            record.last_verified_at = None;
+            runtime.storage.upsert_media_connection(&record).map_err(|storage_error| storage_error.to_string())?;
+            Err(error)
+        }
+    }
+}
+
+#[tauri::command]
+fn delete_media_connection(
+    profile_id: String,
+    id: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<(), String> {
+    media::validate_identifier(&profile_id)?;
+    media::validate_identifier(&id)?;
+    let record = runtime.storage.media_connection(&profile_id, &id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "media connection was not found".to_owned())?;
+    runtime.media_secrets.ensure_connection_scope(&profile_id, &id, &record.secret_ref)
+        .map_err(|error| error.to_string())?;
+    runtime.media_secrets.delete(&record.secret_ref).map_err(|error| error.to_string())?;
+    let removed = runtime.storage.delete_media_connection(&profile_id, &id).map_err(|error| error.to_string())?;
+    if removed == 0 { Err("media connection was not found".into()) } else { Ok(()) }
+}
+
+#[tauri::command]
+async fn render_media_speech(
+    app: AppHandle,
+    request: MediaSpeechRequest,
+    runtime: State<'_, AppRuntime>,
+) -> Result<MediaAssetResponse, String> {
+    if request.engine == "local" {
+        return runtime.media.render_kokoro_speech(&app, &request).await;
+    }
+    if request.engine == "system" {
+        return runtime.media.render_system_speech(&request).await;
+    }
+    let connection_id = request.connection_id.as_deref().ok_or("media connection is required")?;
+    let connection = runtime.storage.media_connection(&request.profile_id, connection_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "media connection was not found".to_owned())?;
+    if connection.provider != "elevenlabs" || request.provider != "elevenlabs" || connection.status != "valid" {
+        return Err("a verified ElevenLabs media connection is required".into());
+    }
+    if !connection.voices.iter().any(|voice| voice.id == request.voice) {
+        return Err("the requested voice is not in the verified media catalog".into());
+    }
+    runtime.media_secrets.ensure_connection_scope(&request.profile_id, connection_id, &connection.secret_ref)
+        .map_err(|error| error.to_string())?;
+    let api_key = runtime.media_secrets.get(&connection.secret_ref).map_err(|error| error.to_string())?;
+    runtime.media.render_elevenlabs_speech(&request, api_key.as_str()).await
+}
+
+#[tauri::command]
+fn get_cached_local_speech(
+    request: LocalSpeechCacheRequest,
+    runtime: State<'_, AppRuntime>,
+) -> Result<Option<MediaAssetResponse>, String> {
+    runtime.media.cached_local_speech(&request)
+}
+
+#[tauri::command]
+fn cache_local_speech(
+    request: StoreLocalSpeechCacheRequest,
+    runtime: State<'_, AppRuntime>,
+) -> Result<MediaAssetResponse, String> {
+    runtime.media.store_local_speech(&request)
+}
+
+#[tauri::command]
+async fn generate_media_music(
+    request: MediaMusicRequest,
+    runtime: State<'_, AppRuntime>,
+) -> Result<MediaAssetResponse, String> {
+    let connection = runtime.storage.media_connection(&request.profile_id, &request.connection_id)
+        .map_err(|error| error.to_string())?
+        .ok_or_else(|| "media connection was not found".to_owned())?;
+    if connection.provider != "elevenlabs" || connection.status != "valid" {
+        return Err("a verified ElevenLabs media connection is required".into());
+    }
+    runtime.media_secrets.ensure_connection_scope(&request.profile_id, &request.connection_id, &connection.secret_ref)
+        .map_err(|error| error.to_string())?;
+    let api_key = runtime.media_secrets.get(&connection.secret_ref).map_err(|error| error.to_string())?;
+    runtime.media.generate_elevenlabs_music(&request, api_key.as_str()).await
+}
+
+#[tauri::command]
+fn cancel_media_request(request_id: String, runtime: State<'_, AppRuntime>) -> Result<(), String> {
+    runtime.media.cancel(&request_id)
 }
 
 #[tauri::command]
@@ -869,9 +1047,13 @@ pub fn run() {
             app.manage(native_menu_items);
             let app_data = app.path().app_data_dir()?;
             let storage = Arc::new(Storage::open(&app_data.join("vibesurfer.sqlite3"))?);
+            let media = MediaService::new(app_data.join("media-cache"))
+                .map_err(std::io::Error::other)?;
             app.manage(AppRuntime {
                 storage,
                 secrets: SecretVault,
+                media_secrets: MediaSecretVault,
+                media,
                 worker: WorkerManager::new(),
             });
             let app_handle = app.handle().clone();
@@ -919,6 +1101,15 @@ pub fn run() {
             list_provider_connections,
             delete_provider_connection,
             verify_provider_connection,
+            save_media_connection,
+            list_media_connections,
+            verify_media_connection,
+            delete_media_connection,
+            render_media_speech,
+            get_cached_local_speech,
+            cache_local_speech,
+            generate_media_music,
+            cancel_media_request,
             start_generation,
             cancel_generation,
             set_window_corner_radius,

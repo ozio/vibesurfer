@@ -285,8 +285,17 @@ export interface PageDirection {
   iconSet: "lucide" | "carbon" | "ph" | "pepicons-pop" | "streamline-cyber" | "pixelarticons" | "fa" | "streamline-freehand" | "flat-color-icons" | "game-icons" | null;
   imagery: string[];
   selectedCapabilities: CapabilityId[];
+  videoIntent?: VideoIntent;
   creativeRationale: string;
   implementationNotes: string;
+}
+
+export interface VideoIntent {
+  kind: "documentary" | "explainer" | "trailer" | "ambient";
+  goal: string;
+  pacing: "slow" | "balanced" | "fast";
+  narration: "none" | "voiceover";
+  music: "none" | "library" | "generate-if-available";
 }
 
 export interface SiteWorld {
@@ -556,10 +565,13 @@ export type GenerationStrategy = "full" | "turbo";
 export interface VoiceAudioSettings {
   engine: "local" | "system" | "cloud";
   provider: "openai" | "elevenlabs" | "deepgram";
+  mediaConnectionId?: string;
   model: string;
   voice: string;
+  availableVoiceIds: string[];
   speed: number;
-  musicEnabled: boolean;
+  musicMode: "off" | "built-in" | "generate-if-requested";
+  musicVolume: number;
 }
 
 export interface GenerationSettings {

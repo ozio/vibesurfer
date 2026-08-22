@@ -1,6 +1,10 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "bundle": {
-    "externalBin": ["../generation-worker/sidecars/vibesurfer-generation-worker"]
+    "externalBin": [
+      "../generation-worker/sidecars/vibesurfer-generation-worker",
+      "sidecars/vibesurfer-media-worker"
+    ],
+    "resources": ["sidecars/media-runtime/*"]
   }
 }

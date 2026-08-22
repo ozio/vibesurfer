@@ -227,11 +227,14 @@ export const GenerationSettingsSchema = z
     voice: z.object({
       engine: z.enum(["local", "system", "cloud"]).default("local"),
       provider: z.enum(["openai", "elevenlabs", "deepgram"]).default("openai"),
+      mediaConnectionId: z.string().min(1).max(128).optional(),
       model: z.string().max(120).default("kokoro-82m-q8"),
       voice: z.string().max(120).default("af_heart"),
+      availableVoiceIds: z.array(z.string().min(1).max(120)).max(100).default(["af_heart"]),
       speed: z.number().min(0.6).max(1.5).default(1),
-      musicEnabled: z.boolean().default(true),
-    }).strict().default({ engine: "local", provider: "openai", model: "kokoro-82m-q8", voice: "af_heart", speed: 1, musicEnabled: true }),
+      musicMode: z.enum(["off", "built-in", "generate-if-requested"]).default("built-in"),
+      musicVolume: z.number().min(0).max(1).default(0.22),
+    }).strict().default({ engine: "local", provider: "openai", model: "kokoro-82m-q8", voice: "af_heart", availableVoiceIds: ["af_heart"], speed: 1, musicMode: "built-in", musicVolume: 0.22 }),
     images: ImageSettingsSchema.default({
       mode: "tag-placeholder",
       fetchExternal: true,
@@ -277,6 +280,15 @@ export const ProviderReferenceSchema = z
   .strict();
 export type ProviderReference = z.infer<typeof ProviderReferenceSchema>;
 
+export const VideoIntentSchema = z.object({
+  kind: z.enum(["documentary", "explainer", "trailer", "ambient"]),
+  goal: z.string().min(1).max(300),
+  pacing: z.enum(["slow", "balanced", "fast"]),
+  narration: z.enum(["none", "voiceover"]),
+  music: z.enum(["none", "library", "generate-if-available"]),
+}).strict();
+export type VideoIntent = z.infer<typeof VideoIntentSchema>;
+
 export const PageDirectionSchema = z
   .object({
     siteClassification: z.enum(["recognizable", "original"]),
@@ -304,6 +316,7 @@ export const PageDirectionSchema = z
     iconSet: IconSetSchema.nullable(),
     imagery: z.array(z.string().min(1).max(200)).max(16),
     selectedCapabilities: z.array(CapabilityIdSchema).max(16),
+    videoIntent: VideoIntentSchema.optional(),
     creativeRationale: z.string().min(1).max(1_500),
     implementationNotes: z.string().min(1).max(2_000),
   })

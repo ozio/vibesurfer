@@ -13,6 +13,8 @@ public/models/
 public/ort/
 generation-worker/sidecars/
 generation-worker/.*.bun-build
+src-tauri/sidecars/media-runtime/
+src-tauri/sidecars/vibesurfer-media-worker-*
 .*.bun-build
 src-tauri/gen/
 

@@ -98,6 +98,21 @@ describe("Rust host JSONL compatibility", () => {
     expect(normalized.settings.capabilities.enabled).not.toHaveProperty("unknown-capability");
   });
 
+  it("migrates legacy host musicEnabled independently from narration and pseudo-video", () => {
+    const input = hostGenerate({ jobId: "legacy-media-settings" }) as HostGenerateCommand;
+    (input.request.settings as Record<string, unknown>).capabilities = {
+      audioSpeechEnabled: false,
+      externalMediaEnabled: true,
+      enabled: { "pseudo-video": true },
+    };
+    (input.request.settings as Record<string, unknown>).voice = { musicEnabled: false };
+    const normalized = normalizeHostGeneration(input).command;
+    expect(normalized.settings.voice.musicMode).toBe("off");
+    expect(normalized.settings.capabilities.audioSpeechEnabled).toBe(false);
+    expect(normalized.settings.capabilities.externalMediaEnabled).toBe(true);
+    expect(normalized.settings.capabilities.enabled["pseudo-video"]).toBe(true);
+  });
+
   it("preserves a job-level compact mode independently of provider kind", () => {
     const input = hostGenerate({ jobId: "turbo-normalize", kind: "openai" }) as HostGenerateCommand;
     (input.request.provider as Record<string, unknown>).generationMode = "compact";

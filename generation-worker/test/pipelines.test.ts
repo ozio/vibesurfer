@@ -332,6 +332,9 @@ describe("compact local-model pipeline", () => {
     expect(prompt?.system.length).toBeLessThan(800);
     expect(prompt?.prompt.length).toBeLessThan(3_000);
     expect(prompt?.prompt).toContain("Message 1023 from grandma");
+    expect(prompt?.system).not.toContain("pseudo-video");
+    expect(prompt?.prompt).not.toContain("videoIntent");
+    expect(prompt?.prompt).not.toContain("mediaConnection");
     expect(textRequest).toMatchObject({
       maxOutputTokens: 4_096,
       maxRetries: 0,
