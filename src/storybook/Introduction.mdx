@@ -72,7 +72,7 @@ Pure components receive all behavior through props and can be rendered directly.
 - Surfaces and data: `Card`, `ListRow`, `CodeBlock`, and `JsonViewer`.
 - Utilities: `ResizeHandle` and `Shortcut`.
 
-The complete supported CSS API is rendered under **Foundation / Theme tokens** and exported as `UI_THEME_TOKENS`. A theme should define the shared tokens before it adds narrow component overrides. Primitive CSS must not branch on a theme ID; real structural differences belong to a higher-level browser component.
+The complete supported CSS API is rendered under **Foundation / Theme tokens** and exported as `UI_THEME_TOKENS` plus `UI_COMPONENT_THEME_TOKENS`. **Foundation / Theme matrix** shows all canonical full-browser baselines together, and **Foundation / Theme authoring** documents the scaffold, file ownership, explicit-slot rule, validator, and cross-runtime checklist. Primitive CSS must not branch on a theme ID; real structural differences belong to a higher-level browser component.
 
 ## Browser chrome layer
 

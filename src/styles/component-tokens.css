@@ -1,0 +1,26 @@
+:root {
+  --ui-control-background: var(--surface);
+  --ui-control-background-hover: var(--surface-hover);
+  --ui-control-background-active: var(--surface-active);
+  --ui-control-border: var(--border);
+  --ui-control-border-strong: var(--border-strong);
+  --ui-control-radius: var(--radius-sm);
+  --ui-control-shadow: var(--shadow-sm);
+  --ui-field-background: var(--surface);
+  --ui-overlay-background: var(--overlay);
+  --ui-overlay-border: var(--border-strong);
+  --ui-overlay-radius: var(--radius-md);
+  --ui-overlay-shadow: var(--shadow-md);
+  --ui-overlay-shadow-high: var(--shadow-lg);
+  --ui-card-background: var(--surface);
+  --ui-card-border: var(--border);
+  --ui-card-radius: var(--radius-md);
+  --ui-selection-background: var(--accent);
+  --ui-selection-foreground: var(--accent-contrast);
+  --ui-selection-soft-background: var(--accent-soft);
+  --ui-disabled-opacity: 0.5;
+  --browser-chrome-background: var(--chrome-bg);
+  --browser-content-background: var(--surface);
+  --browser-tab-background-active: var(--surface);
+  --browser-omnibox-background: var(--chrome-raised);
+}

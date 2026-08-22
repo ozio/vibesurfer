@@ -1,0 +1,35 @@
+@media (max-height: 760px) {
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__content {
+    padding-block: 16px 8px;
+  }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__masthead { min-height: 54px; margin-bottom: 12px; }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__mark { width: 126px; }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__eyebrow { margin-bottom: 7px; }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page h1 { font-size: clamp(43px, 6vw, 64px); }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__lede { margin: 12px 0 16px; font-size: 13px; }
+  .browser-window[data-chrome-recipe="standard"] .generation-composer { min-height: 54px; }
+  .browser-window[data-chrome-recipe="standard"] .generation-composer input { height: 38px; }
+  .browser-window[data-chrome-recipe="standard"] .generation-composer__submit { width: 38px; height: 38px; flex-basis: 38px; }
+  .browser-window[data-chrome-recipe="standard"] .hallunet-routes { margin-top: 20px; }
+  .browser-window[data-chrome-recipe="standard"] .hallunet-routes__grid button { min-height: 102px; padding-block: 13px; }
+  .browser-window[data-chrome-recipe="standard"] .hallunet-route__copy small { margin-top: 6px; }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__principles { padding-block: 8px 10px; }
+}
+
+@media (max-height: 540px) {
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__content { margin: 0 auto; padding-block: 10px 4px; }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__masthead { min-height: 40px; margin-bottom: 7px; }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__mark { width: 96px; }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__eyebrow { margin-bottom: 4px; font-size: 8px; }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page h1 { font-size: clamp(34px, 5vw, 48px); }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__lede { margin: 7px 0 10px; font-size: 11px; }
+  .browser-window[data-chrome-recipe="standard"] .hallunet-routes__grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .browser-window[data-chrome-recipe="standard"] .hallunet-routes__grid button { min-height: 88px; }
+  .browser-window[data-chrome-recipe="standard"] .hallunet-route__copy small { display: none; }
+  .browser-window[data-chrome-recipe="standard"] .new-tab-page__principles { gap: 8px; padding-block: 4px 6px; }
+}
+
+@media (prefers-contrast: more) {
+  :root[data-theme] { --border: currentColor; --border-strong: currentColor; }
+  button:focus-visible, input:focus-visible, [role="tab"]:focus-visible { outline-width: 3px; }
+}

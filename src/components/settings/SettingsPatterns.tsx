@@ -275,7 +275,7 @@ export function SettingsLayoutOptions({ label, options, value, onValueChange, cl
           className={option.value === value ? "is-active" : undefined}
         >
           {option.preview ?? option.icon}
-          <span><strong>{option.title}</strong>{option.description && <small>{option.description}</small>}</span>
+          <span className="layout-option__copy"><strong>{option.title}</strong>{option.description && <small>{option.description}</small>}</span>
           {option.value === value && <Check aria-hidden="true" />}
         </RadioGroup.Item>
       ))}
@@ -295,7 +295,7 @@ export function SettingsConnectionCard({ title, description, icon, action, class
   return (
     <section className={`connection-card settings-connection-card ${className}`.trim()}>
       <span className="connection-card__mark" aria-hidden="true">{icon}</span>
-      <span><strong>{title}</strong><small>{description}</small></span>
+      <span className="connection-card__copy"><strong>{title}</strong><small>{description}</small></span>
       {action}
     </section>
   );
@@ -340,7 +340,7 @@ function SettingsChoiceCard({ title, description, leading, trailing, selected = 
       onClick={onSelect}
     >
       {leading}
-      <span><strong>{title}</strong>{description && <small>{description}</small>}</span>
+      <span className="settings-choice-card__copy"><strong>{title}</strong>{description && <small>{description}</small>}</span>
       {trailing ?? (selected ? <Check aria-hidden="true" /> : null)}
     </button>
   );
@@ -390,7 +390,7 @@ export function SettingsProviderCard({
   return (
     <article className="provider-row settings-provider-card">
       <span className={`provider-row__status provider-row__status--${status}`} aria-hidden="true" />
-      <span><strong>{name}</strong><small>{description}<span className="sr-only"> Connection status: {status}.</span></small></span>
+      <span className="provider-row__copy"><strong>{name}</strong><small>{description}<span className="sr-only"> Connection status: {status}.</span></small></span>
       {mode && onModeChange && (
         <select
           className="provider-row__mode"
@@ -418,7 +418,7 @@ export function SettingsProviderEmpty({
   title = "No provider keys in this profile",
   description = "Keys are stored in the operating-system credential vault—not localStorage.",
 }: SettingsProviderEmptyProps) {
-  return <div className="provider-list__empty"><KeyRound aria-hidden="true" /><span><strong>{title}</strong><small>{description}</small></span></div>;
+  return <div className="provider-list__empty"><KeyRound aria-hidden="true" /><span className="provider-list__empty-copy"><strong>{title}</strong><small>{description}</small></span></div>;
 }
 
 export interface SettingsArchitectureNode {

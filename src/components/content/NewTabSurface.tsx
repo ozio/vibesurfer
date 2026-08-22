@@ -198,7 +198,11 @@ export function NewTabSurface({
       transition={{ duration: animations ? 0.28 : 0 }}
     >
       <div className="new-tab-page__aura" aria-hidden="true" />
-      <div className="new-tab-page__field" aria-hidden="true"><i /><i /><i /></div>
+      <div className="new-tab-page__field" aria-hidden="true">
+        <i className="new-tab-page__field-orb new-tab-page__field-orb--far" />
+        <i className="new-tab-page__field-orb new-tab-page__field-orb--near" />
+        <i className="new-tab-page__field-orb new-tab-page__field-orb--orbit" />
+      </div>
       <div className="new-tab-page__content">
         <header className="new-tab-page__masthead">
           <motion.div className="new-tab-page__mark" initial={animations ? { opacity: 0, y: -8 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: animations ? 0.28 : 0 }}>

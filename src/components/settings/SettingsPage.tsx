@@ -817,7 +817,7 @@ function ProfileSettings() {
             <label key={id} className={`profile-preset-card${newPreset === id ? " is-active" : ""}`}>
               <input type="radio" name="profile-preset" value={id} checked={newPreset === id} onChange={() => selectPreset(id)} />
               <span className="avatar">{preset.avatar}</span>
-              <span><strong>{preset.name}</strong><small>{THEME_LABELS[preset.chromeSkin].name}</small></span>
+              <span className="profile-preset-card__copy"><strong>{preset.name}</strong><small>{THEME_LABELS[preset.chromeSkin].name}</small></span>
               {newPreset === id && <Check aria-hidden="true" />}
             </label>
           ))}

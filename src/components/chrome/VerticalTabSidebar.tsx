@@ -51,7 +51,7 @@ export function VerticalTabSidebar({
       {tabStrip}
       <div className="vertical-sidebar__footer">
         <span className="status-orb" aria-hidden="true" />
-        <span><strong>{footerTitle}</strong><small>{footerDetail}</small></span>
+        <span className="vertical-sidebar__footer-copy"><strong>{footerTitle}</strong><small>{footerDetail}</small></span>
       </div>
       <ResizeHandle
         className="vertical-sidebar__resize"

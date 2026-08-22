@@ -1,0 +1,150 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Foundation/Theme authoring" />
+
+# Theme Authoring Guide
+
+A browser theme is a complete CSS implementation of the shared React component system. It may change chrome geometry, typography, density, surface treatment, or select a structural browser recipe, but it must not fork component behavior just to achieve a different look.
+
+Use **Foundation / Theme matrix** while authoring. It renders the same deterministic full-browser fixture in Native, Sedative, IE Classic, and Cyberpunk at once. Use the toolbar on an individual story for scheme, platform, density, tab placement, and motion checks.
+
+## Files and ownership
+
+Every registered theme owns exactly one canonical stylesheet:
+
+```text
+src/styles/themes/
+  native/theme.css
+  sedative/theme.css
+  ie-classic/theme.css
+  cyberpunk/theme.css
+```
+
+The remaining layers have deliberately narrower jobs:
+
+- `tokens.css` is an unbranded fallback. It must stay usable without looking like one of the product themes.
+- `component-tokens.css` maps stable component decisions onto foundation tokens.
+- `components.css` and `primitives.css` implement shared structure and behavior. They never branch on a theme ID.
+- `responsive.css` responds to viewport, contrast, and explicit component recipes.
+- `themes/<id>/theme.css` contains the complete visual foundation, optional component-token overrides, and the smallest possible set of theme-specific selectors.
+
+The import order in `app.css` is part of the contract: reset, tokens, components, themes, then runtime accessibility and responsive overrides.
+
+## Start with the scaffold
+
+Generate a complete, neutral starting stylesheet:
+
+```bash
+npm run theme:scaffold -- moonlight --label "Moonlight"
+```
+
+Preview the generated CSS without writing a file:
+
+```bash
+npm run theme:scaffold -- moonlight --label "Moonlight" --dry-run
+```
+
+The scaffold refuses to overwrite a file or reuse a registered ID. It intentionally does not edit registries: adding a theme changes frontend copy, generation behavior, native-window shape, worker validation, canonical stories, and CSS, so those decisions must remain reviewable.
+
+## Foundation tokens are required
+
+The first rule in every theme file is exactly `:root[data-theme="<id>"]`. It defines every token exported by `UI_THEME_TOKENS`:
+
+- typography: UI, display, and monospace families;
+- surfaces: app, chrome, raised chrome, cards, hover, active, and overlays;
+- foregrounds: default, strong, muted, and subtle;
+- borders, accent states, primary actions, status colors, and focus;
+- shadows and radii;
+- browser chrome, tab, control, and icon sizing;
+- motion durations and easing.
+
+Do not depend on another theme's values. The neutral fallback prevents a broken render, but the validator requires each registered theme to be complete.
+
+Scheme variants follow the complete light/default rule:
+
+```css
+:root[data-theme="moonlight"][data-color-scheme="dark"] {
+  color-scheme: dark;
+  --app-bg: #101318;
+  /* Override only the values that differ from the complete default rule. */
+}
+```
+
+If `system` is supported, repeat those overrides inside `@media (prefers-color-scheme: dark)`. Themes that intentionally own one scheme should set `color-scheme` explicitly and ignore the scheme toolbar value.
+
+## Prefer component tokens
+
+`UI_COMPONENT_THEME_TOKENS` is the stable customization layer for reusable UI. Override these before copying selectors:
+
+```css
+:root[data-theme="moonlight"] {
+  --ui-control-radius: 999px;
+  --ui-overlay-shadow-high: 0 24px 80px rgb(0 0 0 / 0.34);
+  --ui-selection-soft-background: color-mix(in srgb, var(--accent) 18%, transparent);
+  --browser-omnibox-background: color-mix(in srgb, var(--chrome-bg) 72%, white);
+}
+```
+
+The complete live reference is under **Foundation / Theme tokens**. Foundation tokens describe the design language; component tokens describe where that language is applied. Add a new component token only when several components share the same semantic decision.
+
+## Selectors and explicit slots
+
+Theme CSS may target stable component classes, state attributes, and explicit slots. Positional selectors such as `:nth-child()` and `:nth-of-type()` are forbidden because inserting an icon or status node must not silently restyle another element.
+
+```css
+/* Good: the component names the decorative role. */
+:root[data-theme="moonlight"] .new-tab-page__field-orb--far { opacity: 0.35; }
+
+/* Rejected by theme:validate. */
+:root[data-theme="moonlight"] .new-tab-page__field i:nth-child(1) { opacity: 0.35; }
+```
+
+If a theme needs a stable hook, add a semantic class or `data-*` slot to the React component and cover it in the component story. Do not add empty markup solely for one theme.
+
+## Structural differences use recipes
+
+CSS is not responsible for pretending that hidden markup is a different browser architecture. Use a recipe when placement or semantics change:
+
+- `STANDARD_CHROME_RECIPE` versus `CLASSIC_CHROME_RECIPE` for title/menu/tab rows;
+- `STANDARD_NAVIGATION_RECIPE` versus `CLASSIC_NAVIGATION_RECIPE` for the Address label and Go action;
+- explicit `data-chrome-recipe`, `data-navigation-recipe`, and appearance attributes for responsive or recipe styling.
+
+The same controlled `TabStrip`, `Omnibox`, commands, menus, keyboard behavior, and connected adapters remain underneath each recipe.
+
+## Register the experience
+
+After scaffolding, complete every facet:
+
+1. Add the ID and full frontend entry to `BROWSER_EXPERIENCE_REGISTRY`.
+2. Add the matching worker entry so the theme has generation instructions, fonts, and schema coverage.
+3. Select an existing chrome/navigation recipe or add a tested recipe when the DOM really differs.
+4. Add the stylesheet import to `src/styles/app.css`.
+5. Add a canonical `BrowserShell` story using the shared welcome fixture.
+6. Add the theme to the visual matrix.
+7. Define the native-window corner radius and keep Rust/frontend completeness tests passing.
+
+Theme IDs, toolbar choices, frontend and worker registries, schemas, canonical stories, and native-window behavior are one cross-runtime contract. Large generation prompts remain in the worker and do not belong in CSS or the frontend bundle.
+
+## Validate before visual polish
+
+```bash
+npm run theme:validate
+npm run typecheck
+npm run test-storybook
+npm run build-storybook
+```
+
+`theme:validate` fails when:
+
+- a registered theme has no canonical stylesheet or is not imported;
+- its complete root rule misses a foundation token;
+- a theme selector leaks into another stylesheet;
+- a component token is missing or documented but unused;
+- a CSS variable cannot resolve;
+- a positional selector, removed `--text-muted`, or confirmed orphan selector returns.
+
+Then inspect the matrix and representative component stories at comfortable and compact density, horizontal and vertical tabs, reduced motion, all supported schemes, and each host platform. Full-browser a11y remains progressive legacy work; reusable component stories stay blocking.
+
+## Definition of done
+
+A theme is ready when it is complete in both registries, passes the contract validator, has no component fork for visual-only differences, exposes named slots instead of positional selectors, appears in the matrix and toolbar, passes Chromium story tests and the static Storybook build, and has been checked in the packaged Tauri application when native chrome changes.

@@ -1,10 +1,14 @@
 @layer reset, tokens, components, themes, utilities;
 
 @import "./tokens.css" layer(tokens);
+@import "./component-tokens.css" layer(tokens);
 @import "./components.css" layer(components);
 @import "./primitives.css" layer(components);
-@import "./themes.css" layer(themes);
-@import "./ie-classic.css" layer(themes);
+@import "./themes/native/theme.css" layer(themes);
+@import "./themes/sedative/theme.css" layer(themes);
+@import "./themes/ie-classic/theme.css" layer(themes);
+@import "./themes/cyberpunk/theme.css" layer(themes);
+@import "./responsive.css" layer(utilities);
 
 @layer reset {
   *, *::before, *::after { box-sizing: border-box; }

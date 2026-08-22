@@ -1,6 +1,4 @@
-import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
-import { useEffect, useGlobals } from "storybook/preview-api";
-import type { ThemeId } from "../types/browser";
+import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
   BROWSER_SHELL_CANONICAL_THEMES,
   WELCOME_BROWSER_FIXTURE,
@@ -9,21 +7,10 @@ import { readBrowserStoryGlobals } from "../storybook/BrowserStoryEnvironment";
 import { withBrowserStoryState } from "../storybook/BrowserStoryHarness";
 import { BrowserShell } from "./BrowserShell";
 
-const withCanonicalTheme: Decorator = (Story, context) => {
-  const [, updateGlobals] = useGlobals();
-  const theme = context.parameters.canonicalTheme as ThemeId | undefined;
-
-  useEffect(() => {
-    if (theme) updateGlobals({ theme });
-  }, [context.id, theme, updateGlobals]);
-
-  return <Story />;
-};
-
 const meta = {
   title: "Browser/BrowserShell",
   component: BrowserShell,
-  decorators: [withCanonicalTheme, withBrowserStoryState],
+  decorators: [withBrowserStoryState],
   parameters: {
     layout: "fullscreen",
     a11y: { test: "todo" },
@@ -43,17 +30,17 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Native: Story = {
-  parameters: { canonicalTheme: BROWSER_SHELL_CANONICAL_THEMES[0] },
+  globals: { theme: BROWSER_SHELL_CANONICAL_THEMES[0] },
 };
 
 export const Sedative: Story = {
-  parameters: { canonicalTheme: BROWSER_SHELL_CANONICAL_THEMES[1] },
+  globals: { theme: BROWSER_SHELL_CANONICAL_THEMES[1] },
 };
 
 export const IEClassic: Story = {
-  parameters: { canonicalTheme: BROWSER_SHELL_CANONICAL_THEMES[2] },
+  globals: { theme: BROWSER_SHELL_CANONICAL_THEMES[2] },
 };
 
 export const Cyberpunk: Story = {
-  parameters: { canonicalTheme: BROWSER_SHELL_CANONICAL_THEMES[3] },
+  globals: { theme: BROWSER_SHELL_CANONICAL_THEMES[3] },
 };

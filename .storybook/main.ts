@@ -87,6 +87,7 @@ const config: StorybookConfig = {
           "@tauri-apps/api/core",
           "@tauri-apps/api/event",
           "@tauri-apps/api/window",
+          "@tauri-apps/plugin-deep-link",
           "@tauri-apps/plugin-opener",
           "zustand/react/shallow",
         ],
