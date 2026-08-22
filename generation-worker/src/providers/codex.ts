@@ -591,12 +591,7 @@ export function extractPartialJsonStringField(source: string, field: string): st
 
 function partialObjectFromStructuredText(text: string): Record<string, unknown> | undefined {
   const html = extractPartialJsonStringField(text, "html");
-  const title = extractPartialJsonStringField(text, "title");
-  if (html === undefined && title === undefined) return undefined;
-  return {
-    ...(title !== undefined ? { meta: { title } } : {}),
-    ...(html !== undefined ? { html } : {}),
-  };
+  return html === undefined ? undefined : { html };
 }
 
 export class CodexModelExecutor implements ModelExecutor {

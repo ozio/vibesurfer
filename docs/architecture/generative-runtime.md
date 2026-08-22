@@ -100,9 +100,10 @@ model/reasoning/service-tier tuple:
    only compatible facts/routes additions.
 2. The host validates all selected fonts and capabilities and constructs an
    `ApprovedPageBrief`. `page-builder` receives that brief and only the selected
-   capability contracts, never the catalog of alternatives. It returns page
-   metadata, summary, and HTML without authority to change identity, palette,
-   fonts, or favicon.
+   capability contracts, never the catalog of alternatives. It returns an
+   internal summary and HTML without authority to change identity, palette,
+   fonts, or favicon. The generated document's `<title>` and
+   `<meta name="description">` are the browser metadata source of truth.
 
 Every optional built-in capability has an independent profile-scoped flag.
 Disabled entries are omitted from the Director catalog, rejected if a stale or

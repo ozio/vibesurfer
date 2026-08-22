@@ -11,6 +11,7 @@ import type {
   SiteIdentity,
 } from "../domain.js";
 import { GENERATION_PROMPT_VERSION as PROMPT_VERSION } from "../domain.js";
+import { extractHtmlDocumentMetadata } from "../html/metadata.js";
 import type { PromptBundle } from "../prompt-builder.js";
 import type { GenerateCommand } from "../protocol/types.js";
 import { compilePage, createProgressivePagePreview } from "./shared.js";
@@ -389,12 +390,11 @@ function pageResult(raw: string, requestUrl: string, minimumLinks: number, tailw
     ?? normalized.match(/<h1\b[^>]*>([\s\S]*?)<\/h1>/i)?.[1]
     ?? fallbackTitle).slice(0, 240) || fallbackTitle;
   const html = ensureDocumentBasics(normalized, requestUrl, title, minimumLinks, tailwindEnabled);
-  const description = decodeBasicEntities(html.match(/<meta\b[^>]*name=["']description["'][^>]*content=["']([^"']*)["']/i)?.[1]
-    ?? html.match(/<meta\b[^>]*content=["']([^"']*)["'][^>]*name=["']description["']/i)?.[1]
-    ?? `Offline generated page for ${requestUrl}`).slice(0, 500);
+  const description = extractHtmlDocumentMetadata(html).description
+    ?? `Offline generated page for ${requestUrl}`;
   const visible = textContent(html);
   const summary = (visible.slice(0, 997) || description).slice(0, 1_000);
-  return { meta: { title, description, pageSummary: summary }, html };
+  return { meta: { pageSummary: summary }, html };
 }
 
 export async function runCompactPipeline(context: PipelineContext): Promise<PipelineResult> {
@@ -437,8 +437,9 @@ export async function runCompactPipeline(context: PipelineContext): Promise<Pipe
 
   const page = pageResult(generated.text, request.url, request.settings.minInternalLinks, request.settings.tailwindEnabled);
   const approvedBrief = compactBrief(turboContext, page.html);
+  const documentMetadata = extractHtmlDocumentMetadata(page.html);
   await emit.metadata({
-    title: page.meta.title,
+    title: documentMetadata.title ?? approvedBrief.identity.name,
     summary: page.meta.pageSummary,
     favicon: approvedBrief.identity.favicon,
   });

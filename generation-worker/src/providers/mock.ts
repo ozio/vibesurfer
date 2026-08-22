@@ -386,8 +386,6 @@ function makePageResult(url: URL, seed: number, prompt: string): PageResult {
   const title = `${sitePatch.name}${suffix}`;
   return PageResultSchema.parse({
     meta: {
-      title,
-      description: `A destination page for ${url.href}.`,
       pageSummary: `An editorial landing page for ${title} with highlights and a dense set of internally consistent routes.`,
     },
     html: makeHtml(url, sitePatch, title, prompt),
@@ -448,7 +446,8 @@ export class DeterministicMockExecutor implements ModelExecutor {
     const output = request.schema.parse(candidate);
     if (request.onPartial && request.purpose === "page-builder") {
       const page = candidate as PageResult;
-      await request.onPartial({ meta: { title: page.meta.title } });
+      const headEnd = page.html.indexOf("</head>");
+      await request.onPartial({ html: page.html.slice(0, headEnd >= 0 ? headEnd + 7 : page.html.length) });
       await request.onPartial(page);
     }
 

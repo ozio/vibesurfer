@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { extractHtmlDocumentMetadata } from "../src/html/metadata.js";
 import {
   MAX_IMAGE_INTENTS,
   MAX_IMAGE_RESOLUTION_CONCURRENCY,
@@ -26,6 +27,16 @@ function links(): string {
 }
 
 describe("HTML compiler", () => {
+  it("reads browser title and description from a normalized document head", () => {
+    expect(extractHtmlDocumentMetadata(`<!doctype html><html><head>
+      <title>  Café &amp; Archive  </title>
+      <meta CONTENT="Field notes &amp; local records" NAME="Description">
+    </head><body></body></html>`)).toEqual({
+      title: "Café & Archive",
+      description: "Field notes & local records",
+    });
+  });
+
   it("compiles only whitelisted Iconify names to inline SVG and supplies required attribution", async () => {
     const settings = {
       ...generationCommand().settings,

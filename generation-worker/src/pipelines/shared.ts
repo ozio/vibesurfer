@@ -9,6 +9,7 @@ import {
   type PageResult,
   type TokenUsage,
 } from "../domain.js";
+import { extractHtmlDocumentMetadata } from "../html/metadata.js";
 import { transformHtml, transformPreviewHtml } from "../html/transform.js";
 import { validateHtml } from "../html/validate.js";
 import type { ModelExecutor } from "../providers/executor.js";
@@ -47,10 +48,13 @@ function settingsFingerprint(request: GenerateCommand, generationMode: ModelExec
 
 export async function compilePage(input: CompilePageInput): Promise<CompiledPage> {
   const artifactId = randomUUID();
+  const sourceMetadata = extractHtmlDocumentMetadata(input.page.html);
+  const fallbackTitle = input.approvedBrief.identity.name.trim().slice(0, 240)
+    || new URL(input.request.url).hostname.slice(0, 240);
   const transformed = await transformHtml({
     html: input.page.html,
     url: input.request.url,
-    title: input.page.meta.title,
+    title: sourceMetadata.title ?? fallbackTitle,
     settings: input.request.settings,
     selectedIconSet: input.approvedBrief.direction.iconSet,
     selectedCapabilities: input.approvedBrief.direction.selectedCapabilities,
@@ -71,6 +75,10 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
   for (const warning of transformed.warnings) {
     await input.emit.warning(warning);
   }
+
+  const documentMetadata = extractHtmlDocumentMetadata(transformed.html);
+  const title = documentMetadata.title ?? fallbackTitle;
+  const description = documentMetadata.description ?? input.page.meta.pageSummary.slice(0, 500);
 
   const validation = validateHtml(transformed.html, input.request.url, input.request.settings);
   const warnings: ArtifactWarning[] = [
@@ -93,8 +101,8 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
   const artifact: PageArtifact = {
     id: artifactId,
     url: input.request.url,
-    title: input.page.meta.title,
-    description: input.page.meta.description,
+    title,
+    description,
     favicon: identity.favicon,
     html: transformed.html,
     summary: input.page.meta.pageSummary,
@@ -115,7 +123,7 @@ export async function compilePage(input: CompilePageInput): Promise<CompiledPage
     warnings,
     sitePatch: patch,
     payload: {
-      description: input.page.meta.description,
+      description,
       summary: input.page.meta.pageSummary,
       favicon: identity.favicon,
       sitePatch: patch,
@@ -159,17 +167,17 @@ export function extractPartialMetadata(partial: unknown): {
   title?: string;
   summary?: string;
 } {
-  if (typeof partial !== "object" || partial === null || !("meta" in partial)) {
+  if (typeof partial !== "object" || partial === null) {
     return {};
   }
-  const meta = Reflect.get(partial, "meta");
-  if (typeof meta !== "object" || meta === null) {
-    return {};
-  }
-  const title = Reflect.get(meta, "title");
-  const summary = Reflect.get(meta, "pageSummary");
+  const html = extractPartialHtml(partial);
+  const title = html ? extractHtmlDocumentMetadata(html).title : undefined;
+  const meta = "meta" in partial ? Reflect.get(partial, "meta") : undefined;
+  const summary = typeof meta === "object" && meta !== null
+    ? Reflect.get(meta, "pageSummary")
+    : undefined;
   return {
-    ...(typeof title === "string" ? { title: title.slice(0, 240) } : {}),
+    ...(title ? { title } : {}),
     ...(typeof summary === "string" ? { summary: summary.slice(0, 1_000) } : {}),
   };
 }

@@ -181,7 +181,7 @@ function normalizeEscapedFormatting(document: DocumentNode): void {
   });
 }
 
-function ensureHeadMetadata(document: DocumentNode, title: string): void {
+function ensureHeadMetadata(document: DocumentNode, fallbackTitle: string): void {
   const html = firstElement(document, "html");
   const head = firstElement(document, "head");
   if (html && !getAttribute(html, "lang")) {
@@ -196,8 +196,8 @@ function ensureHeadMetadata(document: DocumentNode, title: string): void {
     appendMarkup(head, "<title></title>");
     titleElement = firstElement(document, "title");
   }
-  if (titleElement) {
-    titleElement.childNodes = [textNode(title, titleElement)];
+  if (titleElement && !elementText(titleElement).trim()) {
+    titleElement.childNodes = [textNode(fallbackTitle, titleElement)];
   }
 
   const metas = elements(document, "meta");

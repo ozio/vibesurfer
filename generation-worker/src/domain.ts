@@ -5,7 +5,7 @@ import { ArtifactCapabilityUseSchema, CapabilityIdSchema } from "./capabilities/
 import { IconSetSchema } from "./iconify/catalog.js";
 
 export const PROTOCOL_VERSION = 1 as const;
-export const GENERATION_PROMPT_VERSION = 17 as const;
+export const GENERATION_PROMPT_VERSION = 18 as const;
 
 export const DynamicModeSchema = z.enum(["off", "active", "always"]);
 export type DynamicMode = z.infer<typeof DynamicModeSchema>;
@@ -344,8 +344,6 @@ export const PageResultSchema = z
   .object({
     meta: z
       .object({
-        title: z.string().min(1).max(240),
-        description: z.string().min(1).max(500),
         pageSummary: z.string().min(1).max(1_000),
       })
       .strict(),

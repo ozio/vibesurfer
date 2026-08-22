@@ -93,7 +93,7 @@ The host-facing command is:
 
 For compatibility with the frontend domain types, the normalizer also accepts `providerId` / `providerKind` / `modelId` at request level, `settings.tailwindEnabled`, and navigation intent outside `context`.
 
-Full mode performs exactly two structured requests. `page-director` receives the full versioned capability catalog and returns a new identity when required plus a hybrid page direction. The worker validates the selected fonts/capabilities and sends `page-builder` an approved brief containing only selected contracts. Builder cannot change the approved identity, palette, fonts, or favicon.
+Full mode performs exactly two structured requests. `page-director` receives the full versioned capability catalog and returns a new identity when required plus a hybrid page direction. The worker validates the selected fonts/capabilities and sends `page-builder` an approved brief containing only selected contracts. Builder cannot change the approved identity, palette, fonts, or favicon. Like a real browser, the worker reads the artifact title and description from the generated document's `<title>` and `<meta name="description">`; Builder's structured metadata contains only the internal page summary.
 
 Every optional local capability can be disabled independently through `settings.capabilities.enabled`. Disabled IDs are omitted from the Director catalog and rejected during selection approval. The local Iconify catalog has its own `settings.capabilities.iconsEnabled` gate; images, Tailwind, generated scripts, and dynamic regions keep their dedicated settings.
 

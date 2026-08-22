@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { runGenerationPipeline, UnsafeOutputError, type PipelineEmitter } from "../src/pipelines/index.js";
+import { extractHtmlDocumentMetadata } from "../src/html/metadata.js";
 import { normalizeGeneratedHtml } from "../src/pipelines/compact.js";
 import { createProgressivePagePreview } from "../src/pipelines/shared.js";
 import { DeterministicMockExecutor } from "../src/providers/mock.js";
@@ -151,6 +152,12 @@ describe("directed generation pipeline", () => {
     expect(result.artifact.modelExchanges[1]!.prompt).toContain("<approved_page_brief>");
     expect(result.artifact.modelExchanges[1]!.prompt).toContain("Selected Iconify set: `streamline-cyber`");
     expect(result.artifact.modelExchanges[1]!.response).toContain("<iconify-icon");
+    const builderOutput = JSON.parse(result.artifact.modelExchanges[1]!.response) as { meta: Record<string, unknown>; html: string };
+    const generatedMetadata = extractHtmlDocumentMetadata(builderOutput.html);
+    expect(builderOutput.meta).toEqual({ pageSummary: expect.any(String) });
+    expect(result.artifact.title).toBe(generatedMetadata.title);
+    expect(result.artifact.description).toBe("A page for https://bububu.com/");
+    expect(result.artifact.payload).toMatchObject({ description: result.artifact.description });
     expect(result.artifact.html).toContain("data-iconify-rendered");
     expect(result.artifact.html).toContain("<svg");
     expect(result.artifact.html).not.toContain("code.iconify.design");

@@ -171,6 +171,8 @@ describe("two-stage prompt layering", () => {
     expect(bundle.prompt).toContain(iconifyPack("streamline-cyber").promptMap);
     expect(bundle.prompt).toContain("data-iconify-attribution");
     expect(bundle.prompt).not.toContain(iconifyPack("lucide").promptFlavor);
+    expect(bundle.prompt).toContain("HTML document head is the only source of browser title and description");
+    expect(bundle.prompt).toContain("Produce only the internal page summary and one complete HTML document");
   });
 
   it("uses a strict icon-set enum and tells Builder to omit Iconify for null", () => {
