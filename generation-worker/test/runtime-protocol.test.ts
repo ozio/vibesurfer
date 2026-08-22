@@ -84,6 +84,13 @@ describe("Rust host JSONL compatibility", () => {
     expect(enabled.settings.allowGeneratedScripts).toBe(true);
   });
 
+  it("preserves a job-level compact mode independently of provider kind", () => {
+    const input = hostGenerate({ jobId: "turbo-normalize", kind: "openai" }) as HostGenerateCommand;
+    (input.request.provider as Record<string, unknown>).generationMode = "compact";
+    const normalized = normalizeHostGeneration(input).command;
+    expect(normalized.provider.generationMode).toBe("compact");
+  });
+
   it("accepts initialize and nested generate, then emits host-shaped terminal events", async () => {
     const outputs: Output[] = [];
     const terminal = terminalPromise(outputs, "generation.completed");
@@ -112,6 +119,27 @@ describe("Rust host JSONL compatibility", () => {
     expect(outputs.filter((output) => typeof output.sequence === "number").map((output) => output.sequence)).toEqual(
       [...outputs.filter((output) => typeof output.sequence === "number").keys()].map((index) => index + 1),
     );
+    await runtime.close();
+  });
+
+  it("runs Turbo through one plain-text mock exchange", async () => {
+    const outputs: Output[] = [];
+    const terminal = terminalPromise(outputs, "generation.completed");
+    const runtime = new WorkerRuntime(terminal.sink);
+    const input = hostGenerate({ jobId: "turbo-job" });
+    (input.request.provider as Record<string, unknown>).generationMode = "compact";
+    await runtime.handleLine(JSON.stringify(input));
+    await terminal.promise;
+
+    const completed = outputs.find((output) => output.type === "generation.completed");
+    expect(completed).toMatchObject({
+      jobId: "turbo-job",
+      artifact: {
+        payload: { pipeline: "compact" },
+        modelExchanges: [{ purpose: "page-builder" }],
+      },
+      usage: { requests: 1 },
+    });
     await runtime.close();
   });
 

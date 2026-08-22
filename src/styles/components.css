@@ -136,6 +136,10 @@
 .dynamic-badge--updating { color: var(--accent); }
 .dynamic-badge--error { color: var(--danger, #c23b3b); }
 .dynamic-badge .is-spinning { animation: spin .8s linear infinite; }
+.generation-mode-pill { display: inline-flex; height: 26px; flex: 0 0 auto; align-items: center; gap: 5px; padding: 0 9px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; background: var(--chrome-raised); font-size: 9px; font-weight: 750; letter-spacing: .02em; }
+.generation-mode-pill:hover { color: var(--text); border-color: var(--border-strong); background: var(--surface-hover); }
+.generation-mode-pill svg { width: 12px; height: 12px; }
+.generation-mode-pill.is-turbo { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 42%, var(--border)); background: var(--accent-soft); }
 .dynamic-menu { width: 248px; }
 .dynamic-menu__times { display: grid; gap: 5px; padding: 5px 8px 8px; color: var(--muted); font-size: 10px; }
 .dynamic-menu__times span { display: flex; justify-content: space-between; gap: 12px; }
@@ -833,6 +837,8 @@
 .settings-callout--compact { margin: 12px 0 0; }
 .settings-callout--compact.is-enabled { border-color: color-mix(in srgb, var(--danger) 38%, var(--border)); background: color-mix(in srgb, var(--danger) 7%, var(--surface)); }
 .settings-callout--compact.is-enabled > svg { color: var(--danger); }
+.settings-callout--compact.is-turbo { border-color: color-mix(in srgb, var(--accent) 36%, var(--border)); background: color-mix(in srgb, var(--accent) 7%, var(--surface)); }
+.settings-callout--compact.is-turbo > svg { color: var(--accent); }
 .privacy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .privacy-grid article { padding: 22px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); }
 .privacy-grid svg { width: 22px; height: 22px; color: var(--accent); }
@@ -841,6 +847,8 @@
 .readonly-field { padding: 12px 14px; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); font-family: var(--font-mono); font-size: 11px; }
 
 @media (max-width: 940px) {
+  .generation-mode-pill { width: var(--icon-button-size); padding: 0; justify-content: center; }
+  .generation-mode-pill span { display: none; }
   .model-pill { min-width: var(--icon-button-size); width: var(--icon-button-size); padding: 0; justify-content: center; border-radius: 50%; }
   .model-pill__copy, .model-pill__status, .model-pill__chevron { display: none; }
   .model-pill__mark { background: transparent; }

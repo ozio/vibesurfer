@@ -303,6 +303,7 @@ export function normalizeHostDynamicGeneration(input: HostGenerateCommand): Norm
     provider: {
       connectionId: normalizedProvider.connection.id,
       modelId: normalizedProvider.modelId,
+      generationMode: normalizedProvider.connection.generationMode,
       ...(normalizedProvider.reasoningEffort ? { reasoningEffort: normalizedProvider.reasoningEffort } : {}),
       ...(normalizedProvider.serviceTier ? { serviceTier: normalizedProvider.serviceTier } : {}),
     },
@@ -419,6 +420,7 @@ export function normalizeHostGeneration(input: HostGenerateCommand): NormalizedH
     provider: {
       connectionId: normalizedProvider.connection.id,
       modelId: normalizedProvider.modelId,
+      generationMode: normalizedProvider.connection.generationMode,
       ...(normalizedProvider.reasoningEffort
         ? { reasoningEffort: normalizedProvider.reasoningEffort }
         : {}),

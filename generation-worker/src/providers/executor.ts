@@ -28,6 +28,8 @@ export interface GenerateTextRequest {
   prompt: PromptBundle;
   abortSignal: AbortSignal;
   maxOutputTokens: number;
+  maxRetries?: number;
+  stopSequences?: string[];
   onPartialText?: (accumulatedText: string) => void | Promise<void>;
 }
 
@@ -144,7 +146,8 @@ export class AiSdkModelExecutor implements ModelExecutor {
       prompt: request.prompt.prompt,
       maxOutputTokens: request.maxOutputTokens,
       abortSignal: request.abortSignal,
-      maxRetries: 1,
+      maxRetries: request.maxRetries ?? 1,
+      ...(request.stopSequences ? { stopSequences: request.stopSequences } : {}),
       onError: ({ error }) => {
         streamFailure = error;
       },

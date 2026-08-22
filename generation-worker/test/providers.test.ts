@@ -44,6 +44,24 @@ describe("provider registry", () => {
     expect(() => registry.resolve("openai-no-key", "model", "seed")).toThrow(ProviderConfigurationError);
   });
 
+  it("lets a job select compact generation independently of the provider kind", () => {
+    const registry = new InMemoryProviderRegistry();
+    registry.upsert({
+      id: "openai-turbo",
+      kind: "openai",
+      displayName: "OpenAI Turbo",
+      supportsStructuredOutputs: true,
+      mockLatencyMs: 0,
+    }, { apiKey: "never-sent-in-this-test" });
+    const executor = registry.resolve("openai-turbo", {
+      connectionId: "openai-turbo",
+      modelId: "test-model",
+      generationMode: "compact",
+    }, "seed");
+    expect(executor.generationMode).toBe("compact");
+    expect(executor.generateText).toBeTypeOf("function");
+  });
+
   it("keeps credentials out of its public listing and creates the system Codex adapter", () => {
     const registry = new InMemoryProviderRegistry();
     registry.upsert(
@@ -62,8 +80,11 @@ describe("provider registry", () => {
       modelId: "codex-model",
       reasoningEffort: "high",
       serviceTier: "fast",
+      generationMode: "compact",
     }, "seed");
     expect(executor).toBeInstanceOf(CodexModelExecutor);
     expect(executor.actualProviderKind).toBe("codex");
+    expect(executor.generationMode).toBe("compact");
+    expect(executor.generateText).toBeTypeOf("function");
   });
 });

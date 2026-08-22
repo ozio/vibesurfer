@@ -325,6 +325,26 @@
   stroke-width: 2.4;
 }
 
+:root[data-theme="ie-classic"] .generation-mode-pill {
+  height: 24px;
+  padding: 0 7px;
+  color: #111;
+  border: 1px solid #ffffff;
+  border-right-color: #716f64;
+  border-bottom-color: #716f64;
+  border-radius: 0;
+  background: #ece9d8;
+  box-shadow: inset 1px 1px #ffffff;
+  font-weight: 400;
+}
+
+:root[data-theme="ie-classic"] .generation-mode-pill.is-turbo {
+  color: #000080;
+  border-color: #716f64 #ffffff #ffffff #716f64;
+  background: #dedacd;
+  box-shadow: inset 1px 1px #aca899;
+}
+
 :root[data-theme="ie-classic"] .address-bar {
   height: 24px;
   min-width: 270px;

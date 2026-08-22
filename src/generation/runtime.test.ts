@@ -57,7 +57,7 @@ describe("generation runtime protocol", () => {
       siteWorldId: "site-example",
       browserTheme: "native",
       worldPromptSnapshot: job.worldPromptSnapshot,
-      provider: { connectionId: "openai-main", kind: "openai", modelId: "gpt-test" },
+      provider: { connectionId: "openai-main", kind: "openai", modelId: "gpt-test", generationMode: "directed" },
       settings: { motionEnabled: true, maxOutputTokens: 16_000 },
       context: { siteWorld: world, identityStrategy: "reuse", navigationIntent: { linkContext: "News desk, 12 August edition" } },
     });
@@ -89,6 +89,21 @@ describe("generation runtime protocol", () => {
       },
     });
     expect((excluded.request.context as { relevantHistory: unknown[] }).relevantHistory).toEqual([]);
+  });
+
+  it("routes a snapshotted Turbo job through compact generation regardless of provider kind", () => {
+    const turboJob: GenerationJob = {
+      ...job,
+      generationSettingsSnapshot: {
+        ...structuredClone(DEFAULT_GENERATION_SETTINGS),
+        strategy: "turbo",
+      },
+    };
+    const input = buildGenerationRequest(useBrowserStore.getState(), turboJob);
+    expect(input.request).toMatchObject({
+      provider: { kind: "openai", generationMode: "compact" },
+      settings: { strategy: "turbo" },
+    });
   });
 
   it("keeps job chrome and world snapshots stable when the active profile changes later", () => {

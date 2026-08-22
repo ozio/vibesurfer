@@ -65,6 +65,23 @@ function sendStructuredStream(response: ServerResponse): void {
   response.end("data: [DONE]\n\n");
 }
 
+function sendTextStream(response: ServerResponse): void {
+  const common = {
+    id: "chatcmpl-turbo-contract",
+    object: "chat.completion.chunk",
+    created: 1_700_000_001,
+    model: "contract-model",
+  };
+  response.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+  response.write(`data: ${JSON.stringify({ ...common, choices: [{ index: 0, delta: { role: "assistant", content: "<!doctype html><html><head><title>Turbo</title></head><body>Fast" }, finish_reason: null }] })}\n\n`);
+  response.write(`data: ${JSON.stringify({ ...common, choices: [{ index: 0, delta: { content: "</body>" }, finish_reason: "stop" }], usage: { prompt_tokens: 9, completion_tokens: 12, total_tokens: 21 } })}\n\n`);
+  response.end("data: [DONE]\n\n");
+}
+
 async function closeServer(server: ReturnType<typeof createServer>): Promise<void> {
   server.closeIdleConnections();
   await new Promise<void>((resolve, reject) => {
@@ -73,6 +90,66 @@ async function closeServer(server: ReturnType<typeof createServer>): Promise<voi
 }
 
 describe("OpenAI-compatible AI SDK HTTP contract", () => {
+  it("sends Turbo as plain text with a 4K ceiling and HTML stop sequence", async () => {
+    const captured: CapturedRequest[] = [];
+    const server = createServer((request, response) => {
+      void readRequest(request).then((value) => {
+        captured.push(value);
+        sendTextStream(response);
+      });
+    });
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
+
+    try {
+      const address = server.address() as AddressInfo;
+      const registry = new InMemoryProviderRegistry();
+      registry.upsert({
+        id: "turbo-contract-provider",
+        kind: "openai-compatible",
+        displayName: "Turbo contract provider",
+        baseUrl: `http://127.0.0.1:${address.port}/v1`,
+        supportsStructuredOutputs: false,
+        generationMode: "compact",
+        mockLatencyMs: 0,
+      }, { apiKey: "local-test-key" });
+      const executor = registry.resolve("turbo-contract-provider", {
+        connectionId: "turbo-contract-provider",
+        modelId: "contract-model",
+        generationMode: "compact",
+      }, "seed");
+      const result = await executor.generateText!({
+        purpose: "page-builder",
+        prompt: { system: "turbo-system", prompt: "turbo-prompt", fingerprint: "turbo", version: 16 },
+        abortSignal: AbortSignal.timeout(5_000),
+        maxOutputTokens: 4_096,
+        maxRetries: 0,
+        stopSequences: ["</html>"],
+      });
+
+      expect(result.text).toContain("<title>Turbo</title>");
+      expect(captured).toHaveLength(1);
+      expect(captured[0]?.body).toMatchObject({
+        model: "contract-model",
+        max_tokens: 4_096,
+        stop: ["</html>"],
+        stream: true,
+        messages: [
+          { role: "system", content: "turbo-system" },
+          { role: "user", content: "turbo-prompt" },
+        ],
+      });
+      expect(captured[0]?.body).not.toHaveProperty("response_format");
+    } finally {
+      await closeServer(server);
+    }
+  });
+
   it("sends auth and JSON Schema, parses structured SSE, and redacts public failures", async () => {
     const secret = "sk-contract-secret-never-emit";
     const captured: CapturedRequest[] = [];

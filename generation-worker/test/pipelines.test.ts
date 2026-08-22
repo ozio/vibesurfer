@@ -261,12 +261,15 @@ describe("compact local-model pipeline", () => {
     expect(result.artifact.title).toBe("Карманная энциклопедия воды");
     expect(result.artifact.modelExchanges).toHaveLength(1);
     expect(result.artifact.payload).toMatchObject({ pipeline: "compact" });
+    expect(result.artifact.allowGeneratedScripts).toBe(false);
+    expect(result.artifact.dynamicManifest).toBeUndefined();
+    expect(result.artifact.capabilityManifest.map((entry) => entry.id).sort()).toEqual(["inline-page-css", "semantic-navigation"]);
     expect(result.artifact.html).toContain("Обезвоживание");
     expect(result.artifact.html).not.toContain("```html");
     expect(previews.at(-1)).toContain("Обезвоживание");
   });
 
-  it("puts motion, utility-first Tailwind, local JavaScript, and link context into the compact prompt", async () => {
+  it("keeps Turbo static, bounded, and focused on the navigation context", async () => {
     const executor = new CompactLocalExecutor();
     const request = generationCommand({
       settings: {
@@ -293,17 +296,58 @@ describe("compact local-model pipeline", () => {
     });
 
     const prompt = executor.textRequests[0]?.prompt;
-    expect(prompt?.system).toContain("literal stock Tailwind utility classes");
-    expect(prompt?.system).toContain("Mark every non-navigation form with data-vibe-local");
-    expect(prompt?.system).toContain("Motion is disabled");
-    expect(prompt?.system).toContain("data-vibe-context");
+    const textRequest = executor.textRequests[0];
+    expect(prompt?.system).toContain("one inline <style> element");
+    expect(prompt?.system).toContain("Do not use scripts");
+    expect(prompt?.system).not.toContain("Tailwind");
+    expect(prompt?.system.length).toBeLessThan(800);
+    expect(prompt?.prompt.length).toBeLessThan(3_000);
     expect(prompt?.prompt).toContain("Message 1023 from grandma");
-    expect(prompt?.prompt).toContain("canonical roots familiar");
+    expect(textRequest).toMatchObject({
+      maxOutputTokens: 4_096,
+      maxRetries: 0,
+      stopSequences: ["</html>"],
+    });
   });
 
   it("wraps a useful plain-text fragment instead of discarding it", () => {
     const html = normalizeGeneratedHtml("Короткая, но полезная памятка от локальной модели.");
     expect(html).toContain("<pre");
     expect(html).toContain("полезная памятка");
+  });
+
+  it("hard-bounds Turbo input even when profile and navigation context are large", async () => {
+    const executor = new CompactLocalExecutor();
+    const base = generationCommand();
+    await runGenerationPipeline({
+      request: generationCommand({
+        worldPromptSnapshot: { revision: 9, vibe: "v".repeat(1_000), prompt: "world ".repeat(3_000) },
+        context: {
+          ...base.context,
+          relevantHistory: [{
+            artifactId: "prior",
+            url: "https://example.com/previous?context=large",
+            title: "Prior title ".repeat(20),
+            purpose: "Prior purpose ".repeat(50),
+            factsIntroduced: [],
+            outboundRoutes: [],
+          }],
+          navigationIntent: {
+            ...base.context.navigationIntent,
+            kind: "form",
+            anchorText: "anchor ".repeat(100),
+            linkContext: "context ".repeat(300),
+            surroundingText: "nearby ".repeat(300),
+            formFields: Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`field-${index}`, "value ".repeat(200)])),
+          },
+        },
+      }),
+      executor,
+      signal: new AbortController().signal,
+      emit: emitter().value,
+    });
+
+    const bundle = executor.textRequests[0]!.prompt;
+    expect(bundle.system.length + bundle.prompt.length).toBeLessThan(4_800);
   });
 });

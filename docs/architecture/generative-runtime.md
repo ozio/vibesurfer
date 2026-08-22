@@ -88,9 +88,9 @@ Events for an inactive or superseded `jobId` are ignored. Sequence-bearing
 events are monotonic. The host treats malformed lines as a worker protocol
 failure, never as page content.
 
-## Directed generation
+## Full and Turbo generation
 
-Every uncached page performs exactly two model exchanges using one selected
+Full mode performs exactly two model exchanges using one selected
 model/reasoning/service-tier tuple:
 
 1. `page-director` receives the URL, navigation context, profile world-prompt
@@ -103,6 +103,13 @@ model/reasoning/service-tier tuple:
    capability contracts, never the catalog of alternatives. It returns page
    metadata, summary, and HTML without authority to change identity, palette,
    fonts, or favicon.
+
+Turbo mode is selected from the same frozen job snapshot and performs one
+ordinary streaming text exchange. Its bounded prompt asks only for HTML; the
+host supplies stable identity/favicon data, extracts document metadata, adds
+missing routes, disables optional capabilities, and applies the same sanitizer
+and final validation. Turbo has a 4,096-token output ceiling, no automatic
+provider retry, and an `</html>` stop sequence.
 
 Sanitization, compilation, image resolution, and validation are deterministic.
 There is no model-assisted repair. A failed candidate leaves the prior committed

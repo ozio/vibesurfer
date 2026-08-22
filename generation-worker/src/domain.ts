@@ -5,7 +5,7 @@ import { ArtifactCapabilityUseSchema, CapabilityIdSchema } from "./capabilities/
 import { IconSetSchema } from "./iconify/catalog.js";
 
 export const PROTOCOL_VERSION = 1 as const;
-export const GENERATION_PROMPT_VERSION = 15 as const;
+export const GENERATION_PROMPT_VERSION = 16 as const;
 
 export const DynamicModeSchema = z.enum(["off", "active", "always"]);
 export type DynamicMode = z.infer<typeof DynamicModeSchema>;
@@ -256,6 +256,7 @@ export const ProviderReferenceSchema = z
   .object({
     connectionId: z.string().min(1).max(100),
     modelId: z.string().min(1).max(200),
+    generationMode: z.enum(["directed", "compact"]).optional(),
     reasoningEffort: z
       .string()
       .min(1)

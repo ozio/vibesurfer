@@ -93,7 +93,9 @@ The host-facing command is:
 
 For compatibility with the frontend domain types, the normalizer also accepts `providerId` / `providerKind` / `modelId` at request level, `settings.tailwindEnabled`, and navigation intent outside `context`.
 
-Every uncached page performs exactly two structured requests. `page-director` receives the full versioned capability catalog and returns a new identity when required plus a hybrid page direction. The catalog exposes ten stylistically distinct Iconify prefixes but no individual icon names; Director selects one `iconSet` or `null`. The worker validates the selected fonts/capabilities and sends `page-builder` an approved brief containing only selected contracts plus the selected pack's compact semantic map, flavor names, palette type, and attribution. Builder cannot see alternative packs or change the approved identity, palette, fonts, or favicon. Deterministic compiler/validation failures end the job; there is no model repair stage.
+Full mode performs exactly two structured requests. `page-director` receives the full versioned capability catalog and returns a new identity when required plus a hybrid page direction. The worker validates the selected fonts/capabilities and sends `page-builder` an approved brief containing only selected contracts. Builder cannot change the approved identity, palette, fonts, or favicon.
+
+Turbo mode performs one ordinary streaming text request with no structured-output schema. The model returns only a compact HTML document with a 4,096-token ceiling. The worker supplies deterministic identity/favicon data, extracts title and description from the document, adds missing routes and metadata, disables generated scripts/images/dynamic regions/optional capabilities, and applies the normal sanitizer and validator. Turbo uses no automatic provider retry and sends `</html>` as a stop sequence. Deterministic compiler/validation failures end either mode; there is no semantic repair request.
 
 ### Generation events
 
@@ -111,7 +113,7 @@ generation.failed      { error: { code, message, retryable } }
 generation.cancelled
 ```
 
-The terminal artifact always includes `id`, `siteId`, `url`, `title`, `html`, `createdAt`, two `modelExchanges`, and `payload`. `payload` preserves the Director-approved identity/direction, favicon, summary, compatible site additions, provider/model, prompt/settings versions, usage, warnings, world-prompt snapshot, and parent artifact linkage when the Rust storage layer projects the record into its smaller database type.
+The terminal artifact always includes `id`, `siteId`, `url`, `title`, `html`, `createdAt`, one or two `modelExchanges`, and `payload`. `payload` preserves the approved or host-derived identity/direction, favicon, summary, compatible site additions, provider/model, prompt/settings versions, usage, warnings, world-prompt snapshot, and parent artifact linkage when the Rust storage layer projects the record into its smaller database type.
 
 ### Cancel
 

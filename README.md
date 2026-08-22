@@ -14,7 +14,7 @@ The repository contains both a fast browser preview and the Tauri 2 desktop runt
 - Profile-scoped workspaces with independent tabs, chrome skin, world prompt revision, model controls, generation settings, history, artifacts, provider connections, and site worlds.
 - Deterministic, network-free mock generation for development and CI.
 - BYOK connections for OpenAI, Anthropic, Google, and HTTPS OpenAI-compatible endpoints in the desktop app.
-- An exact two-request Director → Builder pipeline with ordered progress, cancellation, and deterministic validation; there is no semantic repair request.
+- Switchable Full and Turbo generation: Full uses the exact two-request Director → Builder pipeline; Turbo uses one bounded plain-HTML request. Both retain ordered progress, cancellation, and deterministic validation with no semantic repair request.
 - Editable profile world prompts snapshotted into new site identities below immutable protocol and security instructions.
 - Optional Tailwind artifact compilation, generated JavaScript interactions, and configurable semantic image resolution.
 - Sandboxed generated documents connected to the trusted browser chrome through a private, typed message bridge.
@@ -49,10 +49,12 @@ The worker protocol is newline-delimited JSON. Each request has a `requestId`; g
 
 ## Generation pipeline
 
-Every uncached page uses exactly two schema-constrained model requests with the same selected model, reasoning effort, and service tier:
+Full mode uses exactly two schema-constrained model requests with the same selected model, reasoning effort, and service tier:
 
 1. **Page Director** receives the URL/navigation context, the profile world-prompt snapshot, any frozen SiteWorld identity and history, plus the complete versioned capability catalog. It returns a strict identity/direction contract with free-form creative rationale and implementation notes.
 2. **Page Builder** receives the immutable security/output protocol, URL, world-prompt snapshot, approved brief, and only the capability contracts selected by Director. It cannot replace the approved identity, palette, fonts, or favicon.
+
+Turbo mode skips Director and structured output. It sends one short, bounded prompt and receives only HTML with a 4,096-token ceiling; metadata, favicon, missing document structure and routes are completed deterministically by the host.
 
 The resulting HTML is sanitized, compiled, image-resolved, and validated deterministically. A failure does not trigger another model request and does not replace the previously committed artifact. Cached URLs, history restores, and same-document fragments make no model calls.
 

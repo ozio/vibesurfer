@@ -124,9 +124,9 @@ fn provider_for_worker(
             return Err("requested model does not belong to the provider connection".into());
         }
     }
-    let generation_mode = provider
-        .payload
+    let generation_mode = requested
         .get("generationMode")
+        .or_else(|| provider.payload.get("generationMode"))
         .and_then(Value::as_str)
         .filter(|value| matches!(*value, "directed" | "compact"))
         .unwrap_or(if provider.kind == "openai-compatible" {
@@ -1038,7 +1038,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_openai_compatible_provider_defaults_to_compact_generation() {
+    fn requested_generation_mode_overrides_the_legacy_provider_default() {
         let mut record = provider_record();
         record.kind = "openai-compatible".into();
         record.base_url = Some("http://127.0.0.1:8080/v1".into());
@@ -1051,8 +1051,8 @@ mod tests {
             }),
         )
         .unwrap();
-        assert_eq!(provider["generationMode"], "compact");
-        assert_eq!(provider["supportsStructuredOutputs"], false);
+        assert_eq!(provider["generationMode"], "directed");
+        assert_eq!(provider["supportsStructuredOutputs"], true);
     }
 
     #[test]

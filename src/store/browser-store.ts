@@ -165,7 +165,8 @@ export const DEFAULT_BROWSER_PREFERENCES: BrowserPreferences = {
 };
 
 export const DEFAULT_GENERATION_SETTINGS: GenerationSettings = {
-  promptVersion: 15,
+  promptVersion: 16,
+  strategy: "full",
   maxOutputTokens: 16_000,
   reuseCachedPages: true,
   dynamicMode: "active",
@@ -2289,6 +2290,7 @@ function migrateGenerationSettings(value: unknown, version: number): GenerationS
     && imageProvider !== "off";
   return {
     promptVersion: DEFAULT_GENERATION_SETTINGS.promptVersion,
+    strategy: source.strategy === "turbo" ? "turbo" : "full",
     maxOutputTokens: clampInteger(
       numberValue(source.maxOutputTokens) ?? DEFAULT_GENERATION_SETTINGS.maxOutputTokens,
       512,

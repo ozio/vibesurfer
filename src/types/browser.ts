@@ -549,6 +549,8 @@ export interface GenerationCapabilitySettings {
   experimentalEnabled: boolean;
 }
 
+export type GenerationStrategy = "full" | "turbo";
+
 export interface VoiceAudioSettings {
   engine: "local" | "system" | "cloud";
   provider: "openai" | "elevenlabs" | "deepgram";
@@ -560,6 +562,7 @@ export interface VoiceAudioSettings {
 
 export interface GenerationSettings {
   promptVersion: number;
+  strategy: GenerationStrategy;
   maxOutputTokens: number;
   reuseCachedPages: boolean;
   dynamicMode: DynamicMode;

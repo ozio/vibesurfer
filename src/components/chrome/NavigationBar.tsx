@@ -7,6 +7,7 @@ import { AppMenu } from "./AppMenu";
 import { ModelControl } from "./ModelControl";
 import { ProfileMenu } from "./ProfileMenu";
 import { DynamicBadge } from "./DynamicBadge";
+import { GenerationModeControl } from "./GenerationModeControl";
 
 export function NavigationBar({ tab }: { tab: BrowserTab }) {
   const go = useBrowserStore((state) => state.go);
@@ -36,6 +37,7 @@ export function NavigationBar({ tab }: { tab: BrowserTab }) {
       </div>
       <AddressBar tab={tab} />
       <DynamicBadge tab={tab} artifact={artifact} />
+      <GenerationModeControl />
       <ModelControl />
       <ProfileMenu />
       <AppMenu />

@@ -9,7 +9,9 @@ import { z } from "zod";
 import type { TokenUsage } from "../domain.js";
 import {
   createModelExchange,
+  type GeneratedText,
   type GeneratedObject,
+  type GenerateTextRequest,
   type GenerateObjectRequest,
   type ModelExecutor,
 } from "./executor.js";
@@ -21,12 +23,18 @@ const CODEX_DEVELOPER_INSTRUCTIONS = [
   "Never call tools, execute commands, inspect files, access external resources, or modify the environment.",
   "Produce only the final JSON value that matches the supplied output schema.",
 ].join(" ");
+const CODEX_TEXT_INSTRUCTIONS = [
+  "You are a plain-text generator embedded in vibesurfer.",
+  "Never call tools, execute commands, inspect files, access external resources, or modify the environment.",
+  "Produce only the requested text without commentary or Markdown fences.",
+].join(" ");
 
 interface CodexExecutorDescriptor {
   providerId: string;
   modelId: string;
   reasoningEffort?: string;
   serviceTier?: string;
+  generationMode?: "directed" | "compact";
   environment?: NodeJS.ProcessEnv;
 }
 
@@ -44,7 +52,7 @@ interface CodexRunOptions {
   serviceTier?: string;
   developerInstructions: string;
   prompt: string;
-  outputSchema: unknown;
+  outputSchema?: unknown;
   signal: AbortSignal;
   onText?: (text: string) => void | Promise<void>;
 }
@@ -382,7 +390,7 @@ async function runCodex(options: CodexRunOptions): Promise<CodexRunResult> {
         params: {
           threadId,
           input: [{ type: "text", text: options.prompt, text_elements: [] }],
-          outputSchema: options.outputSchema,
+          ...(options.outputSchema !== undefined ? { outputSchema: options.outputSchema } : {}),
           ...(options.reasoningEffort ? { effort: options.reasoningEffort } : {}),
           ...(options.serviceTier ? { serviceTier: options.serviceTier } : {}),
         },
@@ -595,6 +603,7 @@ export class CodexModelExecutor implements ModelExecutor {
   readonly actualProviderKind = "codex" as const;
   readonly providerId: string;
   readonly modelId: string;
+  readonly generationMode: "directed" | "compact";
   readonly #reasoningEffort: string | undefined;
   readonly #serviceTier: string | undefined;
   readonly #environment: NodeJS.ProcessEnv;
@@ -602,6 +611,7 @@ export class CodexModelExecutor implements ModelExecutor {
   constructor(descriptor: CodexExecutorDescriptor) {
     this.providerId = descriptor.providerId;
     this.modelId = descriptor.modelId;
+    this.generationMode = descriptor.generationMode ?? "directed";
     this.#reasoningEffort = descriptor.reasoningEffort;
     this.#serviceTier = descriptor.serviceTier;
     this.#environment = descriptor.environment ?? process.env;
@@ -658,6 +668,45 @@ export class CodexModelExecutor implements ModelExecutor {
       const completedAt = new Date();
       return {
         output,
+        usage: result.usage,
+        exchange: createModelExchange({
+          request,
+          providerId: this.providerId,
+          modelId: this.modelId,
+          actualProviderKind: this.actualProviderKind,
+          startedAt,
+          completedAt,
+          response: result.finalMessage,
+          usage: result.usage,
+        }),
+      };
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  }
+
+  async generateText(request: GenerateTextRequest): Promise<GeneratedText> {
+    const startedAt = new Date();
+    const executable = codexExecutableFromEnvironment(this.#environment);
+    const temporaryRoot = await mkdtemp(join(tmpdir(), "vibesurfer-codex-"));
+    const workspacePath = join(temporaryRoot, "workspace");
+    try {
+      await mkdir(workspacePath, { mode: 0o700 });
+      const result = await runCodex({
+        executable,
+        cwd: workspacePath,
+        environment: this.#environment,
+        modelId: this.modelId,
+        ...(this.#reasoningEffort ? { reasoningEffort: this.#reasoningEffort } : {}),
+        ...(this.#serviceTier ? { serviceTier: this.#serviceTier } : {}),
+        developerInstructions: [CODEX_TEXT_INSTRUCTIONS, "", request.prompt.system].join("\n"),
+        prompt: request.prompt.prompt,
+        signal: request.abortSignal,
+        ...(request.onPartialText ? { onText: request.onPartialText } : {}),
+      });
+      const completedAt = new Date();
+      return {
+        text: result.finalMessage,
         usage: result.usage,
         exchange: createModelExchange({
           request,

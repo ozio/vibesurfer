@@ -20,6 +20,7 @@ import {
   TriangleAlert,
   Trash2,
   WandSparkles,
+  Zap,
 } from "lucide-react";
 import { Switch } from "radix-ui";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
@@ -175,6 +176,30 @@ function GenerationSettings() {
         title="Generation"
       />
       <section className="settings-group">
+        <h2>Generation mode</h2>
+        <div className="segmented-control" aria-label="Page generation mode">
+          {(["full", "turbo"] as const).map((strategy) => (
+            <button
+              key={strategy}
+              className={settings.strategy === strategy ? "is-active" : ""}
+              type="button"
+              onClick={() => patchGenerationSettings({ strategy })}
+            >
+              {strategy === "full" ? "Full" : "Turbo"}
+            </button>
+          ))}
+        </div>
+        <div className={`settings-callout settings-callout--compact${settings.strategy === "turbo" ? " is-turbo" : ""}`} role="note">
+          {settings.strategy === "turbo" ? <Zap aria-hidden="true" /> : <WandSparkles aria-hidden="true" />}
+          <span>
+            <strong>{settings.strategy === "turbo" ? "One compact HTML request" : "Director → Builder"}</strong>
+            <small>{settings.strategy === "turbo"
+              ? "Uses a bounded context and 4K output ceiling. Dynamic regions, generated JavaScript, images and optional capabilities are disabled for newly generated pages."
+              : "Uses the complete site direction, identity, capabilities and rendering contracts for higher-fidelity pages."}</small>
+          </span>
+        </div>
+      </section>
+      <section className="settings-group">
         <h2>Live regions</h2>
         <div className="segmented-control" aria-label="Dynamic update mode">
           {(["off", "active", "always"] as DynamicMode[]).map((mode) => (
@@ -294,7 +319,7 @@ function GenerationSettings() {
       <section className="settings-group generation-limits">
         <h2>Budgets</h2>
         <label className="settings-field">
-          <span><strong>Maximum output tokens</strong><small>Provider limits may be lower.</small></span>
+          <span><strong>Maximum output tokens</strong><small>{settings.strategy === "turbo" ? "Turbo uses at most 4,096." : "Provider limits may be lower."}</small></span>
           <input
             type="number"
             min={512}
@@ -487,8 +512,8 @@ function ProviderConnections({
       const updated = await updateProviderGenerationMode(connection, nextMode);
       onUpsert(updated);
       setMessage(nextMode === "compact"
-        ? `${connection.displayName} will use one compact HTML request for local and smaller models.`
-        : `${connection.displayName} will use the full Director → Builder structured pipeline.`);
+        ? `${connection.displayName} will use plain text for compatibility checks. Page mode is selected separately.`
+        : `${connection.displayName} will verify structured-output compatibility. Page mode is selected separately.`);
     } catch (error) {
       setMessage(errorMessage(error));
     } finally {
@@ -540,13 +565,13 @@ function ProviderConnections({
             {connection.kind === "openai-compatible" && (
               <select
                 className="provider-row__mode"
-                aria-label={`Generation mode for ${connection.displayName}`}
+                aria-label={`Compatibility check for ${connection.displayName}`}
                 value={connection.generationMode ?? "compact"}
                 disabled={Boolean(busyId)}
                 onChange={(event) => void changeGenerationMode(connection, event.target.value as "compact" | "directed")}
               >
-                <option value="compact">Compact local</option>
-                <option value="directed">Director → Builder</option>
+                <option value="compact">Plain text verify</option>
+                <option value="directed">Structured verify</option>
               </select>
             )}
             <button className="button" type="button" disabled={Boolean(busyId)} onClick={() => void verify(connection)}><RefreshCw aria-hidden="true" /> Verify</button>
@@ -560,7 +585,7 @@ function ProviderConnections({
           <label><span>Display name</span><input value={displayName} maxLength={120} onChange={(event) => setDisplayName(event.target.value)} /></label>
           <label><span>Model ID</span><input value={modelId} maxLength={200} autoCapitalize="none" spellCheck={false} onChange={(event) => setModelId(event.target.value)} /></label>
           <label><span>{kind === "openai-compatible" ? "API key (optional for local)" : "API key"}</span><input value={apiKey} type="password" maxLength={16_384} autoComplete="off" spellCheck={false} placeholder={kind === "openai-compatible" ? "Leave empty if the local server needs none" : "Stored only after Save"} onChange={(event) => setApiKey(event.target.value)} /></label>
-          {kind === "openai-compatible" && <><label className="provider-form__wide"><span>Base URL</span><input value={baseUrl} type="url" autoCapitalize="none" spellCheck={false} placeholder="http://127.0.0.1:8080/v1" onChange={(event) => setBaseUrl(event.target.value)} /></label><label className="provider-form__wide"><span>Generation mode</span><select value={generationMode} onChange={(event) => setGenerationMode(event.target.value as "compact" | "directed")}><option value="compact">Compact local — one plain HTML request (recommended)</option><option value="directed">Director → Builder — complex structured output</option></select></label></>}
+          {kind === "openai-compatible" && <><label className="provider-form__wide"><span>Base URL</span><input value={baseUrl} type="url" autoCapitalize="none" spellCheck={false} placeholder="http://127.0.0.1:8080/v1" onChange={(event) => setBaseUrl(event.target.value)} /></label><label className="provider-form__wide"><span>Compatibility check</span><select value={generationMode} onChange={(event) => setGenerationMode(event.target.value as "compact" | "directed")}><option value="compact">Plain text — recommended for local and smaller models</option><option value="directed">Structured output — provider supports strict schemas</option></select></label></>}
         </div>
         <div className="provider-form__footer"><small>{message || "The raw key is sent to the Rust host once and never enters persisted browser state."}</small><button className="button button--primary" type="submit" disabled={Boolean(busyId)}><KeyRound aria-hidden="true" /> Save connection</button></div>
       </form>

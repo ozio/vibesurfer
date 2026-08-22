@@ -93,11 +93,15 @@ export class InMemoryProviderRegistry {
       ? { connectionId, modelId: referenceOrModel }
       : referenceOrModel;
     const modelId = reference.modelId;
+    const generationMode = typeof referenceOrModel === "string"
+      ? record.public.generationMode
+      : reference.generationMode ?? record.public.generationMode;
     const apiKey = record.credentials?.apiKey;
     if (record.public.kind === "codex") {
       return new CodexModelExecutor({
         providerId: connectionId,
         modelId,
+        generationMode: generationMode ?? "directed",
         ...(reference.reasoningEffort ? { reasoningEffort: reference.reasoningEffort } : {}),
         ...(reference.serviceTier ? { serviceTier: reference.serviceTier } : {}),
       });
@@ -108,6 +112,7 @@ export class InMemoryProviderRegistry {
         modelId,
         seed,
         latencyMs: record.public.mockLatencyMs,
+        generationMode: generationMode ?? "directed",
       });
     }
     if (!apiKey) {
@@ -150,8 +155,8 @@ export class InMemoryProviderRegistry {
       modelId,
       actualProviderKind: record.public.kind,
       generationMode: record.public.kind === "openai-compatible"
-        ? record.public.generationMode ?? "compact"
-        : "directed",
+        ? generationMode ?? "compact"
+        : generationMode ?? "directed",
     });
   }
 }

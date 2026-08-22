@@ -10,7 +10,9 @@ import type {
   RouteHint,
   SiteIdentity,
 } from "../domain.js";
+import { GENERATION_PROMPT_VERSION as PROMPT_VERSION } from "../domain.js";
 import type { PromptBundle } from "../prompt-builder.js";
+import type { GenerateCommand } from "../protocol/types.js";
 import { compilePage, createProgressivePagePreview } from "./shared.js";
 import { type PipelineContext, type PipelineResult, UnsafeOutputError } from "./types.js";
 
@@ -32,6 +34,9 @@ const DEFAULT_ROUTES: ReadonlyArray<readonly [string, string, string]> = [
   ["/history", "History", "Review background and history"],
   ["/contact", "Contact", "Find contact information"],
 ];
+
+export const TURBO_MAX_OUTPUT_TOKENS = 4_096;
+const TURBO_PROFILE_CONTEXT_CHARS = 600;
 
 function hashInt(value: string): number {
   return Number.parseInt(createHash("sha256").update(value).digest("hex").slice(0, 8), 16);
@@ -223,10 +228,11 @@ function compactBrief(context: PipelineContext, html: string): ApprovedPageBrief
     facts: [] as string[],
     routes: routesFromHtml(html, new URL(context.request.url)),
   };
-  const selectedCapabilityContracts = { ...compactCapabilityContracts(context.request.settings, context.request.browserTheme) };
-  if (!shouldUseDynamicRegions(context)) delete selectedCapabilityContracts["dynamic-regions"];
-  const selectedCapabilities = Object.keys(selectedCapabilityContracts) as CapabilityId[];
-  if (context.request.settings.allowGeneratedScripts) selectedCapabilities.push("local-dom-scripts");
+  const availableContracts = compactCapabilityContracts(context.request.settings, context.request.browserTheme);
+  const selectedCapabilities: CapabilityId[] = ["semantic-navigation", "inline-page-css"];
+  const selectedCapabilityContracts = Object.fromEntries(
+    selectedCapabilities.flatMap((id) => availableContracts[id] ? [[id, availableContracts[id]]] : []),
+  ) as Partial<Record<CapabilityId, string>>;
   const direction: PageDirection = {
     siteClassification: identity.classification,
     locale: identity.locale,
@@ -241,10 +247,10 @@ function compactBrief(context: PipelineContext, html: string): ApprovedPageBrief
       { id: "main", heading: "Main content", goal: "Answer the navigation request usefully", layout: "Readable document flow" },
     ],
     iconSet: null,
-    imagery: context.request.settings.images.mode === "tag-placeholder" ? ["Optional semantic image placeholders"] : [],
+    imagery: [],
     selectedCapabilities,
     creativeRationale: "Compact mode lets a small local model focus its limited capacity on one useful HTML document.",
-    implementationNotes: "Site identity, metadata, favicon, continuity, and safety transforms are completed deterministically by the host.",
+    implementationNotes: "The host completes metadata, favicon, routes, document repair, styling safety, and continuity without another model request.",
   };
   return { identity, direction, additions, selectedCapabilityContracts };
 }
@@ -253,78 +259,87 @@ function compactPrompt(context: PipelineContext): PromptBundle {
   const { request } = context;
   const existingIdentity = request.context.siteWorld?.identity;
   const navigation = request.context.navigationIntent;
-  const scripts = request.settings.allowGeneratedScripts
-    ? "You may use small inline JavaScript. Calculators, converters, filters, menus, and tabs must work immediately without another page-generation request. Mark every non-navigation form with data-vibe-local and preventDefault in its handler. Use ordinary links or unmarked GET forms only when the action genuinely opens another page."
-    : "Do not use JavaScript or script tags. Do not render calculators, filters, tabs, or other controls that falsely imply unavailable local behavior; use a genuine navigational link or GET form when another page is required.";
-  const styling = request.settings.tailwindEnabled
-    ? "Use literal stock Tailwind utility classes for primary layout, spacing, typography, color, and responsive styling. Inline CSS is only for exact selectors or effects Tailwind cannot express cleanly."
-    : "Tailwind is unavailable. Keep the complete page CSS inline in one <style> element.";
-  const motion = request.settings.motionEnabled !== false
-    ? "Page-appropriate motion is allowed when it supports comprehension and fits the site's era."
-    : "Motion is disabled. Do not use CSS animations, transitions, animated scrolling, Web Animations, or timer-driven visual motion.";
-  const images = request.settings.images.mode === "tag-placeholder"
-    ? "For a useful image, use <img data-vibe-image=\"short semantic query\" alt=\"meaningful description\"> instead of a remote URL."
-    : "Do not depend on remote images.";
-  const capabilityContracts = { ...compactCapabilityContracts(request.settings, request.browserTheme) };
-  if (!shouldUseDynamicRegions(context)) delete capabilityContracts["dynamic-regions"];
-  const capabilities = Object.entries(capabilityContracts)
-    .filter(([id]) => !["semantic-navigation", "inline-page-css", "tailwind-utilities", "image-intents"].includes(id))
-    .map(([id, contract]) => `${id}: ${contract}`)
-    .join("\n");
-  const history = request.context.relevantHistory.slice(0, 3).map((page) => ({
-    url: page.url,
-    title: page.title,
-    purpose: page.purpose,
-  }));
+  const profileContext = compactText([
+    request.worldPromptSnapshot.vibe,
+    request.worldPromptSnapshot.prompt,
+  ].filter(Boolean).join(" "), TURBO_PROFILE_CONTEXT_CHARS);
+  const history = request.context.relevantHistory.at(-1);
   const system = [
-    "You are the compact offline page generator inside VibeSurfer.",
-    "Return one complete, self-contained HTML document and nothing else. Do not explain your work and do not use Markdown fences.",
-    "Use your internal knowledge to make the page genuinely useful. Do not claim to have fetched live data; label uncertain or time-sensitive facts honestly.",
-    "Use semantic HTML, accessible labels, a responsive layout, and same-origin or relative links. Every meaningful link must include data-vibe-context describing its destination entity, relationship, and key visible values.",
-    styling,
-    motion,
-    scripts,
-    images,
-    capabilities ? `Optional built-in capabilities are available without generated JavaScript. Use them only when useful:\n${capabilities}` : "",
+    "Generate one useful offline webpage for the exact URL.",
+    "Output only one complete HTML document: no JSON, Markdown fences, explanation, or text outside HTML.",
+    "Use semantic HTML, accessible labels, responsive layout, and one inline <style> element.",
+    "Use relative or same-origin links. Do not use scripts, frames, external assets, network APIs, animations, or fake interactive controls.",
+    "Include real-looking useful content from model knowledge, but never claim live access and label time-sensitive facts honestly.",
   ].join(" ");
   const prompt = [
-    `URL: ${request.url}`,
-    `Browser theme: ${request.browserTheme}`,
-    `Profile vibe: ${(request.worldPromptSnapshot.vibe ?? "").slice(0, 1_000) || "No additional profile vibe."}`,
-    `Profile world instruction: ${request.worldPromptSnapshot.prompt.slice(0, 4_000) || "No additional world instruction."}`,
-    existingIdentity ? `Existing site identity to preserve: ${JSON.stringify({
-      name: existingIdentity.name,
-      purpose: existingIdentity.purpose,
-      audience: existingIdentity.audience,
+    `URL: ${compactText(request.url, 1_000)}`,
+    `Theme: ${turboTheme(request.browserTheme)}`,
+    profileContext ? `Profile: ${profileContext}` : "",
+    existingIdentity ? `Keep site: ${JSON.stringify({
+      name: compactText(existingIdentity.name, 120),
+      purpose: compactText(existingIdentity.purpose, 240),
       locale: existingIdentity.locale,
-      era: existingIdentity.era,
-      visualLanguage: existingIdentity.visualLanguage,
-    })}` : "Create an appropriate site from the hostname. Recognizable sites should retain their familiar purpose; unknown domains may be invented coherently.",
-    `Navigation request: ${JSON.stringify({
+      mood: compactText(existingIdentity.visualLanguage.mood, 100),
+      colors: existingIdentity.visualLanguage.palette.slice(0, 5),
+    })}` : "Recognizable hosts should look familiar; invent unknown hosts coherently.",
+    `Task: ${JSON.stringify({
       kind: navigation.kind,
-      anchorText: navigation.anchorText,
-      linkContext: (navigation.linkContext ?? "").slice(0, 700),
-      surroundingText: navigation.surroundingText.slice(0, 700),
-      formFields: navigation.formFields,
+      text: compactText(navigation.anchorText || navigation.ariaLabel, 120),
+      context: compactText(navigation.linkContext, 240),
+      nearby: compactText(navigation.surroundingText, 160),
+      fields: compactFormFields(navigation.formFields),
     })}`,
-    history.length > 0 ? `Recent same-site pages: ${JSON.stringify(history)}` : "There is no prior same-site page context.",
-    "For original sites and inner pages, derive the composition from the page's dominant task instead of repeating a top-left logo, horizontal nav, content column, and right sidebar. Keep recognizable canonical roots familiar.",
-    `Include at least ${request.settings.minInternalLinks} useful same-origin links. Put a meaningful <title> and meta description in <head>.`,
-    "Begin with <!doctype html>.",
-  ].join("\n\n");
+    history ? `Previous page: ${JSON.stringify({
+      url: compactText(history.url, 300),
+      title: compactText(history.title, 120),
+      purpose: compactText(history.purpose, 240),
+    })}` : "",
+    `Include <title>, a meta description, and at least ${request.settings.minInternalLinks} useful internal links. Start with <!doctype html>. Stay under ${TURBO_MAX_OUTPUT_TOKENS} output tokens.`,
+  ].filter(Boolean).join("\n");
   const fingerprint = createHash("sha256").update(system).update("\0").update(prompt).digest("hex");
-  return { system, prompt, fingerprint, version: 15 };
+  return { system, prompt, fingerprint, version: PROMPT_VERSION };
 }
 
-function shouldUseDynamicRegions(context: PipelineContext): boolean {
-  if (context.request.settings.dynamicMode === "off") return false;
-  const navigation = context.request.context.navigationIntent;
-  return /(?:chat|cart|wishlist|search|feed|live|status|auction|market|shop|store|message|inbox|track)/i.test([
-    context.request.url,
-    navigation.anchorText,
-    navigation.linkContext,
-    navigation.surroundingText,
-  ].join(" "));
+function compactText(value: string | undefined, limit: number): string {
+  return (value ?? "").replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function compactFormFields(fields: Record<string, string> | undefined): Record<string, string> | undefined {
+  if (!fields) return undefined;
+  const entries = Object.entries(fields).slice(0, 6).map(([key, value]) => [
+    compactText(key, 60),
+    compactText(value, 120),
+  ]);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function turboTheme(theme: PipelineContext["request"]["browserTheme"]): string {
+  switch (theme) {
+    case "sedative": return "calm, low-stimulation editorial web";
+    case "ie-classic": return "compact 1997-2003 web with simple controls";
+    case "cyberpunk": return "dense dark near-future network interface";
+    default: return "site-appropriate, clear, and practical";
+  }
+}
+
+function turboRequest(request: GenerateCommand): GenerateCommand {
+  return {
+    ...request,
+    settings: {
+      ...request.settings,
+      tailwindEnabled: false,
+      allowGeneratedScripts: false,
+      motionEnabled: false,
+      dynamicMode: "off",
+      capabilities: {
+        audioSpeechEnabled: false,
+        externalMediaEnabled: false,
+        experimentalEnabled: false,
+      },
+      images: { mode: "off", fetchExternal: false, safeContent: true },
+      maxOutputTokens: Math.min(request.settings.maxOutputTokens, TURBO_MAX_OUTPUT_TOKENS),
+    },
+  };
 }
 
 function decodeBasicEntities(value: string): string {
@@ -381,18 +396,19 @@ function pageResult(raw: string, requestUrl: string, minimumLinks: number, tailw
 }
 
 export async function runCompactPipeline(context: PipelineContext): Promise<PipelineResult> {
-  const { request, executor, signal, emit } = context;
+  const turboContext = { ...context, request: turboRequest(context.request) };
+  const { request, executor, signal, emit } = turboContext;
   if (!executor.generateText) {
     throw new Error("The selected provider does not support compact text generation.");
   }
 
   await emit.phase("preparing-context", 0.08);
-  const initialBrief = compactBrief(context, "");
+  const initialBrief = compactBrief(turboContext, "");
   await emit.metadata({ favicon: initialBrief.identity.favicon });
   await emit.phase("generating", 0.2);
   const preview = createProgressivePagePreview({ request, emit, approvedBrief: initialBrief });
-  const prompt = compactPrompt(context);
-  const maxOutputTokens = Math.min(request.settings.maxOutputTokens, 16_000);
+  const prompt = compactPrompt(turboContext);
+  const maxOutputTokens = request.settings.maxOutputTokens;
   const startedAt = new Date().toISOString();
   await emit.stage?.({ stage: "page-builder", status: "running", startedAt, payload: { systemPrompt: prompt.system, prompt: prompt.prompt, maxOutputTokens } });
   await emit.progress?.({ stage: "builder", stageIndex: 1, stageCount: 1, currentOutputTokens: 0, maxOutputTokens, approximate: true, percent: 5 });
@@ -401,6 +417,8 @@ export async function runCompactPipeline(context: PipelineContext): Promise<Pipe
     prompt,
     abortSignal: signal,
     maxOutputTokens,
+    maxRetries: 0,
+    stopSequences: ["</html>"],
     onPartialText: async (accumulatedText) => {
       try {
         await preview.handle({ html: normalizeGeneratedHtml(accumulatedText) });
@@ -416,7 +434,7 @@ export async function runCompactPipeline(context: PipelineContext): Promise<Pipe
   await emit.progress?.({ stage: "builder", stageIndex: 1, stageCount: 1, currentOutputTokens: generated.usage.outputTokens, maxOutputTokens, approximate: false, percent: 85 });
 
   const page = pageResult(generated.text, request.url, request.settings.minInternalLinks, request.settings.tailwindEnabled);
-  const approvedBrief = compactBrief(context, page.html);
+  const approvedBrief = compactBrief(turboContext, page.html);
   await emit.metadata({
     title: page.meta.title,
     summary: page.meta.pageSummary,

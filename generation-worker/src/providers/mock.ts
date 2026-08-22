@@ -15,7 +15,9 @@ import { ICONIFY_WEB_COMPONENT_SCRIPT, iconifyPack, type IconSet } from "../icon
 import type { PromptStage } from "../prompt-builder.js";
 import {
   createModelExchange,
+  type GeneratedText,
   type GeneratedObject,
+  type GenerateTextRequest,
   type GenerateObjectRequest,
   type ModelExecutor,
 } from "./executor.js";
@@ -25,7 +27,8 @@ function hashInt(value: string): number {
 }
 
 function requestedUrl(prompt: string): URL {
-  const match = prompt.match(/<requested_url>([^<]+)<\/requested_url>/);
+  const match = prompt.match(/<requested_url>([^<]+)<\/requested_url>/)
+    ?? prompt.match(/^URL:\s*(https?:\/\/\S+)/m);
   try {
     return new URL(match?.[1] ?? "https://example.test/");
   } catch {
@@ -395,13 +398,15 @@ export class DeterministicMockExecutor implements ModelExecutor {
   readonly actualProviderKind = "mock" as const;
   readonly providerId: string;
   readonly modelId: string;
+  readonly generationMode: "directed" | "compact";
   readonly calls: Array<PromptStage | "region-builder"> = [];
   readonly #seed: string;
   readonly #latencyMs: number;
 
-  constructor(options: { providerId: string; modelId: string; seed: string; latencyMs?: number }) {
+  constructor(options: { providerId: string; modelId: string; seed: string; latencyMs?: number; generationMode?: "directed" | "compact" }) {
     this.providerId = options.providerId;
     this.modelId = options.modelId;
+    this.generationMode = options.generationMode ?? "directed";
     this.#seed = options.seed;
     this.#latencyMs = options.latencyMs ?? 0;
   }
@@ -467,6 +472,37 @@ export class DeterministicMockExecutor implements ModelExecutor {
         startedAt,
         completedAt,
         response: JSON.stringify(output, null, 2),
+        usage,
+      }),
+    };
+  }
+
+  async generateText(request: GenerateTextRequest): Promise<GeneratedText> {
+    const startedAt = new Date();
+    this.calls.push(request.purpose);
+    await abortableDelay(this.#latencyMs, request.abortSignal);
+    if (request.abortSignal.aborted) throw abortError();
+
+    const url = requestedUrl(request.prompt.prompt);
+    const seed = hashInt(`${this.#seed}:${url.href}`);
+    const page = makePageResult(url, seed, request.prompt.prompt);
+    const text = page.html;
+    await request.onPartialText?.(text);
+    const inputTokens = Math.ceil((request.prompt.system.length + request.prompt.prompt.length) / 4);
+    const outputTokens = Math.ceil(text.length / 4);
+    const usage = { inputTokens, outputTokens, totalTokens: inputTokens + outputTokens, requests: 1 };
+    const completedAt = new Date();
+    return {
+      text,
+      usage,
+      exchange: createModelExchange({
+        request,
+        providerId: this.providerId,
+        modelId: this.modelId,
+        actualProviderKind: this.actualProviderKind,
+        startedAt,
+        completedAt,
+        response: text,
         usage,
       }),
     };
