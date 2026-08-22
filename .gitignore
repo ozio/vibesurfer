@@ -15,3 +15,6 @@ generation-worker/sidecars/
 generation-worker/.*.bun-build
 .*.bun-build
 src-tauri/gen/
+
+*storybook.log
+storybook-static

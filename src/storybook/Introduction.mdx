@@ -1,0 +1,42 @@
+import { Meta } from "@storybook/addon-docs/blocks";
+
+<Meta title="Foundation/Introduction" />
+
+# Vibesurfer browser UI
+
+This Storybook is the executable reference for the browser interface. Stories use the same React components and production CSS as the Tauri application while keeping provider calls, generation jobs, native window APIs, persisted sessions, local speech workers, and dynamic-content timers out of the component canvas.
+
+## Theme contract
+
+Browser themes are CSS implementations of a shared component structure. The preview toolbar writes the following attributes to the document root and connected stories mirror them into browser preferences:
+
+<table>
+  <thead>
+    <tr><th>Toolbar</th><th>Root contract</th><th>Values</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Theme</td><td><code>data-theme</code></td><td><code>native</code>, <code>sedative</code>, <code>ie-classic</code>, <code>cyberpunk</code></td></tr>
+    <tr><td>Scheme</td><td><code>data-color-scheme</code></td><td><code>light</code>, <code>dark</code>, <code>system</code></td></tr>
+    <tr><td>Platform</td><td><code>data-platform</code></td><td><code>macos</code>, <code>windows</code>, <code>linux</code></td></tr>
+    <tr><td>Density</td><td><code>data-density</code></td><td><code>comfortable</code>, <code>compact</code></td></tr>
+    <tr><td>Tabs</td><td><code>data-tabs</code></td><td><code>horizontal</code>, <code>vertical</code></td></tr>
+    <tr><td>Motion</td><td><code>.reduce-motion</code></td><td><code>reduced</code>, <code>full</code></td></tr>
+  </tbody>
+</table>
+
+The canonical baseline is Native, Light, macOS, Comfortable, Horizontal, and Reduced motion. Every axis remains switchable in the toolbar.
+
+## Pure and connected stories
+
+Pure components receive all behavior through props and can be rendered directly. Connected browser components read Zustand state; their stories use `withBrowserStoryState`, which starts from a deep clone of `useBrowserStore.getInitialState()`, overlays a serializable fixture, and switches persistence to in-memory storage.
+
+`BrowserShell` is the visual application boundary. Production mounts it through `BrowserApp`, which also starts generation and dynamic runtimes. Storybook mounts `BrowserShell` directly, so a story cannot accidentally generate a page or mutate a real persisted session.
+
+## Adding a component
+
+1. Keep the component responsible for one browser behavior and export its props type.
+2. Co-locate `Component.stories.tsx` with the component.
+3. Document every stable visual state, disabled/error/empty cases, and meaningful interaction.
+4. Use toolbar globals for theme differences instead of duplicating stories solely for CSS.
+5. Use a serializable `browserFixture` and `withBrowserStoryState` only when the component genuinely depends on the browser store.
+6. Add a `play` assertion for keyboard, pointer, menu, or state-changing behavior and keep component a11y in `error` mode.

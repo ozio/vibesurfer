@@ -148,6 +148,15 @@ Run the full desktop development runtime:
 npm run tauri dev
 ```
 
+Run the browser component library and documentation:
+
+```bash
+npm exec playwright -- install chromium # one-time browser install
+npm run storybook
+```
+
+Storybook is served at `http://127.0.0.1:6006`. Its toolbar switches browser theme, color scheme, platform, density, tab layout, and motion without starting the generation or dynamic-content runtimes.
+
 The Rust host discovers `generation-worker/dist/index.js` through Node. If the compiled worker is absent and Bun is available, development discovery can use `generation-worker/src/index.ts` instead.
 
 ## Verify and build
@@ -164,6 +173,7 @@ Useful focused commands:
 
 ```bash
 npm test                       # root and integration tests
+npm run test-storybook         # component stories in Chromium, including a11y
 npm run typecheck              # root TypeScript only
 npm run worker:verify          # worker check, tests, and build
 npm run worker:smoke           # compiled JSONL worker, mock generation, zero-origin-fetch assertion
@@ -175,6 +185,7 @@ Build the frontend and compiled Node worker:
 
 ```bash
 npm run build
+npm run build-storybook
 npm run preview
 ```
 
@@ -198,7 +209,8 @@ Source-built macOS bundles use an ad-hoc signature so they launch correctly on A
 ## Project map
 
 ```text
-src/                         React browser chrome, session state, iframe host
+src/                         React browser chrome, session state, stories, iframe host
+.storybook/                  component-library environment, toolbar, test integration
 src/generation/              frontend generation coordinator and preview mock
 src-tauri/                   Rust host, SQLite, credential vault, worker manager
 generation-worker/           AI SDK adapters, pipelines, compiler, JSONL runtime
@@ -216,4 +228,4 @@ docs/architecture/           accepted runtime and browser-surface decisions
 
 ## CI
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) reproduces the lockfile install, complete root verification, production frontend/worker build, and locked Rust test/check on Ubuntu. It relies on the root `postinstall` for the nested generation-worker install and uses only the deterministic mock provider.
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) reproduces the lockfile install, Chromium Storybook tests and static build, complete root verification, production frontend/worker build, and locked Rust test/check on Ubuntu. It relies on the root `postinstall` for the nested generation-worker install and uses only the deterministic mock provider.

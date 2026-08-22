@@ -58,11 +58,17 @@ jobs:
       - name: Verify nested generation-worker install
         run: npm ls --prefix generation-worker --depth=0
 
+      - name: Install Storybook Chromium runtime
+        run: npm exec playwright -- install --with-deps chromium
+
       - name: Run complete repository verification
         run: npm run verify
 
       - name: Build frontend and generation worker
         run: npm run build
+
+      - name: Build static Storybook
+        run: npm run build-storybook
 
       - name: Test and check Rust host with the lockfile
         run: |

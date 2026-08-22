@@ -83,16 +83,16 @@
 }
 .browser-tab--horizontal.is-drop-target::before { top: 3px; bottom: 3px; left: -2px; width: 2px; }
 .browser-tab--vertical.is-drop-target::before { top: -2px; right: 3px; left: 3px; height: 2px; }
-.browser-tab:focus-visible { outline-offset: -3px; }
 .browser-tab--horizontal { flex: 0 1 230px; width: 230px; min-width: 94px; height: var(--tab-height); padding: 0 5px 0 10px; border-radius: var(--radius-sm) var(--radius-sm) 0 0; border-bottom-color: transparent; }
 .browser-tab--horizontal.is-active::after { content: ""; position: absolute; right: 0; bottom: -1px; left: 0; height: 2px; background: var(--surface); }
 .browser-tab--vertical { flex: 0 0 auto; width: 100%; min-height: 48px; height: auto; padding: 5px 5px 5px 10px; border: 0; }
 .browser-tab--vertical.is-active { border-color: transparent; box-shadow: inset 3px 0 var(--accent), var(--shadow-sm); }
-.browser-tab__drag-target { display: flex; flex: 1; min-width: 0; height: 100%; align-items: center; gap: 8px; }
-.browser-tab--vertical .browser-tab__drag-target { min-height: 36px; gap: 10px; }
+.browser-tab:focus-visible { outline-offset: -3px; }
+.browser-tab__content { display: flex; min-width: 0; height: 100%; flex: 1; align-items: center; gap: 8px; text-align: left; }
+.browser-tab--vertical .browser-tab__content { min-height: 36px; gap: 10px; }
 .browser-tab__copy { display: flex; min-width: 0; flex: 1; flex-direction: column; justify-content: center; }
 .browser-tab__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
-.browser-tab__meta { overflow: hidden; color: var(--subtle); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.browser-tab__meta { overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .browser-tab--vertical.is-active .browser-tab__meta { color: var(--muted); }
 .browser-tab__unseen { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 999px; background: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 18%, transparent); }
 .browser-tab__close { display: grid; flex: 0 0 22px; width: 22px; height: 22px; padding: 0; place-items: center; border-radius: var(--radius-xs); color: var(--muted); background: transparent; opacity: 0; }

@@ -86,10 +86,14 @@ function hslToHex(hue: number, saturation: number, lightness: number): string {
 }
 
 function contrastColor(background: string): "#000000" | "#ffffff" {
-  const red = Number.parseInt(background.slice(1, 3), 16);
-  const green = Number.parseInt(background.slice(3, 5), 16);
-  const blue = Number.parseInt(background.slice(5, 7), 16);
-  return (red * 299 + green * 587 + blue * 114) / 1_000 > 145 ? "#000000" : "#ffffff";
+  const [red, green, blue] = [1, 3, 5].map((offset) => {
+    const channel = Number.parseInt(background.slice(offset, offset + 2), 16) / 255;
+    return channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4;
+  });
+  const luminance = red * .2126 + green * .7152 + blue * .0722;
+  const blackContrast = (luminance + .05) / .05;
+  const whiteContrast = 1.05 / (luminance + .05);
+  return blackContrast >= whiteContrast ? "#000000" : "#ffffff";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

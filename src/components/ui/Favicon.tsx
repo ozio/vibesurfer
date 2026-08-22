@@ -3,7 +3,7 @@ import { Activity, Bug, FlaskConical, Globe2, History, Settings, Sparkles } from
 import { deterministicGlyphFavicon, isHostOwnedFaviconImage } from "../../lib/favicon";
 import type { FaviconSource, GlyphFavicon } from "../../types/browser";
 
-interface FaviconProps {
+export interface FaviconProps {
   source?: FaviconSource;
   title: string;
   generated?: boolean;

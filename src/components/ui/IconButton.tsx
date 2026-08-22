@@ -1,7 +1,7 @@
 import { useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
 import { Tooltip } from "radix-ui";
 
-interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+export interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   label: string;
   children: ReactNode;
   tooltipSide?: "top" | "right" | "bottom" | "left";

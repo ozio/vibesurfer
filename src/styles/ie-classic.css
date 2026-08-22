@@ -612,7 +612,7 @@
   background: #ffffff;
 }
 
-:root[data-theme="ie-classic"] .browser-tab__drag-target { gap: 5px; }
+:root[data-theme="ie-classic"] .browser-tab__content { gap: 5px; }
 :root[data-theme="ie-classic"] .browser-tab__title { font-size: 10.5px; }
 
 :root[data-theme="ie-classic"] .browser-tab__close {
@@ -759,7 +759,7 @@
   box-shadow: none;
 }
 
-:root[data-theme="ie-classic"] .browser-tab--vertical .browser-tab__drag-target {
+:root[data-theme="ie-classic"] .browser-tab--vertical .browser-tab__content {
   min-height: 34px;
   gap: 8px;
 }

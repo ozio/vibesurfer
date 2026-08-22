@@ -1383,6 +1383,7 @@ export const useBrowserStore = create<BrowserState>()(
     {
       name: "vibesurfer-browser-state",
       version: 12,
+      skipHydration: import.meta.env.VIBESURFER_STORYBOOK === true,
       migrate: (persistedState, version) => migrateBrowserState(persistedState, version) as BrowserState,
       partialize: (state) => ({
         tabs: state.preferences.reopenSession ? state.tabs : initialTabs,

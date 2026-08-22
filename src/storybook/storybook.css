@@ -1,0 +1,83 @@
+.story-surface {
+  display: flex;
+  min-width: 320px;
+  min-height: 180px;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  color: var(--text);
+  background: var(--app-bg);
+}
+
+.story-component-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.story-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+
+.story-state > small,
+.story-favicon-item > small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.story-favicon-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(80px, 1fr));
+  gap: 18px;
+}
+
+.story-favicon-item {
+  display: grid;
+  min-width: 80px;
+  justify-items: center;
+  gap: 8px;
+}
+
+.story-favicon-item .favicon {
+  width: 24px;
+  height: 24px;
+  flex-basis: 24px;
+  font-size: 11px;
+}
+
+.story-tab-frame {
+  width: min(900px, calc(100vw - 64px));
+  height: 52px;
+  padding: 8px 12px 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--chrome-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.story-tab-frame .tab-strip--horizontal {
+  height: 100%;
+}
+
+.story-tab-frame--overflow {
+  width: 430px;
+}
+
+.story-tab-frame--vertical {
+  width: 300px;
+  height: 430px;
+  padding: 12px 0 0;
+}
+
+.story-tab-frame--vertical .tab-strip--vertical {
+  height: 100%;
+}
+
+@media (max-width: 780px) {
+  .story-favicon-grid {
+    grid-template-columns: repeat(2, minmax(80px, 1fr));
+  }
+}

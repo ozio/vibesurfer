@@ -13,8 +13,9 @@
     "notices:generate": "node scripts/generate-third-party-notices.mjs",
     "notices:check": "node scripts/generate-third-party-notices.mjs --check",
     "kokoro:assets": "node scripts/fetch-kokoro-assets.mjs",
-    "test": "node --no-experimental-webstorage ./node_modules/vitest/vitest.mjs run",
-    "test:watch": "node --no-experimental-webstorage ./node_modules/vitest/vitest.mjs",
+    "test": "node --no-experimental-webstorage ./node_modules/vitest/vitest.mjs run --project=unit",
+    "test:watch": "node --no-experimental-webstorage ./node_modules/vitest/vitest.mjs --project=unit",
+    "test-storybook": "node --no-experimental-webstorage ./node_modules/vitest/vitest.mjs run --project=storybook",
     "typecheck": "tsc -b --pretty false",
     "worker:install": "npm ci --prefix generation-worker --ignore-scripts",
     "worker:build": "npm run build --prefix generation-worker",
@@ -22,8 +23,10 @@
     "worker:sidecar": "npm run sidecar:build --prefix generation-worker",
     "worker:smoke": "node scripts/smoke-worker.mjs --dist",
     "worker:sidecar:smoke": "node scripts/smoke-worker.mjs --sidecar",
-    "verify": "npm run notices:check && npm run typecheck && npm test && npm run worker:verify && npm run worker:smoke && cargo test --locked --manifest-path src-tauri/Cargo.toml",
-    "tauri": "tauri"
+    "verify": "npm run notices:check && npm run typecheck && npm test && npm run test-storybook && npm run worker:verify && npm run worker:smoke && cargo test --locked --manifest-path src-tauri/Cargo.toml",
+    "tauri": "tauri",
+    "storybook": "storybook dev --host 127.0.0.1 -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@dnd-kit/dom": "0.5.0",
@@ -63,6 +66,10 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@storybook/addon-a11y": "10.5.10",
+    "@storybook/addon-docs": "10.5.10",
+    "@storybook/addon-vitest": "10.5.10",
+    "@storybook/react-vite": "10.5.10",
     "@tauri-apps/cli": "^2.11.4",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.2",
@@ -71,8 +78,11 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "@vitest/browser-playwright": "4.1.10",
     "jsdom": "30.0.1",
+    "playwright": "1.62.1",
     "postcss": "8.5.26",
+    "storybook": "10.5.10",
     "typescript": "^7.0.2",
     "vite": "^8.1.4",
     "vitest": "4.1.10"
