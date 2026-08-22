@@ -6,6 +6,7 @@ export interface MenuProps {
   trigger: ReactElement;
   children: ReactNode;
   ariaLabel?: string;
+  showArrow?: boolean;
   side?: "top" | "right" | "bottom" | "left";
   align?: "start" | "center" | "end";
   sideOffset?: number;
@@ -20,6 +21,7 @@ export function Menu({
   trigger,
   children,
   ariaLabel = "Actions",
+  showArrow = false,
   side = "bottom",
   align = "end",
   sideOffset = 6,
@@ -40,7 +42,7 @@ export function Menu({
           collisionPadding={8}
         >
           {children}
-          <DropdownMenu.Arrow className="menu__arrow" />
+          {showArrow && <DropdownMenu.Arrow className="menu__arrow" />}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>

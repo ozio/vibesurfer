@@ -174,6 +174,10 @@ export const BROWSER_COMMAND_REGISTRY = {
     label: "Models & Codex",
     run: ({ state }) => state.openSettings("models"),
   },
+  "open-model-picker": {
+    label: "Choose model",
+    run: () => window.dispatchEvent(new Event("vibesurfer:open-model-picker")),
+  },
   "open-profiles": {
     label: "Profiles",
     run: ({ state }) => state.openSettings("profiles"),

@@ -50,6 +50,7 @@ import {
 } from "../../media/media-host-api";
 import { useBrowserStore } from "../../store/browser-store";
 import type { Density, DynamicMode, ProviderConnection, ProviderKind, TabLayout, ThemeId } from "../../types/browser";
+import { ConfirmDialog } from "../ui/Dialog";
 
 const sections = [
   { id: "general", label: "General", icon: Settings2 },
@@ -188,6 +189,7 @@ function GenerationSettings() {
   const [mediaKey, setMediaKey] = useState("");
   const [mediaBusy, setMediaBusy] = useState("");
   const [mediaMessage, setMediaMessage] = useState("");
+  const [confirmAlwaysOpen, setConfirmAlwaysOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -294,9 +296,11 @@ function GenerationSettings() {
               className={settings.dynamicMode === mode ? "is-active" : ""}
               type="button"
               onClick={() => {
-                if (mode === "always" && settings.dynamicMode !== "always"
-                    && !window.confirm("Always-on live regions can continue making model requests in background tabs and consume tokens while VibeSurfer is open. Enable this mode?")) return;
-                patchGenerationSettings({ dynamicMode: mode });
+                if (mode === "always" && settings.dynamicMode !== "always") {
+                  setConfirmAlwaysOpen(true);
+                } else {
+                  patchGenerationSettings({ dynamicMode: mode });
+                }
               }}
             >
               {mode === "off" ? "Off" : mode === "active" ? "Active tab" : "Always"}
@@ -308,6 +312,14 @@ function GenerationSettings() {
           <span><strong>Host-mediated updates</strong><small>Manual cart, wishlist, chat, and refresh actions stay inside the private page bridge. Active tab pauses timers when VibeSurfer loses focus; Always keeps generated tabs current while the app runs.</small></span>
         </div>
       </section>
+      <ConfirmDialog
+        open={confirmAlwaysOpen}
+        onOpenChange={setConfirmAlwaysOpen}
+        title="Enable always-on live regions?"
+        description="Background tabs can continue making model requests and consuming tokens while VibeSurfer is open."
+        confirmLabel="Enable always-on"
+        onConfirm={() => patchGenerationSettings({ dynamicMode: "always" })}
+      />
       <section className="settings-group">
         <h2>Artifact styling</h2>
         <GenerationToggle
@@ -752,6 +764,7 @@ function ProfileSettings() {
   const [newSkin, setNewSkin] = useState<ThemeId>(PROFILE_PRESETS.native.chromeSkin);
   const [newVibe, setNewVibe] = useState<string>(PROFILE_PRESETS.native.vibe);
   const [newWorldPrompt, setNewWorldPrompt] = useState<string>(PROFILE_PRESETS.native.prompt);
+  const [profileActionError, setProfileActionError] = useState("");
   useEffect(() => {
     setVibeDraft(profile.worldPrompt.vibe);
     setPromptDraft(profile.worldPrompt.prompt);
@@ -767,6 +780,24 @@ function ProfileSettings() {
     setNewWorldPrompt(preset.prompt);
   };
   const promptChanged = vibeDraft !== profile.worldPrompt.vibe || promptDraft !== profile.worldPrompt.prompt;
+  const resetCurrentProfile = async () => {
+    setProfileActionError("");
+    try {
+      await archivePersistedProfileSiteWorlds(profile.id);
+      startProfileFromScratch();
+    } catch (error) {
+      setProfileActionError(errorMessage(error));
+    }
+  };
+  const removeCurrentProfile = async () => {
+    setProfileActionError("");
+    try {
+      await deletePersistedProfileData(profile.id);
+      deleteProfile(profile.id);
+    } catch (error) {
+      setProfileActionError(errorMessage(error));
+    }
+  };
   return (
     <>
       <SettingsHeading eyebrow="Identity" title="Profiles" description="Each profile is a complete browser workspace with its own appearance, vibe, tabs, model settings, history, sites, and connections." />
@@ -842,8 +873,34 @@ function ProfileSettings() {
       </section>
       <section className="settings-group">
         <h2>Danger zone</h2>
-        <div className="setting-row"><span><strong>Start profile from scratch</strong><small>Closes all tabs and archives every active SiteWorld. History and static artifacts are preserved.</small></span><button className="button icon-danger" type="button" onClick={() => { if (window.confirm("Archive active sites and close every tab in this profile?")) void archivePersistedProfileSiteWorlds(profile.id).then(startProfileFromScratch).catch((error) => window.alert(errorMessage(error))); }}>Start from scratch</button></div>
-        <div className="setting-row"><span><strong>Delete profile</strong><small>Removes its workspace, sites, artifacts, jobs, provider and media connections, and cached media. The last profile cannot be deleted.</small></span><button className="button icon-danger" type="button" disabled={profiles.length <= 1} onClick={() => { if (window.confirm(`Delete ${profile.name}?`)) void deletePersistedProfileData(profile.id).then(() => deleteProfile(profile.id)).catch((error) => window.alert(errorMessage(error))); }}>Delete profile</button></div>
+        {profileActionError && (
+          <div className="settings-callout settings-callout--compact" role="alert">
+            <TriangleAlert aria-hidden="true" /><span><strong>Profile action failed</strong><small>{profileActionError}</small></span>
+          </div>
+        )}
+        <div className="setting-row">
+          <span><strong>Start profile from scratch</strong><small>Closes all tabs and archives every active SiteWorld. History and static artifacts are preserved.</small></span>
+          <ConfirmDialog
+            trigger={<button className="button icon-danger" type="button">Start from scratch</button>}
+            title="Start this profile from scratch?"
+            description="Every active SiteWorld will be archived and all tabs will close. History and static artifacts are preserved."
+            confirmLabel="Archive and restart"
+            destructive
+            onConfirm={() => void resetCurrentProfile()}
+          />
+        </div>
+        <div className="setting-row">
+          <span><strong>Delete profile</strong><small>Removes its workspace, sites, artifacts, jobs, provider and media connections, and cached media. The last profile cannot be deleted.</small></span>
+          <ConfirmDialog
+            trigger={<button className="button icon-danger" type="button" disabled={profiles.length <= 1}>Delete profile</button>}
+            title={`Delete ${profile.name}?`}
+            description="This removes the profile workspace, sites, artifacts, jobs, connections, and cached media. This action cannot be undone."
+            confirmLabel="Delete profile"
+            destructive
+            disabled={profiles.length <= 1}
+            onConfirm={() => void removeCurrentProfile()}
+          />
+        </div>
       </section>
     </>
   );

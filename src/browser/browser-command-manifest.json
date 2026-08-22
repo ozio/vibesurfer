@@ -19,6 +19,7 @@
   "open-licenses": { "nativeMenu": true },
   "open-generation-settings": { "nativeMenu": true },
   "open-models": { "nativeMenu": true },
+  "open-model-picker": { "nativeMenu": false },
   "open-profiles": { "nativeMenu": true },
   "open-github": { "nativeMenu": true },
   "report-issue": { "nativeMenu": true },

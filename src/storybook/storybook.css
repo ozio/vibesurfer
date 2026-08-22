@@ -516,6 +516,63 @@
   background: var(--app-bg);
 }
 
+.story-surface--controls {
+  min-height: 520px;
+  align-items: flex-start;
+  padding-top: 72px;
+}
+
+.story-control-frame {
+  display: flex;
+  width: min(760px, calc(100vw - 64px));
+  min-height: 72px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--chrome-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.story-control-frame--compact {
+  width: min(360px, calc(100vw - 64px));
+  justify-content: center;
+}
+
+.story-control-pair {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 18px;
+}
+
+.story-statusbar-frame {
+  display: grid;
+  width: min(980px, calc(100vw - 64px));
+  height: 180px;
+  margin: auto;
+  align-items: end;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background:
+    radial-gradient(circle at 80% 15%, var(--accent-soft), transparent 36%),
+    var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.story-statusbar-frame .browser-statusbar {
+  min-height: 24px;
+}
+
+:root[data-theme="ie-classic"] .story-control-frame,
+:root[data-theme="ie-classic"] .story-statusbar-frame {
+  border-radius: 0;
+}
+
 @media (max-width: 780px) {
   .story-favicon-grid {
     grid-template-columns: repeat(2, minmax(80px, 1fr));

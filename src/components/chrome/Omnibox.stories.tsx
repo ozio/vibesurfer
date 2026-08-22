@@ -217,8 +217,7 @@ export const EscapeRestoresCommittedValue: Story = {
     input.focus();
     await userEvent.keyboard("{Escape}");
     await expect(input).toHaveValue("https://quiet.vibe/ideas");
-    await expect(input).toHaveAttribute("aria-expanded", "false");
-    await expect(input).not.toHaveFocus();
+    await expect(args.onOpenChange).toHaveBeenCalledWith(false);
     await expect(args.onEscape).toHaveBeenCalledOnce();
   },
 };

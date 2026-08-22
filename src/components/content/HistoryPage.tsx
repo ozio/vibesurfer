@@ -2,6 +2,7 @@ import { AlertTriangle, Clock3, History, RotateCcw, Trash2 } from "lucide-react"
 import { useMemo } from "react";
 import { useBrowserStore } from "../../store/browser-store";
 import type { BrowsingHistoryEntry } from "../../types/browser";
+import { ConfirmDialog } from "../ui/Dialog";
 import { Favicon } from "../ui/Favicon";
 
 export function HistoryPage() {
@@ -27,15 +28,18 @@ export function HistoryPage() {
           <p>Every visit is recorded. Cached openings and deliberate regenerations remain separate entries.</p>
         </div>
         {entries.length > 0 && (
-          <button
-            className="history-page__clear"
-            type="button"
-            onClick={() => {
-              if (window.confirm("Clear browsing history for this profile? Generated pages will remain cached.")) {
-                clearHistory(activeProfileId);
-              }
-            }}
-          ><Trash2 aria-hidden="true" /> Clear history</button>
+          <ConfirmDialog
+            trigger={(
+              <button className="history-page__clear" type="button">
+                <Trash2 aria-hidden="true" /> Clear history
+              </button>
+            )}
+            title="Clear browsing history?"
+            description="This removes browsing history for the current profile. Generated pages remain cached."
+            confirmLabel="Clear history"
+            destructive
+            onConfirm={() => clearHistory(activeProfileId)}
+          />
         )}
       </header>
 

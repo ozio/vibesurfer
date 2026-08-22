@@ -8,7 +8,7 @@ import {
 } from "../browser/browser-services";
 import { BrowserThemeRoot } from "../browser/BrowserThemeRoot";
 import { BrowserChrome } from "../components/chrome/BrowserChrome";
-import { BrowserStatusBar } from "../components/chrome/BrowserStatusBar";
+import { ConnectedBrowserStatusBar } from "../components/chrome/BrowserStatusBar";
 import { ConnectedNavigationToolbar } from "../components/chrome/NavigationToolbar";
 import { ConnectedTabStrip } from "../components/chrome/TabStrip";
 import { ConnectedVerticalTabSidebar } from "../components/chrome/VerticalTabSidebar";
@@ -112,7 +112,8 @@ export function BrowserShell({ platform: platformOverride }: BrowserShellProps) 
           horizontalTabs={<ConnectedTabStrip orientation="horizontal" />}
           navigation={<ConnectedNavigationToolbar tab={activeTab} recipe={chromeRecipe.navigation} />}
           verticalTabs={<ConnectedVerticalTabSidebar />}
-          status={<BrowserStatusBar
+          status={<ConnectedBrowserStatusBar
+            appearance={chromeRecipe.id}
             location={activeTab.kind === "settings" ? "Settings" : activeTab.location}
             hoveredLink={hoveredLink}
             profileName={profile.name}

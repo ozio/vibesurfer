@@ -1,28 +1,29 @@
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BrowserStatusBar } from "../src/components/chrome/BrowserStatusBar";
 import type { PageArtifact } from "../src/types/browser";
-import { useBrowserStore } from "../src/store/browser-store";
 
 describe("BrowserStatusBar", () => {
   it("shows Hallunet, exposes hovered URLs, and opens the activity page", () => {
+    const openActivity = vi.fn();
     render(
       <BrowserStatusBar
+        appearance="classic"
         location="https://example.com/"
         hoveredLink="https://example.com/next"
         profileName="Personal"
         modelName="GPT Test"
         artifact={artifact()}
+        onOpenActivity={openActivity}
       />,
     );
 
     expect(screen.getByText("Hallunet")).toBeInTheDocument();
     expect(screen.getAllByText("https://example.com/next").length).toBeGreaterThan(0);
     fireEvent.click(screen.getAllByRole("button", { name: /1 req · in 120 · out 80/i })[0]);
-    const state = useBrowserStore.getState();
-    expect(state.tabs.find((tab) => tab.id === state.activeTabId)).toMatchObject({ kind: "activity", location: "vibe://activity?job=job-one" });
+    expect(openActivity).toHaveBeenCalledWith("job-one");
   });
 });
 

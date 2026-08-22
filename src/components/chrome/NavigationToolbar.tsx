@@ -4,12 +4,12 @@ import { useBrowserCommand } from "../../browser/browser-command-registry";
 import { useBrowserStore } from "../../store/browser-store";
 import type { BrowserTab } from "../../types/browser";
 import { IconButton } from "../ui/IconButton";
-import { AppMenu } from "./AppMenu";
-import { DynamicBadge } from "./DynamicBadge";
-import { GenerationModeControl } from "./GenerationModeControl";
-import { ModelControl } from "./ModelControl";
+import { ConnectedBrowserAppMenu } from "./BrowserAppMenu";
+import { ConnectedModelControl } from "./ConnectedModelControl";
+import { ConnectedDynamicStatusControl } from "./DynamicStatusControl";
+import { ConnectedGenerationModeControl } from "./GenerationModeControl";
 import { ConnectedOmnibox } from "./Omnibox";
-import { ProfileMenu } from "./ProfileMenu";
+import { ConnectedProfileSwitcher } from "./ProfileSwitcher";
 import type { BrowserNavigationRecipe } from "./navigation-recipes";
 
 export type NavigationToolbarCommandId = "back" | "forward" | "reload" | "stop" | "home";
@@ -102,11 +102,11 @@ export function ConnectedNavigationToolbar({ tab, recipe }: ConnectedNavigationT
       omnibox={<ConnectedOmnibox tab={tab} recipe={recipe.omnibox} />}
       endControls={(
         <>
-          <DynamicBadge tab={tab} artifact={artifact} />
-          <GenerationModeControl />
-          <ModelControl />
-          <ProfileMenu />
-          <AppMenu />
+          <ConnectedDynamicStatusControl tab={tab} artifact={artifact} />
+          <ConnectedGenerationModeControl />
+          <ConnectedModelControl />
+          <ConnectedProfileSwitcher />
+          <ConnectedBrowserAppMenu />
         </>
       )}
     />

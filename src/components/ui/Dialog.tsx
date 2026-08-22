@@ -53,7 +53,7 @@ export function Dialog({
 }
 
 export interface ConfirmDialogProps {
-  trigger: ReactElement;
+  trigger?: ReactElement;
   title: ReactNode;
   description: ReactNode;
   confirmLabel?: string;
@@ -79,7 +79,7 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <AlertDialog.Root {...rootProps}>
-      <AlertDialog.Trigger asChild>{trigger}</AlertDialog.Trigger>
+      {trigger && <AlertDialog.Trigger asChild>{trigger}</AlertDialog.Trigger>}
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="dialog-overlay" />
         <AlertDialog.Content className="dialog ui-dialog ui-confirm-dialog">

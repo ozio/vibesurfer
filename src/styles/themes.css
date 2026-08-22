@@ -445,7 +445,7 @@
   border-radius: 999px;
 }
 
-:root[data-theme="sedative"] .model-row.is-active {
+:root[data-theme="sedative"] .model-row:is(.is-active, .is-selected) {
   background: var(--accent-soft);
   box-shadow: none;
 }
@@ -466,6 +466,10 @@
 
 :root[data-theme="sedative"] .menu__item[data-highlighted] kbd,
 :root[data-theme="sedative"] .menu__item[data-highlighted] .menu__value {
+  color: var(--muted);
+}
+
+:root[data-theme="sedative"] .menu__item[data-highlighted] .menu__item-copy small {
   color: var(--muted);
 }
 

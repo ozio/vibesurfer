@@ -1,6 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createJSONStorage } from "zustand/middleware";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
   Object.defineProperty(globalThis, "ResizeObserver", {
@@ -13,42 +12,31 @@ vi.hoisted(() => {
   });
 });
 
-import { ModelControl } from "../src/components/chrome/ModelControl";
-import { useBrowserStore } from "../src/store/browser-store";
+import { ModelPicker } from "../src/components/chrome/ModelPicker";
+import { MODELS } from "../src/data/catalog";
 
-const memoryStorage = new Map<string, string>();
-useBrowserStore.persist.setOptions({
-  storage: createJSONStorage(() => ({
-    getItem: (key) => memoryStorage.get(key) ?? null,
-    setItem: (key, value) => {
-      memoryStorage.set(key, value);
-    },
-    removeItem: (key) => {
-      memoryStorage.delete(key);
-    },
-  })),
-});
-const initialState = useBrowserStore.getInitialState();
+const props = {
+  models: MODELS,
+  activeModelId: "mock:preview",
+  activeModelName: "Vibe Preview",
+  onSelect: vi.fn(),
+  onManageModels: vi.fn(),
+};
 
-describe("ModelControl", () => {
-  beforeEach(() => {
-    memoryStorage.clear();
-    useBrowserStore.setState(initialState, true);
-  });
-
+describe("ModelPicker", () => {
   afterEach(() => {
     cleanup();
-    useBrowserStore.setState(initialState, true);
+    vi.clearAllMocks();
   });
 
   it("shows a useful empty state and resets the query when reopened", async () => {
-    render(<ModelControl />);
+    render(<ModelPicker {...props} />);
     const trigger = screen.getByRole("button", { name: "Model: Vibe Preview" });
 
     fireEvent.click(trigger);
     const search = await screen.findByRole("combobox", { name: "Search models" });
     fireEvent.change(search, { target: { value: "zzzz-no-model" } });
-    expect(screen.getByRole("status")).toHaveTextContent("No models match your search.");
+    expect(screen.getByRole("status")).toHaveTextContent("No models found");
 
     fireEvent.keyDown(search, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("combobox", { name: "Search models" })).not.toBeInTheDocument());
@@ -57,7 +45,7 @@ describe("ModelControl", () => {
   });
 
   it("moves focus into options with ArrowDown and restores the trigger on Escape", async () => {
-    render(<ModelControl />);
+    render(<ModelPicker {...props} />);
     const trigger = screen.getByRole("button", { name: "Model: Vibe Preview" });
 
     fireEvent.click(trigger);

@@ -1,43 +1,67 @@
 import { useBrowserStore } from "../../store/browser-store";
 import type { GenerationJob, PageArtifact, TokenUsage } from "../../types/browser";
+import type { BrowserChromeRecipeId } from "./chrome-recipes";
 
-interface BrowserStatusBarProps {
+export interface BrowserStatusBarProps {
+  appearance: BrowserChromeRecipeId;
   location: string;
   hoveredLink?: string;
   profileName: string;
   modelName: string;
   artifact?: PageArtifact;
   activeJob?: GenerationJob;
+  onOpenActivity?: (jobId: string) => void;
 }
 
-export function BrowserStatusBar({ location, hoveredLink, profileName, modelName, artifact, activeJob }: BrowserStatusBarProps) {
-  const openActivity = useBrowserStore((state) => state.openActivity);
+export function BrowserStatusBar({
+  appearance,
+  location,
+  hoveredLink,
+  profileName,
+  modelName,
+  artifact,
+  activeJob,
+  onOpenActivity,
+}: BrowserStatusBarProps) {
   const usage = artifact?.usage ?? activeJob?.usage;
   const exchanges = artifact?.modelExchanges ?? [];
   const summary = compactUsage(usage, exchanges.length, activeJob);
   const status = hoveredLink ?? generationStatus(activeJob) ?? location;
   const classicStatus = hoveredLink ?? generationStatus(activeJob) ?? (activeJob?.status === "failed" ? "Error" : "Done");
   const jobId = activeJob?.id ?? artifact?.generationJobId;
+  const openActivity = () => {
+    if (jobId) onOpenActivity?.(jobId);
+  };
 
   return (
-    <footer className="browser-statusbar" title={hoveredLink}>
-      <div className="browser-statusbar__modern">
-        <span className="browser-statusbar__destination"><i className="status-orb" />{status}</span>
-        <span className="browser-statusbar__identity">{profileName} · {modelName}</span>
-        <button className="browser-statusbar__usage" type="button" disabled={!jobId} onClick={() => openActivity(jobId)} title={jobId ? "Open generation activity" : "No generation activity for this page"}>{summary}</button>
-      </div>
-      <div className="browser-statusbar__classic">
-        <span className="classic-status-destination">
-          {!hoveredLink && <i className="classic-status-icon">e</i>}
-          {classicStatus}
-        </span>
-        <span className="classic-status-zone"><i className="classic-status-globe" />Hallunet</span>
-        <button className="browser-statusbar__usage classic-status-usage" type="button" disabled={!jobId} onClick={() => openActivity(jobId)} title={jobId ? "Open generation activity" : "No generation activity for this page"}>{summary}</button>
-        <span className="classic-status-zoom">⌕&nbsp; 100%</span>
-        <i className="classic-resize-grip" aria-hidden="true" />
-      </div>
+    <footer className="browser-statusbar" title={hoveredLink} data-statusbar-appearance={appearance}>
+      {appearance === "standard" ? (
+        <div className="browser-statusbar__modern">
+          <span className="browser-statusbar__destination"><i className="status-orb" />{status}</span>
+          <span className="browser-statusbar__identity">{profileName} · {modelName}</span>
+          <button className="browser-statusbar__usage" type="button" disabled={!jobId || !onOpenActivity} onClick={openActivity} title={jobId ? "Open generation activity" : "No generation activity for this page"}>{summary}</button>
+        </div>
+      ) : (
+        <div className="browser-statusbar__classic">
+          <span className="classic-status-destination">
+            {!hoveredLink && <i className="classic-status-icon">e</i>}
+            {classicStatus}
+          </span>
+          <span className="classic-status-zone"><i className="classic-status-globe" />Hallunet</span>
+          <button className="browser-statusbar__usage classic-status-usage" type="button" disabled={!jobId || !onOpenActivity} onClick={openActivity} title={jobId ? "Open generation activity" : "No generation activity for this page"}>{summary}</button>
+          <span className="classic-status-zoom">⌕&nbsp; 100%</span>
+          <i className="classic-resize-grip" aria-hidden="true" />
+        </div>
+      )}
     </footer>
   );
+}
+
+export type ConnectedBrowserStatusBarProps = Omit<BrowserStatusBarProps, "onOpenActivity">;
+
+export function ConnectedBrowserStatusBar(props: ConnectedBrowserStatusBarProps) {
+  const openActivity = useBrowserStore((state) => state.openActivity);
+  return <BrowserStatusBar {...props} onOpenActivity={openActivity} />;
 }
 
 export function generationStatus(job?: GenerationJob): string | undefined {
