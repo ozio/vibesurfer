@@ -14,8 +14,8 @@ vi.hoisted(() => {
   });
 });
 
-import { TabStrip } from "../src/components/chrome/TabStrip";
-import { VerticalSidebar } from "../src/components/content/VerticalSidebar";
+import { ConnectedTabStrip } from "../src/components/chrome/TabStrip";
+import { ConnectedVerticalTabSidebar } from "../src/components/chrome/VerticalTabSidebar";
 import { useBrowserStore } from "../src/store/browser-store";
 
 const memoryStorage = new Map<string, string>();
@@ -89,7 +89,7 @@ describe("TabStrip", () => {
   it("uses the vertical sidebar header for tab count instead of a fake collapse action", () => {
     render(
       <Tooltip.Provider>
-        <VerticalSidebar />
+        <ConnectedVerticalTabSidebar />
       </Tooltip.Provider>,
     );
 
@@ -136,7 +136,7 @@ describe("TabStrip", () => {
 function renderTabStrip(orientation: "horizontal" | "vertical" = "horizontal") {
   return render(
     <Tooltip.Provider>
-      <TabStrip orientation={orientation} />
+      <ConnectedTabStrip orientation={orientation} />
     </Tooltip.Provider>,
   );
 }

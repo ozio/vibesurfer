@@ -73,3 +73,11 @@ Pure components receive all behavior through props and can be rendered directly.
 - Utilities: `ResizeHandle` and `Shortcut`.
 
 The complete supported CSS API is rendered under **Foundation / Theme tokens** and exported as `UI_THEME_TOKENS`. A theme should define the shared tokens before it adds narrow component overrides. Primitive CSS must not branch on a theme ID; real structural differences belong to a higher-level browser component.
+
+## Browser chrome layer
+
+`src/components/chrome/index.ts` is the public entry point for window and tab chrome. `BrowserChrome`, `TitleBar`, `WindowControls`, `TabStrip`, `BrowserTab`, and `VerticalTabSidebar` are controlled components: none reads Zustand or calls Tauri. `ConnectedTabStrip` and `ConnectedVerticalTabSidebar` are deliberately thin production adapters that translate browser state and command-registry actions into that reusable API.
+
+`STANDARD_CHROME_RECIPE` places horizontal tabs inside the platform-aware title bar. `CLASSIC_CHROME_RECIPE` adds the IE-style menu and tab rows while preserving the same page, navigation, status, and tab component slots. A new theme selects or extends a structural recipe; it does not fork the tab behavior.
+
+The tab contract uses automatic activation with Arrow keys, Home, and End; Delete closes and restores focus to an adjacent tab; Alt plus the orientation arrow reorders; pointer drag uses the same controlled reorder callback. `motion="reduced"` disables layout interpolation and smooth overflow scrolling independently of the global motion preference.

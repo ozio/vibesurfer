@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
-import { BROWSER_EXPERIENCE_REGISTRY } from "../browser/browser-experience-registry";
 import { handleBrowserCommandKeydown } from "../browser/browser-command-registry";
 import {
   BrowserServicesProvider,
@@ -8,13 +7,13 @@ import {
   withBrowserServicePlatform,
 } from "../browser/browser-services";
 import { BrowserThemeRoot } from "../browser/BrowserThemeRoot";
+import { BrowserChrome } from "../components/chrome/BrowserChrome";
 import { BrowserStatusBar } from "../components/chrome/BrowserStatusBar";
-import { ClassicMenuBar, ClassicTabBar } from "../components/chrome/ClassicChrome";
 import { NavigationBar } from "../components/chrome/NavigationBar";
-import { TabStrip } from "../components/chrome/TabStrip";
-import { TitleBar } from "../components/chrome/TitleBar";
+import { ConnectedTabStrip } from "../components/chrome/TabStrip";
+import { ConnectedVerticalTabSidebar } from "../components/chrome/VerticalTabSidebar";
+import { browserChromeRecipeForTheme } from "../components/chrome/chrome-recipes";
 import { PageSurface } from "../components/content/PageSurface";
-import { VerticalSidebar } from "../components/content/VerticalSidebar";
 import { modelCatalog } from "../data/catalog";
 import { useBrowserStore } from "../store/browser-store";
 import type { Platform } from "../types/browser";
@@ -49,7 +48,7 @@ export function BrowserShell({ platform: platformOverride }: BrowserShellProps) 
   const models = useMemo(() => modelCatalog(providerConnections, activeProfileId), [activeProfileId, providerConnections]);
   const model = models.find((item) => item.id === activeModelId) ?? models[0];
   const profile = profiles.find((item) => item.id === activeProfileId) ?? profiles[0]!;
-  const isClassicInternetExplorer = BROWSER_EXPERIENCE_REGISTRY[preferences.theme].chrome.variant === "ie-classic";
+  const chromeRecipe = browserChromeRecipeForTheme(preferences.theme);
   const [hoveredLink, setHoveredLink] = useState<string>();
   const activeArtifactId = activeTab?.artifactId ?? activeTab?.fallbackArtifactId;
   const activeArtifact = activeArtifactId ? artifacts[activeArtifactId] : undefined;
@@ -105,33 +104,29 @@ export function BrowserShell({ platform: platformOverride }: BrowserShellProps) 
         tabLayout={preferences.tabLayout}
         motion={preferences.animations ? "full" : "reduced"}
       >
-        <div className={`browser-window browser-window--${preferences.tabLayout}`}>
-          <TitleBar platform={platform} layout={preferences.tabLayout} title={activeTab.title}>
-            {!isClassicInternetExplorer && <TabStrip orientation="horizontal" />}
-          </TitleBar>
-          {isClassicInternetExplorer && <ClassicMenuBar />}
-          <NavigationBar tab={activeTab} />
-          {isClassicInternetExplorer && preferences.tabLayout === "horizontal" && (
-            <ClassicTabBar><TabStrip orientation="horizontal" /></ClassicTabBar>
-          )}
-          <div className="browser-workspace">
-            {preferences.tabLayout === "vertical" && <VerticalSidebar />}
-            <div className="content-viewport">
-              <Routes>
-                <Route path="/" element={activeTab.kind === "settings" ? <SettingsSurface /> : <PageSurface tab={activeTab} onLinkHover={setHoveredLink} />} />
-                <Route path="/settings/:section?" element={<SettingsSurface />} />
-              </Routes>
-            </div>
-          </div>
-          <BrowserStatusBar
+        <BrowserChrome
+          recipe={chromeRecipe}
+          platform={platform}
+          layout={preferences.tabLayout}
+          title={activeTab.title}
+          horizontalTabs={<ConnectedTabStrip orientation="horizontal" />}
+          navigation={<NavigationBar tab={activeTab} />}
+          verticalTabs={<ConnectedVerticalTabSidebar />}
+          status={<BrowserStatusBar
             location={activeTab.kind === "settings" ? "Settings" : activeTab.location}
             hoveredLink={hoveredLink}
             profileName={profile.name}
             modelName={model.name}
             artifact={activeArtifact}
             activeJob={activeJob}
-          />
-        </div>
+          />}
+          onWindowAction={(action) => services.window.perform(action)}
+        >
+          <Routes>
+            <Route path="/" element={activeTab.kind === "settings" ? <SettingsSurface /> : <PageSurface tab={activeTab} onLinkHover={setHoveredLink} />} />
+            <Route path="/settings/:section?" element={<SettingsSurface />} />
+          </Routes>
+        </BrowserChrome>
       </BrowserThemeRoot>
     </BrowserServicesProvider>
   );

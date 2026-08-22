@@ -1,28 +1,58 @@
-import { Maximize2, Minus, X } from "lucide-react";
-import { useBrowserServices } from "../../browser/browser-services";
+import { Maximize2, Minimize2, Minus, X } from "lucide-react";
+import type { BrowserWindowAction } from "../../browser/browser-services";
 import type { Platform } from "../../types/browser";
+import type { BrowserChromeRecipeId } from "./chrome-recipes";
 
-export function WindowControls({ platform }: { platform: Platform }) {
-  const services = useBrowserServices();
+export interface WindowControlsProps {
+  platform: Platform;
+  appearance?: BrowserChromeRecipeId;
+  maximized?: boolean;
+  disabled?: boolean;
+  onAction: (action: BrowserWindowAction) => void | Promise<void>;
+}
+
+export function WindowControls({
+  platform,
+  appearance = "standard",
+  maximized = false,
+  disabled = false,
+  onAction,
+}: WindowControlsProps) {
+  const perform = (action: BrowserWindowAction) => {
+    void onAction(action);
+  };
+
   if (platform === "macos") {
     return (
-      <div className="window-controls window-controls--mac" aria-label="Window controls" data-tauri-drag-region="false">
-        <button className="traffic-light traffic-light--close" aria-label="Close" onClick={() => void services.window.perform("close")} />
-        <button className="traffic-light traffic-light--minimize" aria-label="Minimize" onClick={() => void services.window.perform("minimize")} />
-        <button className="traffic-light traffic-light--maximize" aria-label="Maximize" onClick={() => void services.window.perform("toggleMaximize")} />
+      <div
+        className="window-controls window-controls--mac"
+        role="group"
+        aria-label="Window controls"
+        data-appearance={appearance}
+        data-tauri-drag-region="false"
+      >
+        <button type="button" className="traffic-light traffic-light--close" aria-label="Close" data-window-action="close" disabled={disabled} onClick={() => perform("close")} />
+        <button type="button" className="traffic-light traffic-light--minimize" aria-label="Minimize" data-window-action="minimize" disabled={disabled} onClick={() => perform("minimize")} />
+        <button type="button" className="traffic-light traffic-light--maximize" aria-label={maximized ? "Restore" : "Maximize"} data-window-action="toggleMaximize" disabled={disabled} onClick={() => perform("toggleMaximize")} />
       </div>
     );
   }
 
   return (
-    <div className={`window-controls window-controls--${platform}`} aria-label="Window controls" data-tauri-drag-region="false">
-      <button aria-label="Minimize" onClick={() => void services.window.perform("minimize")}>
+    <div
+      className={`window-controls window-controls--${platform}`}
+      role="group"
+      aria-label="Window controls"
+      data-appearance={appearance}
+      data-tauri-drag-region="false"
+    >
+      <button type="button" aria-label="Minimize" data-window-action="minimize" disabled={disabled} onClick={() => perform("minimize")}>
         <Minus aria-hidden="true" />
       </button>
-      <button aria-label="Maximize" onClick={() => void services.window.perform("toggleMaximize")}>
-        <Maximize2 aria-hidden="true" />
+      <button type="button" aria-label={maximized ? "Restore" : "Maximize"} data-window-action="toggleMaximize" disabled={disabled} onClick={() => perform("toggleMaximize")}>
+        {maximized ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
       </button>
-      <button className="window-control--close" aria-label="Close" onClick={() => void services.window.perform("close")}>
+      <button type="button" className="window-control--close" aria-label="Close" data-window-action="close" disabled={disabled} onClick={() => perform("close")}>
         <X aria-hidden="true" />
       </button>
     </div>

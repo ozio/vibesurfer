@@ -41,6 +41,7 @@
 .window-controls--windows button:hover, .window-controls--linux button:hover { background: var(--surface-hover); }
 .window-controls--windows .window-control--close:hover, .window-controls--linux .window-control--close:hover { color: white; background: #c42b1c; }
 .window-controls--windows svg, .window-controls--linux svg { width: 12px; height: 12px; stroke-width: 1.5; }
+.window-controls button:disabled { opacity: .45; }
 
 .tab-strip { display: flex; min-width: 0; gap: 4px; }
 .tab-strip--horizontal { flex: 1; height: 100%; align-items: flex-end; padding: 0 6px 0 0; overflow: hidden; }
@@ -107,6 +108,8 @@
 .favicon--rounded-square { border-radius: 3px; }
 .favicon--square { border-radius: 0; }
 .tab-loading { color: var(--accent); transform-box: view-box; transform-origin: center; animation: spin .85s linear infinite; }
+.tab-strip[data-motion="reduced"] .browser-tab { transition: none; }
+.tab-strip[data-motion="reduced"] .tab-loading { animation: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .new-tab-button { flex: 0 0 var(--icon-button-size); }
@@ -329,8 +332,11 @@
 .vertical-sidebar__footer { display: flex; align-items: center; gap: 9px; margin: 10px 8px 0; padding: 10px; border-top: 1px solid var(--border); }
 .vertical-sidebar__footer > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
 .vertical-sidebar__footer strong { font-size: 10px; }
-.vertical-sidebar__footer small { overflow: hidden; color: var(--subtle); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
-.vertical-sidebar__resize { position: absolute; z-index: 2; top: 0; right: -3px; bottom: 0; width: 6px; cursor: col-resize; }
+.vertical-sidebar__footer small { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.vertical-sidebar > .vertical-sidebar__resize { position: absolute; z-index: 2; top: 0; right: -4px; bottom: 0; width: 8px; cursor: col-resize; }
+.vertical-sidebar > .vertical-sidebar__resize > span { height: 40px; opacity: 0; }
+.vertical-sidebar > .vertical-sidebar__resize:hover > span,
+.vertical-sidebar > .vertical-sidebar__resize:focus-visible > span { opacity: 1; }
 .vertical-sidebar__resize:hover { background: color-mix(in srgb, var(--accent) 45%, transparent); }
 .status-orb { display: inline-block; width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 2px color-mix(in srgb, var(--success) 13%, transparent); }
 
