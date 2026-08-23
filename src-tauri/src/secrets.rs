@@ -87,7 +87,11 @@ impl MediaSecretVault {
     ) -> Result<(), SecretError> {
         let expected = secret_reference(profile_id, connection_id)?;
         validate_secret_ref(secret_ref)?;
-        if secret_ref == expected { Ok(()) } else { Err(SecretError::InvalidIdentifier) }
+        if secret_ref == expected {
+            Ok(())
+        } else {
+            Err(SecretError::InvalidIdentifier)
+        }
     }
 
     pub fn put(
@@ -97,7 +101,9 @@ impl MediaSecretVault {
         secret: Zeroizing<String>,
     ) -> Result<String, SecretError> {
         let secret_ref = secret_reference(profile_id, connection_id)?;
-        if secret.trim().is_empty() { return Err(SecretError::InvalidIdentifier); }
+        if secret.trim().is_empty() {
+            return Err(SecretError::InvalidIdentifier);
+        }
         media_entry(&secret_ref)?
             .set_password(secret.as_str())
             .map_err(|error| SecretError::Store(error.to_string()))?;

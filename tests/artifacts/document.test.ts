@@ -102,6 +102,27 @@ describe("generated artifact document compiler", () => {
     expect(document.querySelector("style")?.textContent).not.toContain("attacker.example");
   });
 
+  test("routes allowlisted desktop images through the native cache protocol", () => {
+    window.__TAURI_INTERNALS__ = {} as typeof window.__TAURI_INTERNALS__;
+    try {
+      const source = "https://loremflickr.com/640/480/city?lock=1";
+      const result = compileGeneratedArtifactDocument({
+        artifactId: "native-image-fixture",
+        url: "https://safe.example/",
+        title: "Native image",
+        nonce,
+        html: `<img id="cached" src="${source}">`,
+      });
+      const value = parse(result.payload.html).querySelector("#cached")?.getAttribute("src") ?? "";
+      expect(value).toMatch(/^vibeasset:\/\/localhost\/image\/[A-Za-z0-9_-]+$/);
+      const encoded = value.split("/").at(-1)!.replace(/-/g, "+").replace(/_/g, "/");
+      expect(atob(encoded)).toBe(source);
+      expect(result.warnings).toContainEqual({ code: "rewrote-url", count: 1 });
+    } finally {
+      delete window.__TAURI_INTERNALS__;
+    }
+  });
+
   test("keeps compiled Iconify SVG markup and license relationship tokens", () => {
     const result = compileGeneratedArtifactDocument({
       artifactId: "iconify-fixture",

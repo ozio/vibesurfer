@@ -190,7 +190,10 @@ export function extractPartialHtml(partial: unknown): string | undefined {
   return typeof html === "string" && html.length > 0 ? html : undefined;
 }
 
-const PREVIEW_FRAME_INTERVAL_MS = 32;
+// Full accumulated HTML crosses stdout, Tauri IPC and two DOMParser passes.
+// Eight frames per second keeps the page visibly progressive without letting
+// a fast token stream build an unbounded rendering backlog.
+const PREVIEW_FRAME_INTERVAL_MS = 125;
 
 export function createProgressivePagePreview(
   input: Pick<CompilePageInput, "request" | "emit"> & Partial<Pick<CompilePageInput, "approvedBrief">>,

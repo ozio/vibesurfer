@@ -6,6 +6,7 @@ import { useBrowserStore, type BrowserState } from "../store/browser-store";
 import { normalizeCapabilityManifest } from "./capability-manifest";
 import { normalizeDynamicManifest } from "./dynamic-manifest";
 import { getCachedArtifact, savePersistedSiteWorld } from "./host-api";
+import { clearGenerationPreviewFrame, setGenerationPreviewFrame } from "./preview-store";
 import type {
   FaviconDescriptor,
   ArtifactSitePatch,
@@ -284,9 +285,10 @@ export function dispatchRuntimeEvent(event: GenerationRuntimeEvent): void {
       });
       break;
     case "generation.preview":
-      state.setGenerationPreview(event.jobId, event.html, event.revision);
+      setGenerationPreviewFrame(event.jobId, event.html, event.revision);
       break;
     case "generation.completed":
+      clearGenerationPreviewFrame(event.jobId);
       if (state.generationJobs[event.jobId]?.purpose === "lucky-urls") {
         const target = state.completeLucky(event.jobId, event.artifact);
         const completedJob = state.generationJobs[event.jobId];
@@ -303,9 +305,11 @@ export function dispatchRuntimeEvent(event: GenerationRuntimeEvent): void {
       }
       break;
     case "generation.failed":
+      clearGenerationPreviewFrame(event.jobId);
       state.failGeneration(event.jobId, event.error);
       break;
     case "generation.cancelled":
+      clearGenerationPreviewFrame(event.jobId);
       state.cancelGeneration(event.jobId);
       break;
   }

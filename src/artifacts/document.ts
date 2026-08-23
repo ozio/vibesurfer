@@ -2,6 +2,7 @@ import type { ArtifactRenderPayload } from "./bridge-protocol";
 import { repairEscapedNavigationUrl } from "../lib/navigation";
 import type { ThemeId, VoiceAudioSettings } from "../types/browser";
 import type { DynamicManifest } from "../types/browser";
+import { isNativeImageAsset, nativeImageAssetUrl } from "../media/native-asset-url";
 
 const BLOCKED_ELEMENTS = [
   "base",
@@ -332,7 +333,14 @@ function sanitizeUrlAttribute(
     return;
   }
 
-  if (element instanceof HTMLImageElement && isSafeImageAsset(value)) return;
+  if (element instanceof HTMLImageElement && isSafeImageAsset(value)) {
+    const nativeValue = nativeImageAssetUrl(value);
+    if (nativeValue !== value) {
+      element.setAttribute(attributeName, nativeValue);
+      warnings.add("rewrote-url");
+    }
+    return;
+  }
   if (isSafeEmbeddedAsset(value)) return;
   element.removeAttribute(attributeName);
   warnings.add("removed-unsafe-url");
@@ -408,6 +416,7 @@ function isSafeEmbeddedAsset(value: string) {
 
 function isSafeImageAsset(value: string) {
   if (isSafeEmbeddedAsset(value)) return true;
+  if (isNativeImageAsset(value)) return true;
   try {
     const url = new URL(value);
     const hostname = url.hostname.toLowerCase();

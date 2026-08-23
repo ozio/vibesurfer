@@ -504,6 +504,16 @@ function ModelSettings() {
         codexSelection.reasoningEffort ? `${displayEffort(codexSelection.reasoningEffort)} effort` : "Default effort",
       ].join(" · ")
     : "Choose a model, speed, and reasoning effort";
+  const runtimeDescription = runtime
+    ? [
+        runtime.workerDescription,
+        `generation ${runtime.activeJobs} active / ${runtime.idleWorkers} idle / ${runtime.reusedWorkers} reused`,
+        `media ${runtime.reusedMediaWorkers} reused`,
+        `storage queue ${runtime.storageQueueDepth}`,
+      ].join(" · ")
+    : isDesktop
+      ? "Build the generation worker to enable providers."
+      : "Uses a deterministic, network-free mock provider.";
 
   return (
     <>
@@ -517,7 +527,7 @@ function ModelSettings() {
       <SettingsRuntimeCard
         state={!isDesktop ? "preview" : runtime?.workerAvailable ? "ready" : loadingProviders ? "checking" : "unavailable"}
         title={isDesktop ? (runtime?.workerAvailable ? "Worker ready" : loadingProviders ? "Checking worker…" : "Worker unavailable") : "Browser preview runtime"}
-        description={runtime?.workerDescription ?? (isDesktop ? "Build the generation worker to enable providers." : "Uses a deterministic, network-free mock provider.")}
+        description={runtimeDescription}
       />
       <SettingsGroup title="Default model">
         <div className="settings-model-list">

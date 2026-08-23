@@ -15,6 +15,9 @@ export interface HistorySurfaceProps {
   onOpenEntry: (entry: BrowsingHistoryEntry) => void;
   onDeleteEntry: (entry: BrowsingHistoryEntry) => void;
   onClearHistory: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  onLoadMore?: () => void;
 }
 
 export function HistorySurface({
@@ -23,6 +26,9 @@ export function HistorySurface({
   onOpenEntry,
   onDeleteEntry,
   onClearHistory,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }: HistorySurfaceProps) {
   const groups = useMemo(() => groupByDay(entries), [entries]);
   const versions = useMemo(() => versionNumbers(entries), [entries]);
@@ -55,22 +61,31 @@ export function HistorySurface({
           title="No paths recorded yet"
           description="Pages you open in this profile will appear here."
         />
-      ) : groups.map(([day, dayEntries]) => (
-        <section className="history-day" key={day}>
-          <h2>{formatDay(day, referenceNow)}</h2>
-          <div className="history-list">
-            {dayEntries.map((entry) => (
-              <HistoryEntryRow
-                key={entry.id}
-                entry={entry}
-                version={versions.get(entry.id) ?? 1}
-                onOpen={() => onOpenEntry(entry)}
-                onDelete={() => onDeleteEntry(entry)}
-              />
-            ))}
-          </div>
-        </section>
-      ))}
+      ) : (
+        <>
+          {groups.map(([day, dayEntries]) => (
+            <section className="history-day" key={day}>
+              <h2>{formatDay(day, referenceNow)}</h2>
+              <div className="history-list">
+                {dayEntries.map((entry) => (
+                  <HistoryEntryRow
+                    key={entry.id}
+                    entry={entry}
+                    version={versions.get(entry.id) ?? 1}
+                    onOpen={() => onOpenEntry(entry)}
+                    onDelete={() => onDeleteEntry(entry)}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+          {hasMore && onLoadMore && (
+            <Button className="history-page__load-more" onClick={onLoadMore} disabled={loadingMore}>
+              {loadingMore ? "Loading…" : "Load older visits"}
+            </Button>
+          )}
+        </>
+      )}
     </main>
   );
 }

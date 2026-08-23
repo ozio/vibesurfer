@@ -7,6 +7,7 @@ import {
   migrateBrowserState,
   useBrowserStore,
 } from "../src/store/browser-store";
+import { resetGenerationPreviews, useGenerationPreviewStore } from "../src/generation/preview-store";
 import type { PageArtifact } from "../src/types/browser";
 
 const memoryStorage = new Map<string, string>();
@@ -26,7 +27,9 @@ const initialState = useBrowserStore.getInitialState();
 
 beforeEach(() => {
   memoryStorage.clear();
+  delete window.__TAURI_INTERNALS__;
   useBrowserStore.setState(initialState, true);
+  resetGenerationPreviews();
 });
 
 test("navigate creates a queued virtual job and history references it", () => {
@@ -335,7 +338,11 @@ test("stream actions update only the expected live job", () => {
   const state = useBrowserStore.getState();
   assert.equal(state.generationJobs[jobId].status, "running");
   assert.equal(state.generationJobs[jobId].phase, "generating");
-  assert.equal(state.generationJobs[jobId].previewRevision, 1);
+  assert.equal(state.generationJobs[jobId].previewRevision, undefined);
+  assert.deepEqual(useGenerationPreviewStore.getState().previews[jobId], {
+    html: "<main>Preview</main>",
+    revision: 1,
+  });
   assert.equal(state.tabs.find((item) => item.id === "welcome")?.title, "Example home");
   assert.equal(state.cancelGeneration(jobId), true);
   assert.equal(useBrowserStore.getState().setGenerationPreview(jobId, "stale"), false);
@@ -514,6 +521,19 @@ test("migration replaces an unavailable model but preserves a configured BYOK mo
     }],
   }, 3);
   assert.equal(configured.activeModelId, "openai:gpt-test");
+});
+
+test("desktop migration defers custom model validation until host connections hydrate", () => {
+  window.__TAURI_INTERNALS__ = {} as typeof window.__TAURI_INTERNALS__;
+  const sourceTab = useBrowserStore.getInitialState().tabs[0];
+  const migrated = migrateBrowserState({
+    activeModelId: "openai:evo-local",
+    providerConnections: [],
+    tabs: [{ ...sourceTab, artifactId: undefined, generatedWith: "openai:evo-local" }],
+  }, 14);
+
+  assert.equal(migrated.activeModelId, "openai:evo-local");
+  assert.equal(migrated.tabs?.[0].generatedWith, "openai:evo-local");
 });
 
 test("removing a provider resets the selected profile model", () => {

@@ -93,6 +93,7 @@ describe("artifact frame runtime", () => {
       expect(remoteImage).not.toHaveAttribute("src");
       expect(remoteImage).not.toHaveAttribute("srcset");
       expect(document.querySelector("#loremflickr-image")).toHaveAttribute("src", "https://loremflickr.com/640/480/city?lock=1");
+      expect(document.querySelector("#native-image")).toHaveAttribute("src", "vibeasset://localhost/image/aHR0cHM");
       expect(document.querySelector("#inline-image")).toHaveAttribute("src", "data:image/png;base64,AA==");
       expect(document.querySelector("#javascript-link")).not.toHaveAttribute("href");
       expect(document.querySelector("iconify-icon[data-iconify-rendered] svg path")).not.toBeNull();
@@ -675,6 +676,7 @@ const hostileArtifactHtml = `<!doctype html>
       <a id="javascript-link" href="javascript:window.compromised=true">Unsafe route</a>
       <img id="remote-image" src="https://attacker.example/image.png" srcset="https://attacker.example/2x.png 2x" onerror="window.compromised=true">
       <img id="loremflickr-image" src="https://loremflickr.com/640/480/city?lock=1">
+      <img id="native-image" src="vibeasset://localhost/image/aHR0cHM">
       <img id="inline-image" src="data:image/png;base64,AA==">
       <iconify-icon icon="streamline-cyber:account" aria-hidden="true" data-iconify-rendered><svg viewBox="0 0 24 24"><path d="M1 1h22v22H1z"></path></svg></iconify-icon>
       <a id="icon-license" href="https://example.com/license" rel="license">Icon license</a>

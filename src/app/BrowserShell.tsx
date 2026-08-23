@@ -35,8 +35,15 @@ export function BrowserShell({ platform: platformOverride }: BrowserShellProps) 
   const activeProfileId = useBrowserStore((state) => state.activeProfileId);
   const profiles = useBrowserStore((state) => state.profiles);
   const providerConnections = useBrowserStore((state) => state.providerConnections);
-  const artifacts = useBrowserStore((state) => state.artifacts);
-  const generationJobs = useBrowserStore((state) => state.generationJobs);
+  const activeArtifact = useBrowserStore((state) => {
+    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId) ?? state.tabs[0];
+    const artifactId = tab?.artifactId ?? tab?.fallbackArtifactId;
+    return artifactId ? state.artifacts[artifactId] : undefined;
+  });
+  const activeJob = useBrowserStore((state) => {
+    const tab = state.tabs.find((candidate) => candidate.id === state.activeTabId) ?? state.tabs[0];
+    return tab?.generationJobId ? state.generationJobs[tab.generationJobId] : undefined;
+  });
   const navigate = useNavigate();
   const location = useLocation();
   const services = useMemo(
@@ -50,9 +57,6 @@ export function BrowserShell({ platform: platformOverride }: BrowserShellProps) 
   const profile = profiles.find((item) => item.id === activeProfileId) ?? profiles[0]!;
   const chromeRecipe = browserChromeRecipeForTheme(preferences.theme);
   const [hoveredLink, setHoveredLink] = useState<string>();
-  const activeArtifactId = activeTab?.artifactId ?? activeTab?.fallbackArtifactId;
-  const activeArtifact = activeArtifactId ? artifacts[activeArtifactId] : undefined;
-  const activeJob = activeTab?.generationJobId ? generationJobs[activeTab.generationJobId] : undefined;
 
   useEffect(() => setHoveredLink(undefined), [activeTabId]);
 

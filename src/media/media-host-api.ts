@@ -4,7 +4,7 @@ import type { VideoCaptionWord } from "./video-types";
 
 interface HostMediaAsset {
   mimeType: string;
-  dataBase64: string;
+  assetUrl: string;
   durationMs: number;
   captionWords?: VideoCaptionWord[];
   cacheHit: boolean;
@@ -67,19 +67,19 @@ export interface BrowserMediaAsset {
 export async function renderHostSpeech(request: HostSpeechRequest): Promise<BrowserMediaAsset> {
   if (!isTauri()) throw new Error(`${request.engine === "cloud" ? "Cloud" : request.engine === "local" ? "Local" : "System"} speech requires the desktop host.`);
   const response = await invokeHost<HostMediaAsset>("render_media_speech", { request });
-  return fromHostAsset(response);
+  return await fromHostAsset(response);
 }
 
 export async function generateHostMusic(request: HostMusicRequest): Promise<BrowserMediaAsset> {
   if (!isTauri()) throw new Error("Generated music requires the desktop host.");
   const response = await invoke<HostMediaAsset>("generate_media_music", { request });
-  return fromHostAsset(response);
+  return await fromHostAsset(response);
 }
 
 export async function getCachedLocalSpeech(request: LocalSpeechCacheKey): Promise<BrowserMediaAsset | undefined> {
   if (!isTauri()) return undefined;
   const response = await invoke<HostMediaAsset | null>("get_cached_local_speech", { request });
-  return response ? fromHostAsset(response) : undefined;
+  return response ? await fromHostAsset(response) : undefined;
 }
 
 export async function cacheLocalSpeech(request: LocalSpeechCacheKey, asset: { blob: Blob; durationMs: number }): Promise<BrowserMediaAsset> {
@@ -88,7 +88,7 @@ export async function cacheLocalSpeech(request: LocalSpeechCacheKey, asset: { bl
   const response = await invoke<HostMediaAsset>("cache_local_speech", {
     request: { ...request, mimeType: "audio/wav", dataBase64, durationMs: asset.durationMs },
   });
-  return fromHostAsset(response);
+  return await fromHostAsset(response);
 }
 
 export async function listMediaConnections(profileId: string): Promise<MediaConnection[]> {
@@ -121,15 +121,16 @@ export async function cancelHostMedia(requestId: string): Promise<void> {
   await invoke("cancel_media_request", { requestId });
 }
 
-function fromHostAsset(asset: HostMediaAsset): BrowserMediaAsset {
+async function fromHostAsset(asset: HostMediaAsset): Promise<BrowserMediaAsset> {
   if (!asset.mimeType.startsWith("audio/") || !Number.isFinite(asset.durationMs) || asset.durationMs <= 0) {
     throw new Error("The media host returned an invalid audio asset.");
   }
-  const binary = atob(asset.dataBase64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  const response = await fetch(asset.assetUrl, { credentials: "omit", cache: "force-cache" });
+  if (!response.ok) throw new Error("The media host asset is no longer available.");
+  const blob = await response.blob();
+  if (!blob.type.startsWith("audio/") || blob.size === 0) throw new Error("The media host returned invalid audio bytes.");
   return {
-    blob: new Blob([bytes], { type: asset.mimeType }),
+    blob,
     durationMs: Math.round(asset.durationMs),
     ...(asset.captionWords?.length ? { captionWords: asset.captionWords } : {}),
     cacheHit: asset.cacheHit,

@@ -60,6 +60,9 @@
     try {
       const url = new URL(value);
       const hostname = url.hostname.toLowerCase();
+      if ((url.protocol === "vibeasset:" && hostname === "localhost"
+          || url.protocol === "http:" && hostname === "vibeasset.localhost")
+          && /^\/image\/[A-Za-z0-9_-]{1,4096}$/.test(url.pathname)) return true;
       return url.protocol === "https:" && !url.username && !url.password
         && (!url.port || url.port === "443")
         && (hostname === "loremflickr.com" || hostname === "www.loremflickr.com"

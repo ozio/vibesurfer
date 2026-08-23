@@ -2,7 +2,10 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -13,8 +16,8 @@ use tauri::{ipc::Channel, AppHandle, Manager};
 use thiserror::Error;
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
-    process::{ChildStdin, Command},
-    sync::{mpsc, Mutex},
+    process::{Child, ChildStdin, ChildStdout, Command},
+    sync::{mpsc, Mutex, OwnedSemaphorePermit, Semaphore},
     time::{sleep_until, Instant},
 };
 use uuid::Uuid;
@@ -22,12 +25,16 @@ use zeroize::Zeroizing;
 
 use crate::{
     protocol::{ArtifactRecord, GenerationStartRequest, WORKER_PROTOCOL_VERSION},
-    storage::Storage,
+    storage::{GenerationStageWrite, StorageHandle},
 };
 
 const CANCEL_GRACE: Duration = Duration::from_secs(5);
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 const GENERATION_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const RESET_TIMEOUT: Duration = Duration::from_secs(3);
+const WORKER_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const MAX_BUSY_WORKERS: usize = 4;
+const MAX_IDLE_WORKERS: usize = 2;
 // A completed artifact can include the rendered HTML plus up to four persisted
 // model request/response transcripts for the generation inspector.
 const MAX_WORKER_LINE_BYTES: usize = 16 * 1024 * 1024;
@@ -53,6 +60,10 @@ pub enum WorkerError {
 #[derive(Clone)]
 pub struct WorkerManager {
     jobs: Arc<Mutex<HashMap<String, mpsc::Sender<WorkerControl>>>>,
+    idle: Arc<Mutex<Vec<IdleWorker>>>,
+    capacity: Arc<Semaphore>,
+    spawned_workers: Arc<AtomicU64>,
+    reused_workers: Arc<AtomicU64>,
 }
 
 #[derive(Debug)]
@@ -67,15 +78,103 @@ pub struct WorkerCommand {
     pub description: String,
 }
 
+struct PooledWorker {
+    key: String,
+    child: Child,
+    stdin: ChildStdin,
+    lines: Lines<BufReader<ChildStdout>>,
+}
+
+struct IdleWorker {
+    worker: PooledWorker,
+    idle_since: Instant,
+}
+
 impl WorkerManager {
     pub fn new() -> Self {
         Self {
             jobs: Arc::new(Mutex::new(HashMap::new())),
+            idle: Arc::new(Mutex::new(Vec::new())),
+            capacity: Arc::new(Semaphore::new(MAX_BUSY_WORKERS)),
+            spawned_workers: Arc::new(AtomicU64::new(0)),
+            reused_workers: Arc::new(AtomicU64::new(0)),
         }
     }
 
     pub async fn active_job_count(&self) -> usize {
         self.jobs.lock().await.len()
+    }
+
+    pub async fn idle_worker_count(&self) -> usize {
+        self.idle.lock().await.len()
+    }
+
+    pub fn spawned_worker_count(&self) -> u64 {
+        self.spawned_workers.load(Ordering::Relaxed)
+    }
+
+    pub fn reused_worker_count(&self) -> u64 {
+        self.reused_workers.load(Ordering::Relaxed)
+    }
+
+    async fn acquire_capacity(&self) -> Result<OwnedSemaphorePermit, WorkerError> {
+        self.capacity
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| WorkerError::Unavailable("worker pool is shutting down".into()))
+    }
+
+    async fn checkout(
+        &self,
+        app: &AppHandle,
+        codex_program: Option<&Path>,
+    ) -> Result<PooledWorker, WorkerError> {
+        let command = Self::discover(app)?;
+        let key = worker_key(&command, codex_program);
+        let now = Instant::now();
+        let (candidate, stale) = {
+            let mut idle = self.idle.lock().await;
+            let mut retained = Vec::with_capacity(idle.len());
+            let mut candidate = None;
+            let mut stale = Vec::new();
+            for entry in idle.drain(..) {
+                if now.duration_since(entry.idle_since) >= WORKER_IDLE_TIMEOUT {
+                    stale.push(entry.worker);
+                } else if candidate.is_none() && entry.worker.key == key {
+                    candidate = Some(entry.worker);
+                } else {
+                    retained.push(entry);
+                }
+            }
+            *idle = retained;
+            (candidate, stale)
+        };
+        for mut worker in stale {
+            let _ = worker.child.kill().await;
+        }
+        if let Some(mut worker) = candidate {
+            if worker.child.try_wait()?.is_none() {
+                self.reused_workers.fetch_add(1, Ordering::Relaxed);
+                return Ok(worker);
+            }
+        }
+        let worker = spawn_initialized_worker(&command, codex_program).await?;
+        self.spawned_workers.fetch_add(1, Ordering::Relaxed);
+        Ok(worker)
+    }
+
+    async fn recycle(&self, mut worker: PooledWorker) {
+        let mut idle = self.idle.lock().await;
+        if idle.len() < MAX_IDLE_WORKERS {
+            idle.push(IdleWorker {
+                worker,
+                idle_since: Instant::now(),
+            });
+            return;
+        }
+        drop(idle);
+        let _ = worker.child.kill().await;
     }
 
     pub fn discover(app: &AppHandle) -> Result<WorkerCommand, WorkerError> {
@@ -99,7 +198,7 @@ impl WorkerManager {
     pub async fn start_generation(
         &self,
         app: AppHandle,
-        storage: Arc<Storage>,
+        storage: StorageHandle,
         input: GenerationStartRequest,
         credential: Option<Zeroizing<String>>,
         codex_program: Option<PathBuf>,
@@ -120,9 +219,11 @@ impl WorkerManager {
 
         let manager = self.clone();
         let task_job_id = job_id.clone();
-        let is_dynamic = input.request.get("kind").and_then(Value::as_str) == Some("dynamic-region");
+        let is_dynamic =
+            input.request.get("kind").and_then(Value::as_str) == Some("dynamic-region");
         tauri::async_runtime::spawn(async move {
             let outcome = run_generation(
+                &manager,
                 &app,
                 storage.clone(),
                 &task_job_id,
@@ -145,12 +246,13 @@ impl WorkerManager {
                         "retryable": true
                     }
                 });
-                let _ = storage.update_job(
-                    payload["jobId"].as_str().unwrap_or_default(),
-                    "failed",
-                    None,
-                    payload.get("error"),
-                );
+                let failed_job_id = payload["jobId"].as_str().unwrap_or_default().to_owned();
+                let error_payload = payload.get("error").cloned();
+                let _ = storage
+                    .run(move |database| {
+                        database.update_job(&failed_job_id, "failed", None, error_payload.as_ref())
+                    })
+                    .await;
                 let _ = channel.send(payload);
             }
             manager.jobs.lock().await.remove(&task_job_id);
@@ -179,19 +281,8 @@ impl WorkerManager {
         provider: &Value,
         credential: &str,
     ) -> Result<Value, WorkerError> {
-        let command = Self::discover(app)?;
-        let mut child = spawn_worker(&command, None)?;
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or_else(|| WorkerError::Spawn("worker stdin is unavailable".into()))?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| WorkerError::Spawn("worker stdout is unavailable".into()))?;
-        let mut lines = BufReader::new(stdout).lines();
-        let initialize_id = send_initialize(&mut stdin).await?;
-        await_initialized(&mut lines, &initialize_id).await?;
+        let _permit = self.acquire_capacity().await?;
+        let mut worker = self.checkout(app, None).await?;
 
         let request_id = Uuid::new_v4().to_string();
         let request = ProviderVerifyMessage {
@@ -200,10 +291,10 @@ impl WorkerManager {
             provider,
             credential,
         };
-        send_message(&mut stdin, &request).await?;
+        send_message(&mut worker.stdin, &request).await?;
 
-        let result = tokio::time::timeout(Duration::from_secs(95), async {
-            while let Some(line) = lines.next_line().await? {
+        let result = match tokio::time::timeout(Duration::from_secs(95), async {
+            while let Some(line) = worker.lines.next_line().await? {
                 if line.len() > MAX_WORKER_LINE_BYTES {
                     return Err(WorkerError::Protocol("worker line exceeds limit".into()));
                 }
@@ -231,9 +322,18 @@ impl WorkerManager {
             ))
         })
         .await
-        .map_err(|_| WorkerError::Protocol("provider verification timed out".into()))??;
-        let _ = child.kill().await;
-        Ok(result)
+        {
+            Ok(result) => result,
+            Err(_) => Err(WorkerError::Protocol(
+                "provider verification timed out".into(),
+            )),
+        };
+        if reset_worker(&mut worker).await.is_ok() {
+            self.recycle(worker).await;
+        } else {
+            let _ = worker.child.kill().await;
+        }
+        result
     }
 }
 
@@ -291,8 +391,9 @@ fn discover_worker_command(
 
 #[allow(clippy::too_many_arguments)]
 async fn run_generation(
+    manager: &WorkerManager,
     app: &AppHandle,
-    storage: Arc<Storage>,
+    storage: StorageHandle,
     job_id: &str,
     profile_id: &str,
     request: &Value,
@@ -301,31 +402,20 @@ async fn run_generation(
     channel: Channel<Value>,
     mut control_rx: mpsc::Receiver<WorkerControl>,
 ) -> Result<(), WorkerError> {
-    let is_discovery = request.pointer("/discovery/kind").and_then(Value::as_str) == Some("lucky-urls");
+    let is_discovery =
+        request.pointer("/discovery/kind").and_then(Value::as_str) == Some("lucky-urls");
     let is_dynamic = request.get("kind").and_then(Value::as_str) == Some("dynamic-region");
+    let stored_job_id = job_id.to_owned();
+    let stored_profile_id = profile_id.to_owned();
+    let stored_request = request.clone();
     storage
-        .mark_job_started(job_id, profile_id, request)
+        .run(move |database| {
+            database.mark_job_started(&stored_job_id, &stored_profile_id, &stored_request)
+        })
+        .await
         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
-    let command = WorkerManager::discover(app)?;
-    let mut child = spawn_worker(&command, codex_program)?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or_else(|| WorkerError::Spawn("worker stdin is unavailable".into()))?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| WorkerError::Spawn("worker stdout is unavailable".into()))?;
-    if let Some(stderr) = child.stderr.take() {
-        tauri::async_runtime::spawn(async move {
-            let mut lines = BufReader::new(stderr).lines();
-            while matches!(lines.next_line().await, Ok(Some(_))) {}
-        });
-    }
-
-    let mut lines = BufReader::new(stdout).lines();
-    let initialize_id = send_initialize(&mut stdin).await?;
-    await_initialized(&mut lines, &initialize_id).await?;
+    let _permit = manager.acquire_capacity().await?;
+    let mut worker = manager.checkout(app, codex_program).await?;
     let request_id = Uuid::new_v4().to_string();
     let generate = GenerateMessage {
         message_type: "generate",
@@ -334,7 +424,7 @@ async fn run_generation(
         request,
         credential,
     };
-    send_message(&mut stdin, &generate).await?;
+    send_message(&mut worker.stdin, &generate).await?;
 
     let mut terminal_event_seen = false;
     let mut cancel_deadline: Option<Instant> = None;
@@ -350,11 +440,11 @@ async fn run_generation(
                         request_id: Uuid::new_v4().to_string(),
                         job_id,
                     };
-                    send_message(&mut stdin, &cancel).await?;
+                    send_message(&mut worker.stdin, &cancel).await?;
                     cancel_deadline = Some(Instant::now() + CANCEL_GRACE);
                 }
             }
-            line = lines.next_line() => {
+            line = worker.lines.next_line() => {
                 let Some(line) = line? else { break; };
                 if line.len() > MAX_WORKER_LINE_BYTES {
                     return Err(WorkerError::Protocol("worker line exceeds limit".into()));
@@ -370,14 +460,20 @@ async fn run_generation(
                 if event_type != "generation.preview" {
                     let timestamp = event.get("at").and_then(Value::as_str)
                         .unwrap_or_else(|| event.get("timestamp").and_then(Value::as_str).unwrap_or(""));
-                    storage.record_job_event(
-                        job_id,
-                        profile_id,
-                        event_type,
-                        event.get("sequence").and_then(Value::as_i64),
-                        timestamp,
-                        &event,
-                    ).map_err(|error| WorkerError::Protocol(error.to_string()))?;
+                    let stored_job_id = job_id.to_owned();
+                    let stored_profile_id = profile_id.to_owned();
+                    let stored_event_type = event_type.to_owned();
+                    let stored_timestamp = timestamp.to_owned();
+                    let sequence = event.get("sequence").and_then(Value::as_i64);
+                    let stored_event = event.clone();
+                    storage.run(move |database| database.record_job_event(
+                        &stored_job_id,
+                        &stored_profile_id,
+                        &stored_event_type,
+                        sequence,
+                        &stored_timestamp,
+                        &stored_event,
+                    )).await.map_err(|error| WorkerError::Protocol(error.to_string()))?;
                 }
 
                 if event_type == "generation.completed" {
@@ -387,35 +483,45 @@ async fn run_generation(
                         .ok_or_else(|| WorkerError::Protocol("completed event has no artifact".into()))?;
                     ensure_artifact_host_fields(&mut artifact_value, profile_id, job_id);
                     let artifact: ArtifactRecord = serde_json::from_value(artifact_value.clone())?;
-                    persist_model_exchanges(&storage, job_id, profile_id, &artifact)?;
+                    if is_discovery {
+                        persist_model_exchanges(&storage, job_id, profile_id, &artifact).await?;
+                    }
                     event["artifact"] = artifact_value;
                     if !is_discovery {
-                        storage
-                            .save_artifact(&artifact)
+                        storage.run(move |database| database.save_artifact(&artifact))
+                            .await
                             .map_err(|error| WorkerError::Protocol(error.to_string()))?;
                     }
-                    storage
-                        .update_job(job_id, "completed", (!is_discovery).then_some(artifact.id.as_str()), None)
+                    let stored_job_id = job_id.to_owned();
+                    let artifact_id = (!is_discovery).then(|| event.pointer("/artifact/id").and_then(Value::as_str).unwrap_or_default().to_owned());
+                    storage.run(move |database| database.update_job(&stored_job_id, "completed", artifact_id.as_deref(), None))
+                        .await
                         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
                     terminal_event_seen = true;
                 } else if event_type == "dynamic.completed" && is_dynamic {
-                    storage
-                        .update_job(job_id, "completed", None, None)
+                    let stored_job_id = job_id.to_owned();
+                    storage.run(move |database| database.update_job(&stored_job_id, "completed", None, None))
+                        .await
                         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
                     terminal_event_seen = true;
                 } else if event_type == "generation.failed" || (event_type == "dynamic.failed" && is_dynamic) {
-                    storage
-                        .update_job(job_id, "failed", None, event.get("error"))
+                    let stored_job_id = job_id.to_owned();
+                    let error_payload = event.get("error").cloned();
+                    storage.run(move |database| database.update_job(&stored_job_id, "failed", None, error_payload.as_ref()))
+                        .await
                         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
                     terminal_event_seen = true;
                 } else if event_type == "generation.cancelled" || (event_type == "dynamic.cancelled" && is_dynamic) {
-                    storage
-                        .update_job(job_id, "cancelled", None, None)
+                    let stored_job_id = job_id.to_owned();
+                    storage.run(move |database| database.update_job(&stored_job_id, "cancelled", None, None))
+                        .await
                         .map_err(|error| WorkerError::Protocol(error.to_string()))?;
                     terminal_event_seen = true;
                 } else if event_type == "generation.phase" {
                     if let Some(phase) = event.get("phase").and_then(Value::as_str) {
-                        let _ = storage.update_job(job_id, phase, None, None);
+                        let stored_job_id = job_id.to_owned();
+                        let stored_phase = phase.to_owned();
+                        let _ = storage.run(move |database| database.update_job(&stored_job_id, &stored_phase, None, None)).await;
                     }
                 } else if event_type == "generation.stage" {
                     let stage = event.get("stage").and_then(Value::as_str).unwrap_or("unknown");
@@ -423,39 +529,54 @@ async fn run_generation(
                     let started_at = event.get("startedAt").and_then(Value::as_str)
                         .or_else(|| event.get("at").and_then(Value::as_str))
                         .unwrap_or("");
-                    storage.upsert_generation_stage(
-                        job_id,
-                        profile_id,
-                        stage,
-                        status,
-                        started_at,
-                        event.get("completedAt").and_then(Value::as_str),
-                        event.get("payload").unwrap_or(&Value::Null),
-                    ).map_err(|error| WorkerError::Protocol(error.to_string()))?;
+                    let stored_job_id = job_id.to_owned();
+                    let stored_profile_id = profile_id.to_owned();
+                    let stored_stage = stage.to_owned();
+                    let stored_status = status.to_owned();
+                    let stored_started_at = started_at.to_owned();
+                    let stored_completed_at = event.get("completedAt").and_then(Value::as_str).map(str::to_owned);
+                    let stored_payload = event.get("payload").cloned().unwrap_or(Value::Null);
+                    storage.run(move |database| database.upsert_generation_stage(GenerationStageWrite {
+                        job_id: &stored_job_id,
+                        profile_id: &stored_profile_id,
+                        stage: &stored_stage,
+                        status: &stored_status,
+                        started_at: &stored_started_at,
+                        completed_at: stored_completed_at.as_deref(),
+                        payload: &stored_payload,
+                    })).await.map_err(|error| WorkerError::Protocol(error.to_string()))?;
                 }
 
                 let _ = channel.send(event);
                 if terminal_event_seen { break; }
             }
             _ = wait_for_deadline(cancel_deadline), if cancel_deadline.is_some() => {
-                let _ = child.kill().await;
+                let _ = worker.child.kill().await;
                 let event = json!({
                     "type": if is_dynamic { "dynamic.cancelled" } else { "generation.cancelled" },
                     "jobId": job_id,
                     "sequence": last_sequence + 1,
                     "at": Utc::now().to_rfc3339()
                 });
-                let _ = storage.update_job(job_id, "cancelled", None, None);
-                let _ = storage.record_job_event(
-                    job_id, profile_id, event["type"].as_str().unwrap_or("generation.cancelled"),
-                    event["sequence"].as_i64(), event["at"].as_str().unwrap_or(""), &event,
-                );
+                let stored_job_id = job_id.to_owned();
+                let stored_profile_id = profile_id.to_owned();
+                let stored_event_type = event["type"].as_str().unwrap_or("generation.cancelled").to_owned();
+                let stored_sequence = event["sequence"].as_i64();
+                let stored_timestamp = event["at"].as_str().unwrap_or("").to_owned();
+                let stored_event = event.clone();
+                let _ = storage.run(move |database| {
+                    database.update_job(&stored_job_id, "cancelled", None, None)?;
+                    database.record_job_event(
+                        &stored_job_id, &stored_profile_id, &stored_event_type,
+                        stored_sequence, &stored_timestamp, &stored_event,
+                    )
+                }).await;
                 let _ = channel.send(event);
                 terminal_event_seen = true;
                 break;
             }
             _ = sleep_until(generation_deadline) => {
-                let _ = child.kill().await;
+                let _ = worker.child.kill().await;
                 let event = json!({
                     "type": if is_dynamic { "dynamic.failed" } else { "generation.failed" },
                     "jobId": job_id,
@@ -467,11 +588,20 @@ async fn run_generation(
                         "retryable": true
                     }
                 });
-                let _ = storage.update_job(job_id, "failed", None, event.get("error"));
-                let _ = storage.record_job_event(
-                    job_id, profile_id, event["type"].as_str().unwrap_or("generation.failed"),
-                    event["sequence"].as_i64(), event["at"].as_str().unwrap_or(""), &event,
-                );
+                let stored_job_id = job_id.to_owned();
+                let stored_profile_id = profile_id.to_owned();
+                let stored_event_type = event["type"].as_str().unwrap_or("generation.failed").to_owned();
+                let stored_sequence = event["sequence"].as_i64();
+                let stored_timestamp = event["at"].as_str().unwrap_or("").to_owned();
+                let stored_event = event.clone();
+                let error_payload = event.get("error").cloned();
+                let _ = storage.run(move |database| {
+                    database.update_job(&stored_job_id, "failed", None, error_payload.as_ref())?;
+                    database.record_job_event(
+                        &stored_job_id, &stored_profile_id, &stored_event_type,
+                        stored_sequence, &stored_timestamp, &stored_event,
+                    )
+                }).await;
                 let _ = channel.send(event);
                 terminal_event_seen = true;
                 break;
@@ -480,38 +610,62 @@ async fn run_generation(
     }
 
     if !terminal_event_seen {
-        let status = child.wait().await?;
+        let status = worker.child.wait().await?;
         return Err(WorkerError::Protocol(format!(
             "worker exited before a terminal event ({status})"
         )));
     }
-    let _ = child.kill().await;
+    if worker.child.try_wait()?.is_none() && reset_worker(&mut worker).await.is_ok() {
+        manager.recycle(worker).await;
+    } else {
+        let _ = worker.child.kill().await;
+    }
     Ok(())
 }
 
-fn persist_model_exchanges(
-    storage: &Storage,
+async fn persist_model_exchanges(
+    storage: &StorageHandle,
     job_id: &str,
     profile_id: &str,
     artifact: &ArtifactRecord,
 ) -> Result<(), WorkerError> {
-    let Some(exchanges) = artifact.payload.get("modelExchanges").and_then(Value::as_array) else {
+    let Some(exchanges) = artifact
+        .payload
+        .get("modelExchanges")
+        .and_then(Value::as_array)
+    else {
         return Ok(());
     };
     for exchange in exchanges.iter().take(8) {
-        let stage = exchange.get("purpose").and_then(Value::as_str).unwrap_or("unknown");
-        let started_at = exchange.get("startedAt").and_then(Value::as_str)
+        let stage = exchange
+            .get("purpose")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let started_at = exchange
+            .get("startedAt")
+            .and_then(Value::as_str)
             .unwrap_or(&artifact.created_at);
         let completed_at = exchange.get("completedAt").and_then(Value::as_str);
-        storage.upsert_generation_stage(
-            job_id,
-            profile_id,
-            stage,
-            "completed",
-            started_at,
-            completed_at,
-            exchange,
-        ).map_err(|error| WorkerError::Protocol(error.to_string()))?;
+        let stored_job_id = job_id.to_owned();
+        let stored_profile_id = profile_id.to_owned();
+        let stored_stage = stage.to_owned();
+        let stored_started_at = started_at.to_owned();
+        let stored_completed_at = completed_at.map(str::to_owned);
+        let stored_exchange = exchange.clone();
+        storage
+            .run(move |database| {
+                database.upsert_generation_stage(GenerationStageWrite {
+                    job_id: &stored_job_id,
+                    profile_id: &stored_profile_id,
+                    stage: &stored_stage,
+                    status: "completed",
+                    started_at: &stored_started_at,
+                    completed_at: stored_completed_at.as_deref(),
+                    payload: &stored_exchange,
+                })
+            })
+            .await
+            .map_err(|error| WorkerError::Protocol(error.to_string()))?;
     }
     Ok(())
 }
@@ -522,6 +676,82 @@ async fn wait_for_deadline(deadline: Option<Instant>) {
     } else {
         std::future::pending::<()>().await;
     }
+}
+
+fn worker_key(command: &WorkerCommand, codex_program: Option<&Path>) -> String {
+    format!(
+        "{}\u{0}{}\u{0}{}",
+        command.program.display(),
+        command.arguments.join("\u{1f}"),
+        codex_program
+            .map(|path| path.to_string_lossy())
+            .unwrap_or_default(),
+    )
+}
+
+async fn spawn_initialized_worker(
+    command: &WorkerCommand,
+    codex_program: Option<&Path>,
+) -> Result<PooledWorker, WorkerError> {
+    let mut child = spawn_worker(command, codex_program)?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| WorkerError::Spawn("worker stdin is unavailable".into()))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| WorkerError::Spawn("worker stdout is unavailable".into()))?;
+    if let Some(stderr) = child.stderr.take() {
+        tauri::async_runtime::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while matches!(lines.next_line().await, Ok(Some(_))) {}
+        });
+    }
+    let mut lines = BufReader::new(stdout).lines();
+    let initialize_id = send_initialize(&mut stdin).await?;
+    await_initialized(&mut lines, &initialize_id).await?;
+    Ok(PooledWorker {
+        key: worker_key(command, codex_program),
+        child,
+        stdin,
+        lines,
+    })
+}
+
+async fn reset_worker(worker: &mut PooledWorker) -> Result<(), WorkerError> {
+    let request_id = Uuid::new_v4().to_string();
+    send_message(
+        &mut worker.stdin,
+        &ResetMessage {
+            message_type: "reset",
+            request_id: &request_id,
+        },
+    )
+    .await?;
+    tokio::time::timeout(RESET_TIMEOUT, async {
+        while let Some(line) = worker.lines.next_line().await? {
+            if line.len() > MAX_WORKER_LINE_BYTES {
+                return Err(WorkerError::Protocol("worker line exceeds limit".into()));
+            }
+            let mut event: Value = serde_json::from_str(&line)?;
+            redact_sensitive_fields(&mut event);
+            if event.get("requestId").and_then(Value::as_str) != Some(&request_id) {
+                continue;
+            }
+            if event.get("type").and_then(Value::as_str) == Some("ack")
+                && event.get("accepted").and_then(Value::as_bool) == Some(true)
+            {
+                return Ok(());
+            }
+            return Err(WorkerError::Protocol("worker rejected reset".into()));
+        }
+        Err(WorkerError::Protocol(
+            "worker exited before reset completed".into(),
+        ))
+    })
+    .await
+    .map_err(|_| WorkerError::Protocol("worker reset timed out".into()))?
 }
 
 fn spawn_worker(
@@ -733,6 +963,14 @@ struct CancelMessage<'a> {
     message_type: &'a str,
     request_id: String,
     job_id: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ResetMessage<'a> {
+    #[serde(rename = "type")]
+    message_type: &'a str,
+    request_id: &'a str,
 }
 
 #[cfg(test)]

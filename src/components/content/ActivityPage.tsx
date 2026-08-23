@@ -14,25 +14,29 @@ import {
 export function ActivityPage({ tab }: { tab: BrowserTab }) {
   const profileId = useBrowserStore((state) => state.activeProfileId);
   const memoryJobs = useBrowserStore((state) => state.generationJobs);
-  const artifacts = useBrowserStore((state) => state.artifacts);
   const [persisted, setPersisted] = useState<GenerationJobRecord[]>([]);
   const [detail, setDetail] = useState<Awaited<ReturnType<typeof getPersistedGenerationActivity>>>();
   const [filter, setFilter] = useState<ActivityFilter>("all");
-  const [offset, setOffset] = useState(0);
+  const [cursor, setCursor] = useState<string>();
   const [hasMore, setHasMore] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const requestedJobId = useMemo(() => activityJobId(tab.location), [tab.location]);
   const [selectedId, setSelectedId] = useState<string | undefined>(requestedJobId);
+  const selectedArtifact = useBrowserStore((state) => {
+    const artifactId = selectedId ? state.generationJobs[selectedId]?.artifactId : undefined;
+    return artifactId ? state.artifacts[artifactId] : undefined;
+  });
 
   useEffect(() => setSelectedId(requestedJobId), [requestedJobId]);
   useEffect(() => {
     let cancelled = false;
     setPersisted([]);
-    void listPersistedGenerationJobs(profileId, 50, 0).then((records) => {
+    setCursor(undefined);
+    void listPersistedGenerationJobs(profileId, 50).then((page) => {
       if (cancelled) return;
-      setPersisted(records);
-      setOffset(records.length);
-      setHasMore(records.length === 50);
+      setPersisted(page.items);
+      setCursor(page.nextCursor);
+      setHasMore(Boolean(page.nextCursor));
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, [profileId]);
@@ -52,9 +56,6 @@ export function ActivityPage({ tab }: { tab: BrowserTab }) {
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [profileId, selectedId, selectedMemory?.updatedAt, selectedMemory?.status]);
 
-  const selectedArtifact = selectedId
-    ? Object.values(artifacts).find((artifact) => artifact.generationJobId === selectedId)
-    : undefined;
   const warnings = selectedMemory?.warnings?.length
     ? selectedMemory.warnings
     : selectedArtifact?.warnings.length
@@ -77,10 +78,10 @@ export function ActivityPage({ tab }: { tab: BrowserTab }) {
       onLoadOlder={() => {
         if (loadingOlder) return;
         setLoadingOlder(true);
-        void listPersistedGenerationJobs(profileId, 50, offset).then((records) => {
-          setPersisted((current) => [...current, ...records]);
-          setOffset((current) => current + records.length);
-          setHasMore(records.length === 50);
+        void listPersistedGenerationJobs(profileId, 50, cursor).then((page) => {
+          setPersisted((current) => [...current, ...page.items]);
+          setCursor(page.nextCursor);
+          setHasMore(Boolean(page.nextCursor));
         }).catch(() => undefined).finally(() => setLoadingOlder(false));
       }}
     />

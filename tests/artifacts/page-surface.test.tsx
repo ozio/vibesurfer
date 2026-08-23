@@ -8,6 +8,7 @@ import {
   ARTIFACT_BRIDGE_VERSION,
 } from "../../src/artifacts/bridge-protocol";
 import { PageSurface } from "../../src/components/content/PageSurface";
+import { resetGenerationPreviews, setGenerationPreviewFrame } from "../../src/generation/preview-store";
 import { DEFAULT_GENERATION_SETTINGS, useBrowserStore } from "../../src/store/browser-store";
 import type { BrowserTab, GenerationJob, PageArtifact } from "../../src/types/browser";
 
@@ -28,6 +29,7 @@ describe("generated PageSurface", () => {
   beforeEach(() => {
     memoryStorage.clear();
     useBrowserStore.setState({ artifacts: {}, generationJobs: {} });
+    resetGenerationPreviews();
   });
 
   afterEach(() => {
@@ -90,10 +92,10 @@ describe("generated PageSurface", () => {
     const job = generationJob({
       status: "failed",
       phase: "failed",
-      previewHtml: "<main>Incomplete streamed preview</main>",
       error: { code: "malformed-output", message: "The provider returned invalid structured output.", retryable: true },
     });
     useBrowserStore.setState({ generationJobs: { [job.id]: job } });
+    setGenerationPreviewFrame(job.id, "<main>Incomplete streamed preview</main>", 1);
 
     render(<PageSurface tab={generatedTab({ generationJobId: job.id, loadState: "error" })} />);
 
@@ -309,11 +311,10 @@ describe("generated PageSurface", () => {
       status: "running",
       phase: "generating",
       provisionalTitle: "Streaming page",
-      previewHtml: "<main id=first-preview>First streamed fragment</main>",
-      previewRevision: 1,
     });
     const tab = generatedTab({ generationJobId: job.id, loadState: "loading" });
     useBrowserStore.setState({ generationJobs: { [job.id]: job } });
+    setGenerationPreviewFrame(job.id, "<main id=first-preview>First streamed fragment</main>", 1);
 
     const { rerender } = render(<PageSurface tab={tab} />);
     const frame = screen.getByTitle("Streaming page") as HTMLIFrameElement;
@@ -330,10 +331,11 @@ describe("generated PageSurface", () => {
 
     const nextJob = {
       ...job,
-      previewHtml: "<main id=second-preview>First streamed fragment plus more HTML</main>",
-      previewRevision: 2,
     };
-    act(() => useBrowserStore.setState({ generationJobs: { [job.id]: nextJob } }));
+    act(() => {
+      useBrowserStore.setState({ generationJobs: { [job.id]: nextJob } });
+      setGenerationPreviewFrame(job.id, "<main id=second-preview>First streamed fragment plus more HTML</main>", 2);
+    });
     const updatedFrame = screen.getByTitle("Streaming page") as HTMLIFrameElement;
     expect(updatedFrame).toBe(frame);
     expect(channel.port1.postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
@@ -411,12 +413,13 @@ describe("generated PageSurface", () => {
     const streamingSecondJob = {
       ...secondJob,
       provisionalTitle: "Second fixture page",
-      previewHtml: "<main id=second-preview>Second streamed page</main>",
-      previewRevision: 1,
     };
-    act(() => useBrowserStore.setState({
-      generationJobs: { [firstJob.id]: firstJob, [secondJob.id]: streamingSecondJob },
-    }));
+    act(() => {
+      useBrowserStore.setState({
+        generationJobs: { [firstJob.id]: firstJob, [secondJob.id]: streamingSecondJob },
+      });
+      setGenerationPreviewFrame(secondJob.id, "<main id=second-preview>Second streamed page</main>", 1);
+    });
     rerender(<PageSurface tab={navigatingTab} />);
 
     const secondFrame = screen.getByTitle("Second fixture page") as HTMLIFrameElement;

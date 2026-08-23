@@ -3,7 +3,12 @@ import { create } from "zustand";
 
 import type { ArtifactDynamicActionEvent, ArtifactDynamicRegionSnapshot } from "../artifacts/bridge-protocol";
 import type { ArtifactFrameConnection } from "../artifacts/iframe-host";
-import { getPersistedSiteSession, savePersistedSiteSession } from "../generation/host-api";
+import {
+  applyPersistedSiteSessionAction,
+  applyPersistedSiteSessionPatches,
+  getPersistedSiteSession,
+  savePersistedSiteSession,
+} from "../generation/host-api";
 import { isTauri } from "../lib/platform";
 import { useBrowserStore, type BrowserState } from "../store/browser-store";
 import type {
@@ -188,8 +193,18 @@ class DynamicCoordinator {
           return;
         }
         const session = await this.ensureSession(profileId, artifact.siteWorldId);
-        const next = applyStateAction(session, event.action, event.fields);
-        if (next !== session) this.commitSession(next);
+        const next = isTauri()
+          ? normalizeSiteSession(await applyPersistedSiteSessionAction({
+              profileId,
+              siteWorldId: artifact.siteWorldId,
+              action: event.action,
+              fields: event.fields,
+            }), profileId, artifact.siteWorldId)
+          : applyStateAction(session, event.action, event.fields);
+        if (next !== session) {
+          if (isTauri()) this.setSession(next);
+          else this.commitSession(next);
+        }
         this.syncSessionState(next, tabId, event.requestId);
         this.setStatus(tabId, { status: "live", consecutiveErrors: 0, lastUpdatedAt: new Date().toISOString() });
       }).catch((error) => {
@@ -466,8 +481,17 @@ class DynamicCoordinator {
         return [{ regionId: patch.regionId, html: patch.html, revision: currentRevision + 1 }];
       });
       if (patches.length === 0) throw new Error("The live response was stale or empty.");
-      const next = updateRegionSnapshots(latest, canonicalUrl, patches, result.modelState);
-      this.commitSession(next);
+      const next = isTauri()
+        ? normalizeSiteSession(await applyPersistedSiteSessionPatches({
+            profileId,
+            siteWorldId: item.artifact.siteWorldId,
+            canonicalPageUrl: canonicalUrl,
+            patches,
+            ...(result.modelState !== undefined ? { modelState: result.modelState } : {}),
+          }), profileId, item.artifact.siteWorldId)
+        : updateRegionSnapshots(latest, canonicalUrl, patches, result.modelState);
+      if (isTauri()) this.setSession(next);
+      else this.commitSession(next);
       frame?.connection.patchDynamic({
         requestId: item.requestId,
         sessionRevision: next.revision,

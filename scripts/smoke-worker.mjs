@@ -91,21 +91,29 @@ child.stderr.on("data", (chunk) => {
 });
 
 let resolveInitialized;
-let resolveTerminal;
+let resolveFirstTerminal;
+let resolveSecondTerminal;
+let resolveReset;
 const initialized = new Promise((resolvePromise) => {
   resolveInitialized = resolvePromise;
 });
-const terminal = new Promise((resolvePromise) => {
-  resolveTerminal = resolvePromise;
+const firstTerminal = new Promise((resolvePromise) => {
+  resolveFirstTerminal = resolvePromise;
+});
+const secondTerminal = new Promise((resolvePromise) => {
+  resolveSecondTerminal = resolvePromise;
+});
+const reset = new Promise((resolvePromise) => {
+  resolveReset = resolvePromise;
 });
 
 lines.on("line", (line) => {
   const event = JSON.parse(line);
   events.push(event);
   if (event.type === "initialized") resolveInitialized(event);
-  if (["generation.completed", "generation.failed", "generation.cancelled"].includes(event.type)) {
-    resolveTerminal(event);
-  }
+  if (event.type === "ack" && event.requestId === "smoke-reset") resolveReset(event);
+  if (event.jobId === "smoke-job-1" && ["generation.completed", "generation.failed", "generation.cancelled"].includes(event.type)) resolveFirstTerminal(event);
+  if (event.jobId === "smoke-job-2" && ["generation.completed", "generation.failed", "generation.cancelled"].includes(event.type)) resolveSecondTerminal(event);
 });
 
 function send(value) {
@@ -120,22 +128,13 @@ const wait = (promise, label) => Promise.race([
   }),
 ]);
 
-try {
-  send({
-    type: "initialize",
-    requestId: "smoke-initialize",
-    protocolVersion: 1,
-    client: { name: "vibesurfer-smoke", version: "0.1.0" },
-  });
-  const initializedEvent = await wait(initialized, "Worker initialization");
-  assert(initializedEvent.protocolVersion === 1, "Worker negotiated the wrong protocol version.");
-
-  send({
+function generationRequest(jobId, url) {
+  return {
     type: "generate",
-    requestId: "smoke-request",
-    jobId: "smoke-job",
+    requestId: `request-${jobId}`,
+    jobId,
     request: {
-      url: imaginedUrl,
+      url,
       mode: "quick",
       provider: { id: "mock", kind: "mock", modelId: "mock-v1" },
       settings: {
@@ -157,26 +156,54 @@ try {
         navigationIntent: {
           trigger: "address-bar",
           disposition: "current",
-          requestedUrl: imaginedUrl,
+          requestedUrl: url,
         },
       },
     },
-  });
+  };
+}
 
-  const terminalEvent = await wait(terminal, "Mock generation");
+try {
+  send({
+    type: "initialize",
+    requestId: "smoke-initialize",
+    protocolVersion: 1,
+    client: { name: "vibesurfer-smoke", version: "0.1.0" },
+  });
+  const initializedEvent = await wait(initialized, "Worker initialization");
+  assert(initializedEvent.protocolVersion === 1, "Worker negotiated the wrong protocol version.");
+
+  send(generationRequest("smoke-job-1", imaginedUrl));
+
+  const terminalEvent = await wait(firstTerminal, "First mock generation");
   assert(terminalEvent.type === "generation.completed", `Generation failed: ${JSON.stringify(terminalEvent)}`);
   assert(terminalEvent.artifact?.url === imaginedUrl, "Artifact URL does not match the imagined location.");
   assert(terminalEvent.artifact?.html?.includes("<html"), "Completed artifact has no HTML document.");
+
+  send({ type: "reset", requestId: "smoke-reset" });
+  const resetEvent = await wait(reset, "Worker reset");
+  assert(resetEvent.accepted === true, `Worker rejected reset: ${JSON.stringify(resetEvent)}`);
+
+  const secondUrl = `${imaginedUrl}?after-reset=1`;
+  send(generationRequest("smoke-job-2", secondUrl));
+  const secondTerminalEvent = await wait(secondTerminal, "Second mock generation");
+  assert(secondTerminalEvent.type === "generation.completed", `Second generation failed: ${JSON.stringify(secondTerminalEvent)}`);
+  assert(secondTerminalEvent.artifact?.url === secondUrl, "Second artifact URL does not match the imagined location.");
+  assert(secondTerminalEvent.artifact?.html?.includes("<html"), "Second artifact has no HTML document.");
   assert(originRequests.length === 0, `Worker contacted the imagined origin: ${originRequests.join(", ")}`);
 
-  const sequences = events
-    .filter((event) => event.jobId === "smoke-job" && Number.isInteger(event.sequence))
+  const firstSequences = events
+    .filter((event) => event.jobId === "smoke-job-1" && Number.isInteger(event.sequence))
     .map((event) => event.sequence);
-  assert(sequences.length > 1, "Generation emitted too few sequenced events.");
-  assert(sequences.every((sequence, index) => sequence === index + 1), "Generation sequences are not monotonic.");
+  const secondSequences = events
+    .filter((event) => event.jobId === "smoke-job-2" && Number.isInteger(event.sequence))
+    .map((event) => event.sequence);
+  assert(firstSequences.length > 1 && secondSequences.length > 1, "Generation emitted too few sequenced events.");
+  assert(firstSequences.every((sequence, index) => sequence === index + 1), "First generation sequences are not monotonic.");
+  assert(secondSequences.every((sequence, index) => sequence === index + 1), "Second generation sequences are not monotonic.");
 
   process.stdout.write(
-    `worker smoke passed (${mode === "--dist" ? "dist" : "sidecar"}, ${sequences.length} events, zero origin requests)\n`,
+    `worker smoke passed (${mode === "--dist" ? "dist" : "sidecar"}, 2 jobs in one process, reset acknowledged, ${firstSequences.length + secondSequences.length} events, zero origin requests)\n`,
   );
 } finally {
   child.stdin.end();

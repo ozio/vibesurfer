@@ -146,6 +146,11 @@ export class WorkerRuntime {
       case "cancel":
         await this.cancelJob(command.requestId, command.jobId);
         return;
+      case "reset":
+        await Promise.allSettled([...this.#jobs.values()].map((job) => job.promise));
+        this.registry.clearSecrets();
+        await this.#send({ v: PROTOCOL_VERSION, type: "ack", requestId: command.requestId, accepted: true });
+        return;
       case "shutdown":
         this.#shutdownRequested = true;
         for (const job of this.#jobs.values()) {

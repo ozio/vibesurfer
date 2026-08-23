@@ -7,14 +7,17 @@ use std::{
     time::Duration,
 };
 
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use base64::{
+    engine::general_purpose::{STANDARD as BASE64, URL_SAFE_NO_PAD},
+    Engine as _,
+};
 use chrono::Utc;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use tokio::sync::watch;
 use tauri::AppHandle;
+use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::{media_worker, protocol::MediaVoiceRecord};
@@ -22,6 +25,9 @@ use crate::{media_worker, protocol::MediaVoiceRecord};
 const MEDIA_CACHE_SCHEMA: u32 = 1;
 const MEDIA_CACHE_LIMIT_BYTES: u64 = 512 * 1024 * 1024;
 const MAX_MEDIA_ASSET_BYTES: usize = 128 * 1024 * 1024;
+const MAX_IMAGE_ASSET_BYTES: usize = 5 * 1024 * 1024;
+const IMAGE_CACHE_LIMIT_BYTES: u64 = 256 * 1024 * 1024;
+const IMAGE_CACHE_SCHEMA: u32 = 1;
 const ELEVENLABS_ORIGIN: &str = "https://api.elevenlabs.io";
 const KOKORO_RUNTIME_SCHEMA: &str = "kokoro-82m-q8-v1";
 const KOKORO_ASSETS: &[&str] = &[
@@ -99,7 +105,7 @@ pub struct CaptionWord {
 #[serde(rename_all = "camelCase")]
 pub struct MediaAssetResponse {
     pub mime_type: String,
-    pub data_base64: String,
+    pub asset_url: String,
     pub duration_ms: u64,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub caption_words: Vec<CaptionWord>,
@@ -113,6 +119,16 @@ struct CachedMediaMetadata {
     mime_type: String,
     duration_ms: u64,
     caption_words: Vec<CaptionWord>,
+    byte_size: u64,
+    last_accessed_at: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CachedImageMetadata {
+    schema: u32,
+    source_url: String,
+    mime_type: String,
     byte_size: u64,
     last_accessed_at: String,
 }
@@ -150,14 +166,23 @@ pub struct MediaService {
     client: Client,
     cancellations: Mutex<HashMap<String, watch::Sender<bool>>>,
     runtime_assets: Mutex<()>,
+    worker: media_worker::MediaWorkerManager,
+}
+
+pub struct MediaProtocolAsset {
+    pub path: PathBuf,
+    pub mime_type: String,
+    pub byte_size: u64,
 }
 
 impl MediaService {
     pub fn new(cache_root: PathBuf) -> Result<Self, String> {
-        fs::create_dir_all(&cache_root).map_err(|error| format!("could not create media cache: {error}"))?;
+        fs::create_dir_all(&cache_root)
+            .map_err(|error| format!("could not create media cache: {error}"))?;
         let client = Client::builder()
             .user_agent("VibeSurfer/0.1 media-host")
             .connect_timeout(Duration::from_secs(15))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| format!("could not initialize media client: {error}"))?;
         Ok(Self {
@@ -167,12 +192,18 @@ impl MediaService {
             client,
             cancellations: Mutex::new(HashMap::new()),
             runtime_assets: Mutex::new(()),
+            worker: media_worker::MediaWorkerManager::new(),
         })
     }
 
     pub fn cancel(&self, request_id: &str) -> Result<(), String> {
         validate_identifier(request_id)?;
-        if let Some(sender) = self.cancellations.lock().map_err(|_| "media request registry is unavailable")?.remove(request_id) {
+        if let Some(sender) = self
+            .cancellations
+            .lock()
+            .map_err(|_| "media request registry is unavailable")?
+            .remove(request_id)
+        {
             let _ = sender.send(true);
         }
         Ok(())
@@ -181,22 +212,32 @@ impl MediaService {
     pub fn delete_profile_cache(&self, profile_id: &str) -> Result<(), String> {
         let directory = self.profile_directory(profile_id)?;
         if directory.exists() {
-            fs::remove_dir_all(&directory).map_err(|error| format!("could not remove media cache: {error}"))?;
+            fs::remove_dir_all(&directory)
+                .map_err(|error| format!("could not remove media cache: {error}"))?;
         }
         Ok(())
     }
 
-    pub fn cached_local_speech(&self, request: &LocalSpeechCacheRequest) -> Result<Option<MediaAssetResponse>, String> {
+    pub fn cached_local_speech(
+        &self,
+        request: &LocalSpeechCacheRequest,
+    ) -> Result<Option<MediaAssetResponse>, String> {
         validate_local_speech_cache_request(request)?;
         self.cache_get(&request.profile_id, &local_speech_cache_key(request))
     }
 
-    pub fn store_local_speech(&self, request: &StoreLocalSpeechCacheRequest) -> Result<MediaAssetResponse, String> {
+    pub fn store_local_speech(
+        &self,
+        request: &StoreLocalSpeechCacheRequest,
+    ) -> Result<MediaAssetResponse, String> {
         validate_local_speech_cache_request(&request.speech)?;
-        if request.mime_type != "audio/wav" || request.data_base64.len() > MAX_MEDIA_ASSET_BYTES.saturating_mul(2) {
+        if request.mime_type != "audio/wav"
+            || request.data_base64.len() > MAX_MEDIA_ASSET_BYTES.saturating_mul(2)
+        {
             return Err("local speech cache asset is invalid".into());
         }
-        let bytes = BASE64.decode(request.data_base64.as_bytes())
+        let bytes = BASE64
+            .decode(request.data_base64.as_bytes())
             .map_err(|_| "local speech cache audio is not valid base64".to_owned())?;
         self.cache_put(
             &request.speech.profile_id,
@@ -208,7 +249,11 @@ impl MediaService {
         )
     }
 
-    pub async fn render_kokoro_speech(&self, app: &AppHandle, request: &MediaSpeechRequest) -> Result<MediaAssetResponse, String> {
+    pub async fn render_kokoro_speech(
+        &self,
+        app: &AppHandle,
+        request: &MediaSpeechRequest,
+    ) -> Result<MediaAssetResponse, String> {
         validate_kokoro_speech_request(request)?;
         let cache_request = LocalSpeechCacheRequest {
             profile_id: request.profile_id.clone(),
@@ -219,7 +264,9 @@ impl MediaService {
             lang: request.lang.clone(),
         };
         let cache_key = local_speech_cache_key(&cache_request);
-        if let Some(asset) = self.cache_get(&request.profile_id, &cache_key)? { return Ok(asset); }
+        if let Some(asset) = self.cache_get(&request.profile_id, &cache_key)? {
+            return Ok(asset);
+        }
 
         let model_root = self.ensure_kokoro_assets(app)?;
         let worker = media_worker::discover(app)?;
@@ -228,13 +275,210 @@ impl MediaService {
             "voice": request.voice,
             "speed": request.speed,
         });
-        let bytes = self.run_cancellable(
-            &request.request_id,
-            Duration::from_secs(120),
-            media_worker::render(&worker, &model_root, &payload),
-        ).await?;
-        let duration_ms = wav_duration_ms(&bytes).ok_or_else(|| "Kokoro returned audio with no readable duration".to_owned())?;
-        self.cache_put(&request.profile_id, &cache_key, "audio/wav", duration_ms, Vec::new(), bytes)
+        let bytes = self
+            .run_cancellable(
+                &request.request_id,
+                Duration::from_secs(120),
+                self.worker.render(&worker, &model_root, &payload),
+            )
+            .await?;
+        let duration_ms = wav_duration_ms(&bytes)
+            .ok_or_else(|| "Kokoro returned audio with no readable duration".to_owned())?;
+        self.cache_put(
+            &request.profile_id,
+            &cache_key,
+            "audio/wav",
+            duration_ms,
+            Vec::new(),
+            bytes,
+        )
+    }
+
+    pub fn local_worker_counts(&self) -> (u64, u64) {
+        (self.worker.spawned_count(), self.worker.reused_count())
+    }
+
+    pub async fn protocol_asset(&self, uri_path: &str) -> Result<MediaProtocolAsset, String> {
+        if uri_path.trim_matches('/').starts_with("media/") {
+            return self.protocol_media_asset(uri_path);
+        }
+        self.protocol_image_asset(uri_path).await
+    }
+
+    fn protocol_media_asset(&self, uri_path: &str) -> Result<MediaProtocolAsset, String> {
+        let mut segments = uri_path.trim_matches('/').split('/');
+        if segments.next() != Some("media") {
+            return Err("unknown local asset path".into());
+        }
+        let profile_id = segments
+            .next()
+            .ok_or_else(|| "local asset profile is missing".to_owned())?;
+        let key = segments
+            .next()
+            .ok_or_else(|| "local asset key is missing".to_owned())?;
+        if segments.next().is_some() {
+            return Err("invalid local asset path".into());
+        }
+        validate_identifier(profile_id)?;
+        validate_identifier(key)?;
+        let directory = self.profile_directory(profile_id)?;
+        let metadata_path = directory.join(format!("{key}.json"));
+        let path = directory.join(format!("{key}.audio"));
+        let metadata: CachedMediaMetadata = serde_json::from_slice(
+            &fs::read(metadata_path).map_err(|_| "local asset was not found".to_owned())?,
+        )
+        .map_err(|_| "local asset metadata is invalid".to_owned())?;
+        let byte_size = fs::metadata(&path)
+            .map_err(|_| "local asset was not found".to_owned())?
+            .len();
+        if metadata.schema != MEDIA_CACHE_SCHEMA
+            || metadata.byte_size != byte_size
+            || byte_size == 0
+        {
+            return Err("local asset cache entry is invalid".into());
+        }
+        Ok(MediaProtocolAsset {
+            path,
+            mime_type: metadata.mime_type,
+            byte_size,
+        })
+    }
+
+    async fn protocol_image_asset(&self, uri_path: &str) -> Result<MediaProtocolAsset, String> {
+        let mut segments = uri_path.trim_matches('/').split('/');
+        if segments.next() != Some("image") {
+            return Err("unknown local asset path".into());
+        }
+        let encoded = segments
+            .next()
+            .ok_or_else(|| "image source is missing".to_owned())?;
+        if segments.next().is_some() || encoded.len() > 4_096 {
+            return Err("invalid image asset path".into());
+        }
+        let source_url = String::from_utf8(
+            URL_SAFE_NO_PAD
+                .decode(encoded)
+                .map_err(|_| "image source encoding is invalid".to_owned())?,
+        )
+        .map_err(|_| "image source encoding is invalid".to_owned())?;
+        let source = reqwest::Url::parse(&source_url)
+            .map_err(|_| "image source URL is invalid".to_owned())?;
+        validate_image_source(&source)?;
+        let key = format!("{:x}", Sha256::digest(source.as_str().as_bytes()));
+        let directory = self.cache_root.join(".images");
+        fs::create_dir_all(&directory)
+            .map_err(|error| format!("could not prepare image cache: {error}"))?;
+        if let Some(asset) = cached_image_asset(&directory, &key, source.as_str())? {
+            return Ok(asset);
+        }
+
+        let (mime_type, bytes) = self.fetch_image(source).await?;
+        let image_path = directory.join(format!("{key}.image"));
+        let metadata_path = directory.join(format!("{key}.json"));
+        let temporary_image = directory.join(format!(".{key}-{}.image", Uuid::new_v4()));
+        let temporary_metadata = directory.join(format!(".{key}-{}.json", Uuid::new_v4()));
+        let metadata = CachedImageMetadata {
+            schema: IMAGE_CACHE_SCHEMA,
+            source_url,
+            mime_type: mime_type.clone(),
+            byte_size: bytes.len() as u64,
+            last_accessed_at: Utc::now().to_rfc3339(),
+        };
+        fs::write(&temporary_image, &bytes)
+            .map_err(|error| format!("could not cache image: {error}"))?;
+        fs::write(
+            &temporary_metadata,
+            serde_json::to_vec(&metadata).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| format!("could not cache image metadata: {error}"))?;
+        fs::rename(&temporary_image, &image_path)
+            .map_err(|error| format!("could not commit image cache: {error}"))?;
+        fs::rename(&temporary_metadata, &metadata_path)
+            .map_err(|error| format!("could not commit image metadata: {error}"))?;
+        enforce_image_lru(&directory)?;
+        Ok(MediaProtocolAsset {
+            path: image_path,
+            mime_type,
+            byte_size: bytes.len() as u64,
+        })
+    }
+
+    async fn fetch_image(&self, mut source: reqwest::Url) -> Result<(String, Vec<u8>), String> {
+        for redirect_count in 0..=3 {
+            validate_image_source(&source)?;
+            let mut response = tokio::time::timeout(
+                Duration::from_secs(15),
+                self.client
+                    .get(source.clone())
+                    .header(reqwest::header::ACCEPT, "image/*")
+                    .send(),
+            )
+            .await
+            .map_err(|_| "image request timed out".to_owned())?
+            .map_err(|error| format!("image request failed: {error}"))?;
+            if response.status().is_redirection() {
+                if redirect_count == 3 {
+                    return Err("image redirect limit was exceeded".into());
+                }
+                let location = response
+                    .headers()
+                    .get(reqwest::header::LOCATION)
+                    .and_then(|value| value.to_str().ok())
+                    .ok_or_else(|| "image redirect has no location".to_owned())?;
+                source = source
+                    .join(location)
+                    .map_err(|_| "image redirect URL is invalid".to_owned())?;
+                validate_image_source(&source)?;
+                continue;
+            }
+            if !response.status().is_success() {
+                return Err(format!(
+                    "image provider returned HTTP {}",
+                    response.status()
+                ));
+            }
+            let mime_type = response
+                .headers()
+                .get(reqwest::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.split(';').next())
+                .map(str::trim)
+                .filter(|value| {
+                    matches!(
+                        *value,
+                        "image/jpeg" | "image/png" | "image/webp" | "image/gif"
+                    )
+                })
+                .ok_or_else(|| "image provider returned an unsupported media type".to_owned())?
+                .to_owned();
+            if response
+                .content_length()
+                .is_some_and(|length| length > MAX_IMAGE_ASSET_BYTES as u64)
+            {
+                return Err("image asset exceeds the 5 MiB limit".into());
+            }
+            let mut bytes = Vec::with_capacity(
+                response
+                    .content_length()
+                    .unwrap_or(0)
+                    .min(MAX_IMAGE_ASSET_BYTES as u64) as usize,
+            );
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|error| format!("could not read image asset: {error}"))?
+            {
+                if bytes.len().saturating_add(chunk.len()) > MAX_IMAGE_ASSET_BYTES {
+                    return Err("image asset exceeds the 5 MiB limit".into());
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            if !valid_image_signature(&mime_type, &bytes) {
+                return Err("image provider returned invalid image bytes".into());
+            }
+            return Ok((mime_type, bytes));
+        }
+        Err("image provider redirect failed".into())
     }
 
     pub async fn verify_elevenlabs(&self, api_key: &str) -> Result<Vec<MediaVoiceRecord>, String> {
@@ -245,26 +489,41 @@ impl MediaService {
                 .query(&[("page_size", "100"), ("include_total_count", "false")])
                 .header("xi-api-key", api_key)
                 .send(),
-        ).await.map_err(|_| "ElevenLabs voice verification timed out".to_owned())?
-            .map_err(|error| format!("ElevenLabs voice verification failed: {error}"))?;
+        )
+        .await
+        .map_err(|_| "ElevenLabs voice verification timed out".to_owned())?
+        .map_err(|error| format!("ElevenLabs voice verification failed: {error}"))?;
         let response = checked_response(response, "ElevenLabs voice verification").await?;
-        let payload: ElevenVoicesResponse = response.json().await
+        let payload: ElevenVoicesResponse = response
+            .json()
+            .await
             .map_err(|error| format!("ElevenLabs returned an invalid voice catalog: {error}"))?;
-        let mut voices = payload.voices.into_iter().filter_map(|voice| {
-            if !valid_remote_id(&voice.voice_id) || voice.name.trim().is_empty() { return None; }
-            Some(MediaVoiceRecord {
-                id: voice.voice_id,
-                name: voice.name.trim().chars().take(120).collect(),
-                category: voice.category.map(|value| value.chars().take(80).collect()),
+        let mut voices = payload
+            .voices
+            .into_iter()
+            .filter_map(|voice| {
+                if !valid_remote_id(&voice.voice_id) || voice.name.trim().is_empty() {
+                    return None;
+                }
+                Some(MediaVoiceRecord {
+                    id: voice.voice_id,
+                    name: voice.name.trim().chars().take(120).collect(),
+                    category: voice.category.map(|value| value.chars().take(80).collect()),
+                })
             })
-        }).collect::<Vec<_>>();
+            .collect::<Vec<_>>();
         voices.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
         voices.truncate(100);
-        if voices.is_empty() { return Err("ElevenLabs returned no usable voices".into()); }
+        if voices.is_empty() {
+            return Err("ElevenLabs returned no usable voices".into());
+        }
         Ok(voices)
     }
 
-    pub async fn render_system_speech(&self, request: &MediaSpeechRequest) -> Result<MediaAssetResponse, String> {
+    pub async fn render_system_speech(
+        &self,
+        request: &MediaSpeechRequest,
+    ) -> Result<MediaAssetResponse, String> {
         validate_speech_request(request, false)?;
         let cache_key = media_cache_key(&json!({
             "schema": MEDIA_CACHE_SCHEMA,
@@ -276,7 +535,9 @@ impl MediaService {
             "text": request.text,
             "lang": request.lang,
         }));
-        if let Some(asset) = self.cache_get(&request.profile_id, &cache_key)? { return Ok(asset); }
+        if let Some(asset) = self.cache_get(&request.profile_id, &cache_key)? {
+            return Ok(asset);
+        }
 
         #[cfg(not(target_os = "macos"))]
         {
@@ -285,38 +546,67 @@ impl MediaService {
         #[cfg(target_os = "macos")]
         {
             let profile_directory = self.profile_directory(&request.profile_id)?;
-            fs::create_dir_all(&profile_directory).map_err(|error| format!("could not prepare media cache: {error}"))?;
+            fs::create_dir_all(&profile_directory)
+                .map_err(|error| format!("could not prepare media cache: {error}"))?;
             let output_path = profile_directory.join(format!(".speech-{}.aiff", Uuid::new_v4()));
             let words_per_minute = (175.0 * request.speed).round().clamp(105.0, 263.0) as u32;
             let mut command = tokio::process::Command::new("/usr/bin/say");
-            command.kill_on_drop(true)
-                .arg("-r").arg(words_per_minute.to_string())
-                .arg("-o").arg(&output_path);
-            if !request.voice.trim().is_empty() { command.arg("-v").arg(request.voice.trim()); }
+            command
+                .kill_on_drop(true)
+                .arg("-r")
+                .arg(words_per_minute.to_string())
+                .arg("-o")
+                .arg(&output_path);
+            if !request.voice.trim().is_empty() {
+                command.arg("-v").arg(request.voice.trim());
+            }
             command.arg("--").arg(&request.text);
-            let result = self.run_cancellable(&request.request_id, Duration::from_secs(90), async move {
-                let output = command.output().await.map_err(|error| format!("system speech could not start: {error}"))?;
-                if !output.status.success() {
-                    let message = String::from_utf8_lossy(&output.stderr);
-                    return Err(format!("system speech failed: {}", bounded_error(&message)));
-                }
-                Ok(())
-            }).await;
+            let result = self
+                .run_cancellable(&request.request_id, Duration::from_secs(90), async move {
+                    let output = command
+                        .output()
+                        .await
+                        .map_err(|error| format!("system speech could not start: {error}"))?;
+                    if !output.status.success() {
+                        let message = String::from_utf8_lossy(&output.stderr);
+                        return Err(format!("system speech failed: {}", bounded_error(&message)));
+                    }
+                    Ok(())
+                })
+                .await;
             if let Err(error) = result {
                 let _ = fs::remove_file(&output_path);
                 return Err(error);
             }
-            let bytes = fs::read(&output_path).map_err(|error| format!("could not read rendered system speech: {error}"));
+            let bytes = fs::read(&output_path)
+                .map_err(|error| format!("could not read rendered system speech: {error}"));
             let _ = fs::remove_file(&output_path);
             let bytes = bytes?;
-            let duration_ms = aiff_duration_ms(&bytes).ok_or_else(|| "system speech returned audio with no readable duration".to_owned())?;
-            self.cache_put(&request.profile_id, &cache_key, "audio/aiff", duration_ms, Vec::new(), bytes)
+            let duration_ms = aiff_duration_ms(&bytes).ok_or_else(|| {
+                "system speech returned audio with no readable duration".to_owned()
+            })?;
+            self.cache_put(
+                &request.profile_id,
+                &cache_key,
+                "audio/aiff",
+                duration_ms,
+                Vec::new(),
+                bytes,
+            )
         }
     }
 
-    pub async fn render_elevenlabs_speech(&self, request: &MediaSpeechRequest, api_key: &str) -> Result<MediaAssetResponse, String> {
+    pub async fn render_elevenlabs_speech(
+        &self,
+        request: &MediaSpeechRequest,
+        api_key: &str,
+    ) -> Result<MediaAssetResponse, String> {
         validate_speech_request(request, true)?;
-        let model = if request.model.trim().is_empty() { "eleven_multilingual_v2" } else { request.model.trim() };
+        let model = if request.model.trim().is_empty() {
+            "eleven_multilingual_v2"
+        } else {
+            request.model.trim()
+        };
         let cache_key = media_cache_key(&json!({
             "schema": MEDIA_CACHE_SCHEMA,
             "kind": "speech",
@@ -327,7 +617,9 @@ impl MediaService {
             "text": request.text,
             "lang": request.lang,
         }));
-        if let Some(asset) = self.cache_get(&request.profile_id, &cache_key)? { return Ok(asset); }
+        if let Some(asset) = self.cache_get(&request.profile_id, &cache_key)? {
+            return Ok(asset);
+        }
         let voice = request.voice.trim();
         let mut body = json!({
             "text": request.text,
@@ -335,34 +627,64 @@ impl MediaService {
             "voice_settings": { "speed": request.speed.clamp(0.7, 1.2) },
         });
         if let Some(language) = language_code(&request.lang) {
-            body.as_object_mut().expect("media request is an object").insert("language_code".into(), Value::String(language));
+            body.as_object_mut()
+                .expect("media request is an object")
+                .insert("language_code".into(), Value::String(language));
         }
         let future = async {
-            let response = self.client
-                .post(format!("{}/v1/text-to-speech/{voice}/with-timestamps", self.origin))
+            let response = self
+                .client
+                .post(format!(
+                    "{}/v1/text-to-speech/{voice}/with-timestamps",
+                    self.origin
+                ))
                 .query(&[("output_format", "mp3_44100_128")])
                 .header("xi-api-key", api_key)
                 .json(&body)
-                .send().await
+                .send()
+                .await
                 .map_err(|error| format!("ElevenLabs speech request failed: {error}"))?;
             let response = checked_response(response, "ElevenLabs speech").await?;
-            response.json::<ElevenSpeechResponse>().await
+            response
+                .json::<ElevenSpeechResponse>()
+                .await
                 .map_err(|error| format!("ElevenLabs returned an invalid speech response: {error}"))
         };
-        let payload = self.run_cancellable(&request.request_id, Duration::from_secs(120), future).await?;
-        let bytes = BASE64.decode(payload.audio_base64.as_bytes())
+        let payload = self
+            .run_cancellable(&request.request_id, Duration::from_secs(120), future)
+            .await?;
+        let bytes = BASE64
+            .decode(payload.audio_base64.as_bytes())
             .map_err(|_| "ElevenLabs returned invalid speech audio".to_owned())?;
-        let alignment = payload.normalized_alignment.or(payload.alignment)
+        let alignment = payload
+            .normalized_alignment
+            .or(payload.alignment)
             .ok_or_else(|| "ElevenLabs returned speech without timing alignment".to_owned())?;
         let caption_words = caption_words(&alignment);
-        let duration_ms = alignment.character_end_times_seconds.iter().copied()
+        let duration_ms = alignment
+            .character_end_times_seconds
+            .iter()
+            .copied()
             .filter(|value| value.is_finite() && *value > 0.0)
             .fold(0.0_f64, f64::max);
-        if duration_ms <= 0.0 { return Err("ElevenLabs returned an empty speech timeline".into()); }
-        self.cache_put(&request.profile_id, &cache_key, "audio/mpeg", (duration_ms * 1_000.0).round() as u64, caption_words, bytes)
+        if duration_ms <= 0.0 {
+            return Err("ElevenLabs returned an empty speech timeline".into());
+        }
+        self.cache_put(
+            &request.profile_id,
+            &cache_key,
+            "audio/mpeg",
+            (duration_ms * 1_000.0).round() as u64,
+            caption_words,
+            bytes,
+        )
     }
 
-    pub async fn generate_elevenlabs_music(&self, request: &MediaMusicRequest, api_key: &str) -> Result<MediaAssetResponse, String> {
+    pub async fn generate_elevenlabs_music(
+        &self,
+        request: &MediaMusicRequest,
+        api_key: &str,
+    ) -> Result<MediaAssetResponse, String> {
         validate_music_request(request)?;
         let duration_ms = request.duration_ms.clamp(3_000, 600_000);
         let cache_key = media_cache_key(&json!({
@@ -373,7 +695,9 @@ impl MediaService {
             "intent": request.prompt,
             "durationMs": duration_ms,
         }));
-        if let Some(asset) = self.cache_get(&request.profile_id, &cache_key)? { return Ok(asset); }
+        if let Some(asset) = self.cache_get(&request.profile_id, &cache_key)? {
+            return Ok(asset);
+        }
         let body = json!({
             "prompt": format!("Instrumental background score without vocals. {}", request.prompt.trim()),
             "music_length_ms": duration_ms,
@@ -381,19 +705,33 @@ impl MediaService {
             "force_instrumental": true,
         });
         let future = async {
-            let response = self.client
+            let response = self
+                .client
                 .post(format!("{}/v1/music", self.origin))
                 .query(&[("output_format", "mp3_44100_128")])
                 .header("xi-api-key", api_key)
                 .json(&body)
-                .send().await
+                .send()
+                .await
                 .map_err(|error| format!("ElevenLabs music request failed: {error}"))?;
             let response = checked_response(response, "ElevenLabs music").await?;
-            response.bytes().await.map(|bytes| bytes.to_vec())
+            response
+                .bytes()
+                .await
+                .map(|bytes| bytes.to_vec())
                 .map_err(|error| format!("could not read generated music: {error}"))
         };
-        let bytes = self.run_cancellable(&request.request_id, Duration::from_secs(300), future).await?;
-        self.cache_put(&request.profile_id, &cache_key, "audio/mpeg", duration_ms, Vec::new(), bytes)
+        let bytes = self
+            .run_cancellable(&request.request_id, Duration::from_secs(300), future)
+            .await?;
+        self.cache_put(
+            &request.profile_id,
+            &cache_key,
+            "audio/mpeg",
+            duration_ms,
+            Vec::new(),
+            bytes,
+        )
     }
 
     async fn run_cancellable<T>(
@@ -405,7 +743,10 @@ impl MediaService {
         validate_identifier(request_id)?;
         let (sender, mut receiver) = watch::channel(false);
         {
-            let mut requests = self.cancellations.lock().map_err(|_| "media request registry is unavailable")?;
+            let mut requests = self
+                .cancellations
+                .lock()
+                .map_err(|_| "media request registry is unavailable")?;
             if requests.insert(request_id.to_owned(), sender).is_some() {
                 return Err("duplicate media request identifier".into());
             }
@@ -415,8 +756,12 @@ impl MediaService {
                 result = future => result,
                 _ = receiver.changed() => Err("media request was cancelled".into()),
             }
-        }).await;
-        self.cancellations.lock().map_err(|_| "media request registry is unavailable")?.remove(request_id);
+        })
+        .await;
+        self.cancellations
+            .lock()
+            .map_err(|_| "media request registry is unavailable")?
+            .remove(request_id);
         selected.map_err(|_| "media request timed out".to_owned())?
     }
 
@@ -426,18 +771,37 @@ impl MediaService {
     }
 
     fn ensure_kokoro_assets(&self, app: &AppHandle) -> Result<PathBuf, String> {
-        let _guard = self.runtime_assets.lock().map_err(|_| "local speech asset lock is unavailable")?;
+        let _guard = self
+            .runtime_assets
+            .lock()
+            .map_err(|_| "local speech asset lock is unavailable")?;
         let runtime_root = self.cache_root.join(".runtime").join(KOKORO_RUNTIME_SCHEMA);
         for path in KOKORO_ASSETS {
             let target = runtime_root.join(path);
-            if target.is_file() { continue; }
-            let asset = app.asset_resolver().get((*path).to_owned())
+            if target.is_file() {
+                continue;
+            }
+            let asset = app
+                .asset_resolver()
+                .get((*path).to_owned())
                 .ok_or_else(|| format!("packaged local speech asset is unavailable: {path}"))?;
-            let parent = target.parent().ok_or_else(|| "invalid local speech asset path".to_owned())?;
-            fs::create_dir_all(parent).map_err(|error| format!("could not prepare local speech assets: {error}"))?;
-            let temporary = parent.join(format!(".{}.{}", target.file_name().and_then(|value| value.to_str()).unwrap_or("asset"), Uuid::new_v4()));
-            fs::write(&temporary, asset.bytes()).map_err(|error| format!("could not extract local speech asset: {error}"))?;
-            fs::rename(&temporary, &target).map_err(|error| format!("could not commit local speech asset: {error}"))?;
+            let parent = target
+                .parent()
+                .ok_or_else(|| "invalid local speech asset path".to_owned())?;
+            fs::create_dir_all(parent)
+                .map_err(|error| format!("could not prepare local speech assets: {error}"))?;
+            let temporary = parent.join(format!(
+                ".{}.{}",
+                target
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("asset"),
+                Uuid::new_v4()
+            ));
+            fs::write(&temporary, asset.bytes())
+                .map_err(|error| format!("could not extract local speech asset: {error}"))?;
+            fs::rename(&temporary, &target)
+                .map_err(|error| format!("could not commit local speech asset: {error}"))?;
         }
         Ok(runtime_root.join("models"))
     }
@@ -446,16 +810,36 @@ impl MediaService {
         let directory = self.profile_directory(profile_id)?;
         let metadata_path = directory.join(format!("{key}.json"));
         let audio_path = directory.join(format!("{key}.audio"));
-        if !metadata_path.is_file() || !audio_path.is_file() { return Ok(None); }
-        let mut metadata: CachedMediaMetadata = serde_json::from_slice(&fs::read(&metadata_path)
-            .map_err(|error| format!("could not read media cache metadata: {error}"))?)
-            .map_err(|error| format!("media cache metadata is invalid: {error}"))?;
-        if metadata.schema != MEDIA_CACHE_SCHEMA { return Ok(None); }
-        let bytes = fs::read(&audio_path).map_err(|error| format!("could not read media cache asset: {error}"))?;
-        if bytes.len() as u64 != metadata.byte_size || bytes.is_empty() { return Ok(None); }
+        if !metadata_path.is_file() || !audio_path.is_file() {
+            return Ok(None);
+        }
+        let mut metadata: CachedMediaMetadata = serde_json::from_slice(
+            &fs::read(&metadata_path)
+                .map_err(|error| format!("could not read media cache metadata: {error}"))?,
+        )
+        .map_err(|error| format!("media cache metadata is invalid: {error}"))?;
+        if metadata.schema != MEDIA_CACHE_SCHEMA {
+            return Ok(None);
+        }
+        let byte_size = fs::metadata(&audio_path)
+            .map_err(|error| format!("could not inspect media cache asset: {error}"))?
+            .len();
+        if byte_size != metadata.byte_size || byte_size == 0 {
+            return Ok(None);
+        }
         metadata.last_accessed_at = Utc::now().to_rfc3339();
-        let _ = fs::write(&metadata_path, serde_json::to_vec(&metadata).unwrap_or_default());
-        Ok(Some(asset_response(metadata.mime_type, metadata.duration_ms, metadata.caption_words, bytes, true)))
+        let _ = fs::write(
+            &metadata_path,
+            serde_json::to_vec(&metadata).unwrap_or_default(),
+        );
+        Ok(Some(asset_response(
+            profile_id,
+            key,
+            metadata.mime_type,
+            metadata.duration_ms,
+            metadata.caption_words,
+            true,
+        )))
     }
 
     fn cache_put(
@@ -467,11 +851,16 @@ impl MediaService {
         caption_words: Vec<CaptionWord>,
         bytes: Vec<u8>,
     ) -> Result<MediaAssetResponse, String> {
-        if bytes.is_empty() || bytes.len() > MAX_MEDIA_ASSET_BYTES || duration_ms == 0 || duration_ms > 600_000 {
+        if bytes.is_empty()
+            || bytes.len() > MAX_MEDIA_ASSET_BYTES
+            || duration_ms == 0
+            || duration_ms > 600_000
+        {
             return Err("media provider returned an invalid or oversized asset".into());
         }
         let directory = self.profile_directory(profile_id)?;
-        fs::create_dir_all(&directory).map_err(|error| format!("could not prepare media cache: {error}"))?;
+        fs::create_dir_all(&directory)
+            .map_err(|error| format!("could not prepare media cache: {error}"))?;
         let audio_path = directory.join(format!("{key}.audio"));
         let metadata_path = directory.join(format!("{key}.json"));
         let temporary_audio = directory.join(format!(".{key}-{}.audio", Uuid::new_v4()));
@@ -484,30 +873,70 @@ impl MediaService {
             byte_size: bytes.len() as u64,
             last_accessed_at: Utc::now().to_rfc3339(),
         };
-        fs::write(&temporary_audio, &bytes).map_err(|error| format!("could not cache media asset: {error}"))?;
-        fs::write(&temporary_metadata, serde_json::to_vec(&metadata).map_err(|error| error.to_string())?)
-            .map_err(|error| format!("could not cache media metadata: {error}"))?;
-        fs::rename(&temporary_audio, &audio_path).map_err(|error| format!("could not commit media asset: {error}"))?;
-        fs::rename(&temporary_metadata, &metadata_path).map_err(|error| format!("could not commit media metadata: {error}"))?;
+        fs::write(&temporary_audio, &bytes)
+            .map_err(|error| format!("could not cache media asset: {error}"))?;
+        fs::write(
+            &temporary_metadata,
+            serde_json::to_vec(&metadata).map_err(|error| error.to_string())?,
+        )
+        .map_err(|error| format!("could not cache media metadata: {error}"))?;
+        fs::rename(&temporary_audio, &audio_path)
+            .map_err(|error| format!("could not commit media asset: {error}"))?;
+        fs::rename(&temporary_metadata, &metadata_path)
+            .map_err(|error| format!("could not commit media metadata: {error}"))?;
         self.enforce_lru(&directory)?;
-        Ok(asset_response(mime_type.to_owned(), duration_ms, caption_words, bytes, false))
+        Ok(asset_response(
+            profile_id,
+            key,
+            mime_type.to_owned(),
+            duration_ms,
+            caption_words,
+            false,
+        ))
     }
 
     fn enforce_lru(&self, directory: &Path) -> Result<(), String> {
         let mut entries = Vec::new();
         let mut total = 0_u64;
-        for entry in fs::read_dir(directory).map_err(|error| format!("could not inspect media cache: {error}"))? {
+        for entry in fs::read_dir(directory)
+            .map_err(|error| format!("could not inspect media cache: {error}"))?
+        {
             let path = entry.map_err(|error| error.to_string())?.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") || path.file_name().and_then(|value| value.to_str()).is_some_and(|name| name.starts_with('.')) { continue; }
-            let Ok(metadata_bytes) = fs::read(&path) else { continue; };
-            let Ok(metadata) = serde_json::from_slice::<CachedMediaMetadata>(&metadata_bytes) else { continue; };
-            let Some(stem) = path.file_stem().and_then(|value| value.to_str()).map(str::to_owned) else { continue; };
+            if path.extension().and_then(|value| value.to_str()) != Some("json")
+                || path
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|name| name.starts_with('.'))
+            {
+                continue;
+            }
+            let Ok(metadata_bytes) = fs::read(&path) else {
+                continue;
+            };
+            let Ok(metadata) = serde_json::from_slice::<CachedMediaMetadata>(&metadata_bytes)
+            else {
+                continue;
+            };
+            let Some(stem) = path
+                .file_stem()
+                .and_then(|value| value.to_str())
+                .map(str::to_owned)
+            else {
+                continue;
+            };
             total = total.saturating_add(metadata.byte_size);
-            entries.push((metadata.last_accessed_at, metadata.byte_size, path, directory.join(format!("{stem}.audio"))));
+            entries.push((
+                metadata.last_accessed_at,
+                metadata.byte_size,
+                path,
+                directory.join(format!("{stem}.audio")),
+            ));
         }
         entries.sort_by(|left, right| left.0.cmp(&right.0));
         for (_, size, metadata_path, audio_path) in entries {
-            if total <= self.cache_limit_bytes { break; }
+            if total <= self.cache_limit_bytes {
+                break;
+            }
             let _ = fs::remove_file(audio_path);
             let _ = fs::remove_file(metadata_path);
             total = total.saturating_sub(size);
@@ -516,32 +945,66 @@ impl MediaService {
     }
 }
 
-async fn checked_response(response: reqwest::Response, label: &str) -> Result<reqwest::Response, String> {
-    if response.status().is_success() { return Ok(response); }
+async fn checked_response(
+    response: reqwest::Response,
+    label: &str,
+) -> Result<reqwest::Response, String> {
+    if response.status().is_success() {
+        return Ok(response);
+    }
     let status = response.status();
     let message = response.text().await.unwrap_or_default();
     Err(provider_error(label, status, &message))
 }
 
 fn provider_error(label: &str, status: StatusCode, message: &str) -> String {
-    format!("{label} failed with HTTP {}: {}", status.as_u16(), bounded_error(message))
+    format!(
+        "{label} failed with HTTP {}: {}",
+        status.as_u16(),
+        bounded_error(message)
+    )
 }
 
 fn bounded_error(message: &str) -> String {
-    message.split_whitespace().collect::<Vec<_>>().join(" ").chars().take(512).collect()
+    message
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .chars()
+        .take(512)
+        .collect()
 }
 
 fn validate_speech_request(request: &MediaSpeechRequest, external: bool) -> Result<(), String> {
     validate_identifier(&request.request_id)?;
     validate_identifier(&request.profile_id)?;
     if external {
-        validate_identifier(request.connection_id.as_deref().ok_or("media connection is required")?)?;
-        if request.provider != "elevenlabs" || request.engine != "cloud" { return Err("unsupported external speech provider".into()); }
-        if !valid_remote_id(request.voice.trim()) { return Err("invalid ElevenLabs voice identifier".into()); }
-    } else if request.engine != "system" { return Err("invalid system speech request".into()); }
-    if request.text.trim().is_empty() || request.text.chars().count() > 800 { return Err("speech text must contain 1 to 800 characters".into()); }
-    if request.voice.chars().count() > 120 || request.model.chars().count() > 160 || request.lang.chars().count() > 40
-        || !request.speed.is_finite() || !(0.6..=1.5).contains(&request.speed) { return Err("invalid speech settings".into()); }
+        validate_identifier(
+            request
+                .connection_id
+                .as_deref()
+                .ok_or("media connection is required")?,
+        )?;
+        if request.provider != "elevenlabs" || request.engine != "cloud" {
+            return Err("unsupported external speech provider".into());
+        }
+        if !valid_remote_id(request.voice.trim()) {
+            return Err("invalid ElevenLabs voice identifier".into());
+        }
+    } else if request.engine != "system" {
+        return Err("invalid system speech request".into());
+    }
+    if request.text.trim().is_empty() || request.text.chars().count() > 800 {
+        return Err("speech text must contain 1 to 800 characters".into());
+    }
+    if request.voice.chars().count() > 120
+        || request.model.chars().count() > 160
+        || request.lang.chars().count() > 40
+        || !request.speed.is_finite()
+        || !(0.6..=1.5).contains(&request.speed)
+    {
+        return Err("invalid speech settings".into());
+    }
     Ok(())
 }
 
@@ -550,20 +1013,30 @@ fn validate_music_request(request: &MediaMusicRequest) -> Result<(), String> {
     validate_identifier(&request.profile_id)?;
     validate_identifier(&request.connection_id)?;
     let prompt = request.prompt.trim();
-    if prompt.is_empty() || prompt.chars().count() > 160
-        || ["http:", "https:", "data:", "blob:", "file:", "javascript:"].iter().any(|prefix| prompt.to_lowercase().contains(prefix)) {
+    if prompt.is_empty()
+        || prompt.chars().count() > 160
+        || ["http:", "https:", "data:", "blob:", "file:", "javascript:"]
+            .iter()
+            .any(|prefix| prompt.to_lowercase().contains(prefix))
+    {
         return Err("music intent must contain 1 to 160 safe characters".into());
     }
-    if !(3_000..=600_000).contains(&request.duration_ms) { return Err("music duration must be between 3 seconds and 10 minutes".into()); }
+    if !(3_000..=600_000).contains(&request.duration_ms) {
+        return Err("music duration must be between 3 seconds and 10 minutes".into());
+    }
     Ok(())
 }
 
 fn validate_local_speech_cache_request(request: &LocalSpeechCacheRequest) -> Result<(), String> {
     validate_identifier(&request.profile_id)?;
-    if request.text.trim().is_empty() || request.text.chars().count() > 800
-        || request.voice.chars().count() > 120 || request.model.chars().count() > 160
-        || request.lang.chars().count() > 40 || !request.speed.is_finite()
-        || !(0.6..=1.5).contains(&request.speed) {
+    if request.text.trim().is_empty()
+        || request.text.chars().count() > 800
+        || request.voice.chars().count() > 120
+        || request.model.chars().count() > 160
+        || request.lang.chars().count() > 40
+        || !request.speed.is_finite()
+        || !(0.6..=1.5).contains(&request.speed)
+    {
         return Err("invalid local speech cache request".into());
     }
     Ok(())
@@ -572,7 +1045,11 @@ fn validate_local_speech_cache_request(request: &LocalSpeechCacheRequest) -> Res
 fn validate_kokoro_speech_request(request: &MediaSpeechRequest) -> Result<(), String> {
     validate_identifier(&request.request_id)?;
     validate_identifier(&request.profile_id)?;
-    if request.engine != "local" || request.provider != "kokoro" || request.model != "kokoro-82m-q8" || request.voice != "af_heart" {
+    if request.engine != "local"
+        || request.provider != "kokoro"
+        || request.model != "kokoro-82m-q8"
+        || request.voice != "af_heart"
+    {
         return Err("unsupported packaged Kokoro speech settings".into());
     }
     if request.connection_id.is_some() {
@@ -602,8 +1079,14 @@ fn local_speech_cache_key(request: &LocalSpeechCacheRequest) -> String {
 }
 
 pub fn validate_identifier(value: &str) -> Result<(), String> {
-    if !value.is_empty() && value != "." && value != ".." && value.len() <= 160
-        && value.chars().all(|character| character.is_ascii_alphanumeric() || "-_.".contains(character)) {
+    if !value.is_empty()
+        && value != "."
+        && value != ".."
+        && value.len() <= 160
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "-_.".contains(character))
+    {
         Ok(())
     } else {
         Err("invalid media identifier".into())
@@ -611,20 +1094,33 @@ pub fn validate_identifier(value: &str) -> Result<(), String> {
 }
 
 fn valid_remote_id(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 160 && value.chars().all(|character| character.is_ascii_alphanumeric() || "-_".contains(character))
+    !value.is_empty()
+        && value.len() <= 160
+        && value
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character))
 }
 
 fn language_code(value: &str) -> Option<String> {
     let code = value.split(['-', '_']).next()?.to_lowercase();
-    (code.len() == 2 && code.chars().all(|character| character.is_ascii_alphabetic())).then_some(code)
+    (code.len() == 2
+        && code
+            .chars()
+            .all(|character| character.is_ascii_alphabetic()))
+    .then_some(code)
 }
 
 fn media_cache_key(value: &Value) -> String {
-    format!("{:x}", Sha256::digest(serde_json::to_vec(value).unwrap_or_default()))
+    format!(
+        "{:x}",
+        Sha256::digest(serde_json::to_vec(value).unwrap_or_default())
+    )
 }
 
 fn caption_words(alignment: &ElevenAlignment) -> Vec<CaptionWord> {
-    let length = alignment.characters.len()
+    let length = alignment
+        .characters
+        .len()
         .min(alignment.character_start_times_seconds.len())
         .min(alignment.character_end_times_seconds.len());
     let mut words = Vec::new();
@@ -637,7 +1133,9 @@ fn caption_words(alignment: &ElevenAlignment) -> Vec<CaptionWord> {
             push_caption_word(&mut words, &mut text, start, end);
             continue;
         }
-        if text.is_empty() { start = alignment.character_start_times_seconds[index]; }
+        if text.is_empty() {
+            start = alignment.character_start_times_seconds[index];
+        }
         text.push_str(character);
         end = alignment.character_end_times_seconds[index];
     }
@@ -657,21 +1155,159 @@ fn push_caption_word(words: &mut Vec<CaptionWord>, text: &mut String, start: f64
     text.clear();
 }
 
-fn asset_response(mime_type: String, duration_ms: u64, caption_words: Vec<CaptionWord>, bytes: Vec<u8>, cache_hit: bool) -> MediaAssetResponse {
-    MediaAssetResponse { mime_type, data_base64: BASE64.encode(bytes), duration_ms, caption_words, cache_hit }
+fn validate_image_source(url: &reqwest::Url) -> Result<(), String> {
+    let hostname = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    let allowed_host = hostname == "loremflickr.com"
+        || hostname == "www.loremflickr.com"
+        || hostname == "staticflickr.com"
+        || hostname.ends_with(".staticflickr.com");
+    if url.scheme() != "https"
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.port_or_known_default() != Some(443)
+        || !allowed_host
+    {
+        return Err("image source is outside the allowlist".into());
+    }
+    Ok(())
+}
+
+fn valid_image_signature(mime_type: &str, bytes: &[u8]) -> bool {
+    match mime_type {
+        "image/jpeg" => bytes.starts_with(&[0xff, 0xd8, 0xff]),
+        "image/png" => bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+        "image/gif" => bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a"),
+        "image/webp" => bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP",
+        _ => false,
+    }
+}
+
+fn cached_image_asset(
+    directory: &Path,
+    key: &str,
+    source_url: &str,
+) -> Result<Option<MediaProtocolAsset>, String> {
+    let metadata_path = directory.join(format!("{key}.json"));
+    let path = directory.join(format!("{key}.image"));
+    if !metadata_path.is_file() || !path.is_file() {
+        return Ok(None);
+    }
+    let mut metadata: CachedImageMetadata = serde_json::from_slice(
+        &fs::read(&metadata_path)
+            .map_err(|error| format!("could not read image cache metadata: {error}"))?,
+    )
+    .map_err(|error| format!("image cache metadata is invalid: {error}"))?;
+    let byte_size = fs::metadata(&path)
+        .map_err(|error| format!("could not inspect cached image: {error}"))?
+        .len();
+    if metadata.schema != IMAGE_CACHE_SCHEMA
+        || metadata.source_url != source_url
+        || metadata.byte_size != byte_size
+        || byte_size == 0
+        || byte_size > MAX_IMAGE_ASSET_BYTES as u64
+    {
+        return Ok(None);
+    }
+    metadata.last_accessed_at = Utc::now().to_rfc3339();
+    let _ = fs::write(
+        &metadata_path,
+        serde_json::to_vec(&metadata).unwrap_or_default(),
+    );
+    Ok(Some(MediaProtocolAsset {
+        path,
+        mime_type: metadata.mime_type,
+        byte_size,
+    }))
+}
+
+fn enforce_image_lru(directory: &Path) -> Result<(), String> {
+    let mut entries = Vec::new();
+    let mut total = 0_u64;
+    for entry in fs::read_dir(directory)
+        .map_err(|error| format!("could not inspect image cache: {error}"))?
+    {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json")
+            || path
+                .file_name()
+                .and_then(|value| value.to_str())
+                .is_some_and(|name| name.starts_with('.'))
+        {
+            continue;
+        }
+        let Some(metadata) = fs::read(&path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<CachedImageMetadata>(&bytes).ok())
+        else {
+            continue;
+        };
+        let Some(stem) = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .map(str::to_owned)
+        else {
+            continue;
+        };
+        total = total.saturating_add(metadata.byte_size);
+        entries.push((
+            metadata.last_accessed_at,
+            metadata.byte_size,
+            path,
+            directory.join(format!("{stem}.image")),
+        ));
+    }
+    entries.sort_by(|left, right| left.0.cmp(&right.0));
+    for (_, size, metadata_path, image_path) in entries {
+        if total <= IMAGE_CACHE_LIMIT_BYTES {
+            break;
+        }
+        let _ = fs::remove_file(image_path);
+        let _ = fs::remove_file(metadata_path);
+        total = total.saturating_sub(size);
+    }
+    Ok(())
+}
+
+fn asset_response(
+    profile_id: &str,
+    key: &str,
+    mime_type: String,
+    duration_ms: u64,
+    caption_words: Vec<CaptionWord>,
+    cache_hit: bool,
+) -> MediaAssetResponse {
+    #[cfg(any(target_os = "windows", target_os = "android"))]
+    let asset_url = format!("http://vibeasset.localhost/media/{profile_id}/{key}");
+    #[cfg(not(any(target_os = "windows", target_os = "android")))]
+    let asset_url = format!("vibeasset://localhost/media/{profile_id}/{key}");
+    MediaAssetResponse {
+        mime_type,
+        asset_url,
+        duration_ms,
+        caption_words,
+        cache_hit,
+    }
 }
 
 fn aiff_duration_ms(bytes: &[u8]) -> Option<u64> {
-    if bytes.len() < 12 || &bytes[0..4] != b"FORM" || (&bytes[8..12] != b"AIFF" && &bytes[8..12] != b"AIFC") { return None; }
+    if bytes.len() < 12
+        || &bytes[0..4] != b"FORM"
+        || (&bytes[8..12] != b"AIFF" && &bytes[8..12] != b"AIFC")
+    {
+        return None;
+    }
     let mut cursor = 12_usize;
     while cursor.checked_add(8)? <= bytes.len() {
         let id = &bytes[cursor..cursor + 4];
         let size = u32::from_be_bytes(bytes[cursor + 4..cursor + 8].try_into().ok()?) as usize;
         let content = cursor + 8;
         if id == b"COMM" && size >= 18 && content.checked_add(18)? <= bytes.len() {
-            let frames = u32::from_be_bytes(bytes[content + 2..content + 6].try_into().ok()?) as f64;
+            let frames =
+                u32::from_be_bytes(bytes[content + 2..content + 6].try_into().ok()?) as f64;
             let rate = extended_80(&bytes[content + 8..content + 18])?;
-            if frames > 0.0 && rate > 0.0 { return Some((frames / rate * 1_000.0).round() as u64); }
+            if frames > 0.0 && rate > 0.0 {
+                return Some((frames / rate * 1_000.0).round() as u64);
+            }
         }
         cursor = content.checked_add(size + (size % 2))?;
     }
@@ -679,7 +1315,9 @@ fn aiff_duration_ms(bytes: &[u8]) -> Option<u64> {
 }
 
 fn wav_duration_ms(bytes: &[u8]) -> Option<u64> {
-    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" { return None; }
+    if bytes.len() < 44 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+        return None;
+    }
     let mut cursor = 12_usize;
     let mut byte_rate = 0_u32;
     let mut data_bytes = 0_usize;
@@ -695,22 +1333,33 @@ fn wav_duration_ms(bytes: &[u8]) -> Option<u64> {
         }
         cursor = content.checked_add(size + (size % 2))?;
     }
-    (byte_rate > 0 && data_bytes > 0).then(|| ((data_bytes as f64 / byte_rate as f64) * 1_000.0).round() as u64)
+    (byte_rate > 0 && data_bytes > 0)
+        .then(|| ((data_bytes as f64 / byte_rate as f64) * 1_000.0).round() as u64)
 }
 
 fn extended_80(bytes: &[u8]) -> Option<f64> {
-    if bytes.len() != 10 { return None; }
+    if bytes.len() != 10 {
+        return None;
+    }
     let sign = if bytes[0] & 0x80 == 0 { 1.0 } else { -1.0 };
     let exponent = (((bytes[0] & 0x7f) as u16) << 8) | bytes[1] as u16;
     let mantissa = u64::from_be_bytes(bytes[2..10].try_into().ok()?);
-    if exponent == 0 && mantissa == 0 { return Some(0.0); }
-    if exponent == 0x7fff { return None; }
+    if exponent == 0 && mantissa == 0 {
+        return Some(0.0);
+    }
+    if exponent == 0x7fff {
+        return None;
+    }
     Some(sign * (mantissa as f64) * 2_f64.powi(exponent as i32 - 16_383 - 63))
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{aiff_duration_ms, caption_words, media_cache_key, validate_identifier, wav_duration_ms, ElevenAlignment, LocalSpeechCacheRequest, MediaMusicRequest, MediaService, MediaSpeechRequest, StoreLocalSpeechCacheRequest};
+    use super::{
+        aiff_duration_ms, caption_words, media_cache_key, validate_identifier, wav_duration_ms,
+        ElevenAlignment, LocalSpeechCacheRequest, MediaMusicRequest, MediaService,
+        MediaSpeechRequest, StoreLocalSpeechCacheRequest,
+    };
     use serde_json::json;
     use std::io::{Read, Write};
     use std::net::TcpListener;
@@ -722,7 +1371,10 @@ mod tests {
         let left = media_cache_key(&json!({"provider":"elevenlabs","text":"Hello"}));
         let right = media_cache_key(&json!({"provider":"elevenlabs","text":"Hello"}));
         assert_eq!(left, right);
-        assert_ne!(left, media_cache_key(&json!({"provider":"elevenlabs","text":"Goodbye"})));
+        assert_ne!(
+            left,
+            media_cache_key(&json!({"provider":"elevenlabs","text":"Goodbye"}))
+        );
     }
 
     #[test]
@@ -777,18 +1429,42 @@ mod tests {
         assert!(validate_identifier("with space").is_err());
     }
 
-    #[test]
-    fn cache_hits_are_profile_scoped_and_lru_eviction_is_bounded() {
+    #[tokio::test]
+    async fn cache_hits_are_profile_scoped_and_lru_eviction_is_bounded() {
         let root = std::env::temp_dir().join(format!("vibesurfer-media-test-{}", Uuid::new_v4()));
         let mut service = MediaService::new(root.clone()).unwrap();
         service.cache_limit_bytes = 6;
-        let first = service.cache_put("personal", "first", "audio/wav", 1_000, Vec::new(), vec![1, 2, 3, 4]).unwrap();
+        let first = service
+            .cache_put(
+                "personal",
+                "first",
+                "audio/wav",
+                1_000,
+                Vec::new(),
+                vec![1, 2, 3, 4],
+            )
+            .unwrap();
         assert!(!first.cache_hit);
         assert!(service.cache_get("work", "first").unwrap().is_none());
         let hit = service.cache_get("personal", "first").unwrap().unwrap();
         assert!(hit.cache_hit);
-        assert_eq!(hit.data_base64, "AQIDBA==");
-        service.cache_put("personal", "second", "audio/wav", 1_000, Vec::new(), vec![5, 6, 7, 8]).unwrap();
+        assert!(hit.asset_url.ends_with("/media/personal/first"));
+        let asset = service
+            .protocol_asset("/media/personal/first")
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(asset.path).unwrap(), [1, 2, 3, 4]);
+        assert!(service.protocol_asset("/media/work/first").await.is_err());
+        service
+            .cache_put(
+                "personal",
+                "second",
+                "audio/wav",
+                1_000,
+                Vec::new(),
+                vec![5, 6, 7, 8],
+            )
+            .unwrap();
         assert!(service.cache_get("personal", "first").unwrap().is_none());
         assert!(service.cache_get("personal", "second").unwrap().is_some());
         service.delete_profile_cache("personal").unwrap();
@@ -798,26 +1474,47 @@ mod tests {
 
     #[test]
     fn local_kokoro_speech_uses_the_persistent_profile_cache() {
-        let root = std::env::temp_dir().join(format!("vibesurfer-local-speech-cache-test-{}", Uuid::new_v4()));
+        let root = std::env::temp_dir().join(format!(
+            "vibesurfer-local-speech-cache-test-{}",
+            Uuid::new_v4()
+        ));
         let service = MediaService::new(root.clone()).unwrap();
         let speech = LocalSpeechCacheRequest {
-            profile_id: "personal".into(), model: "kokoro-82m-q8".into(), voice: "af_heart".into(),
-            speed: 1.0, text: "A cached local sentence.".into(), lang: "en".into(),
+            profile_id: "personal".into(),
+            model: "kokoro-82m-q8".into(),
+            voice: "af_heart".into(),
+            speed: 1.0,
+            text: "A cached local sentence.".into(),
+            lang: "en".into(),
         };
         assert!(service.cached_local_speech(&speech).unwrap().is_none());
-        let stored = service.store_local_speech(&StoreLocalSpeechCacheRequest {
-            speech: LocalSpeechCacheRequest { ..speech }, mime_type: "audio/wav".into(),
-            data_base64: "UklGRg==".into(), duration_ms: 1_250,
-        }).unwrap();
+        let stored = service
+            .store_local_speech(&StoreLocalSpeechCacheRequest {
+                speech: LocalSpeechCacheRequest { ..speech },
+                mime_type: "audio/wav".into(),
+                data_base64: "UklGRg==".into(),
+                duration_ms: 1_250,
+            })
+            .unwrap();
         assert!(!stored.cache_hit);
         let key = LocalSpeechCacheRequest {
-            profile_id: "personal".into(), model: "kokoro-82m-q8".into(), voice: "af_heart".into(),
-            speed: 1.0, text: "A cached local sentence.".into(), lang: "en".into(),
+            profile_id: "personal".into(),
+            model: "kokoro-82m-q8".into(),
+            voice: "af_heart".into(),
+            speed: 1.0,
+            text: "A cached local sentence.".into(),
+            lang: "en".into(),
         };
         let hit = service.cached_local_speech(&key).unwrap().unwrap();
         assert!(hit.cache_hit);
         assert_eq!(hit.duration_ms, 1_250);
-        assert!(service.cached_local_speech(&LocalSpeechCacheRequest { profile_id: "work".into(), ..key }).unwrap().is_none());
+        assert!(service
+            .cached_local_speech(&LocalSpeechCacheRequest {
+                profile_id: "work".into(),
+                ..key
+            })
+            .unwrap()
+            .is_none());
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -846,22 +1543,62 @@ mod tests {
             }
         });
 
-        let root = std::env::temp_dir().join(format!("vibesurfer-media-http-test-{}", Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("vibesurfer-media-http-test-{}", Uuid::new_v4()));
         let mut service = MediaService::new(root.clone()).unwrap();
         service.origin = origin;
         let api_key = "super-secret-media-key";
         let voices = service.verify_elevenlabs(api_key).await.unwrap();
         assert_eq!(voices[0].id, "voice-one");
-        let speech = MediaSpeechRequest { request_id: "speech-one".into(), profile_id: "personal".into(), engine: "cloud".into(), connection_id: Some("media-one".into()), provider: "elevenlabs".into(), model: "eleven_multilingual_v2".into(), voice: "voice-one".into(), speed: 1.0, text: "Hi".into(), lang: "en".into() };
-        let first = service.render_elevenlabs_speech(&speech, api_key).await.unwrap();
+        let speech = MediaSpeechRequest {
+            request_id: "speech-one".into(),
+            profile_id: "personal".into(),
+            engine: "cloud".into(),
+            connection_id: Some("media-one".into()),
+            provider: "elevenlabs".into(),
+            model: "eleven_multilingual_v2".into(),
+            voice: "voice-one".into(),
+            speed: 1.0,
+            text: "Hi".into(),
+            lang: "en".into(),
+        };
+        let first = service
+            .render_elevenlabs_speech(&speech, api_key)
+            .await
+            .unwrap();
         assert_eq!(first.duration_ms, 250);
         assert!(!first.cache_hit);
-        let second = service.render_elevenlabs_speech(&MediaSpeechRequest { request_id: "speech-two".into(), ..speech }, api_key).await.unwrap();
+        let second = service
+            .render_elevenlabs_speech(
+                &MediaSpeechRequest {
+                    request_id: "speech-two".into(),
+                    ..speech
+                },
+                api_key,
+            )
+            .await
+            .unwrap();
         assert!(second.cache_hit);
-        let music = service.generate_elevenlabs_music(&MediaMusicRequest { request_id: "music-one".into(), profile_id: "personal".into(), connection_id: "media-one".into(), prompt: "quiet glass".into(), duration_ms: 3_000 }, api_key).await.unwrap();
+        let music = service
+            .generate_elevenlabs_music(
+                &MediaMusicRequest {
+                    request_id: "music-one".into(),
+                    profile_id: "personal".into(),
+                    connection_id: "media-one".into(),
+                    prompt: "quiet glass".into(),
+                    duration_ms: 3_000,
+                },
+                api_key,
+            )
+            .await
+            .unwrap();
         assert_eq!(music.duration_ms, 3_000);
         server.join().unwrap();
-        assert_eq!(requests.lock().unwrap().len(), 3, "cache hit must not repeat the speech request");
+        assert_eq!(
+            requests.lock().unwrap().len(),
+            3,
+            "cache hit must not repeat the speech request"
+        );
         for entry in std::fs::read_dir(root.join("personal")).unwrap() {
             let bytes = std::fs::read(entry.unwrap().path()).unwrap();
             assert!(!String::from_utf8_lossy(&bytes).contains(api_key));
@@ -871,16 +1608,32 @@ mod tests {
 
     #[tokio::test]
     async fn media_requests_honor_cancellation_and_timeout() {
-        let root = std::env::temp_dir().join(format!("vibesurfer-media-cancel-test-{}", Uuid::new_v4()));
+        let root =
+            std::env::temp_dir().join(format!("vibesurfer-media-cancel-test-{}", Uuid::new_v4()));
         let service = Arc::new(MediaService::new(root.clone()).unwrap());
         let running = service.clone();
         let task = tokio::spawn(async move {
-            running.run_cancellable("cancel-me", std::time::Duration::from_secs(5), std::future::pending::<Result<(), String>>()).await
+            running
+                .run_cancellable(
+                    "cancel-me",
+                    std::time::Duration::from_secs(5),
+                    std::future::pending::<Result<(), String>>(),
+                )
+                .await
         });
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         service.cancel("cancel-me").unwrap();
-        assert_eq!(task.await.unwrap().unwrap_err(), "media request was cancelled");
-        let timeout = service.run_cancellable("timeout-me", std::time::Duration::from_millis(1), std::future::pending::<Result<(), String>>()).await;
+        assert_eq!(
+            task.await.unwrap().unwrap_err(),
+            "media request was cancelled"
+        );
+        let timeout = service
+            .run_cancellable(
+                "timeout-me",
+                std::time::Duration::from_millis(1),
+                std::future::pending::<Result<(), String>>(),
+            )
+            .await;
         assert_eq!(timeout.unwrap_err(), "media request timed out");
         let _ = std::fs::remove_dir_all(root);
     }

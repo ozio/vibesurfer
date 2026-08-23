@@ -7,6 +7,7 @@ import {
   DEFAULT_GENERATION_CAPABILITY_FLAGS,
   USER_CONFIGURABLE_CAPABILITY_IDS,
 } from "../generation/capability-settings";
+import { setGenerationPreviewFrame } from "../generation/preview-store";
 import {
   isExplicitRelativeReference,
   normalizeVirtualUrl,
@@ -82,6 +83,7 @@ export interface BrowserState {
   codexSelection: CodexGenerationSelection;
   artifacts: Record<string, PageArtifact>;
   browsingHistory: BrowsingHistoryEntry[];
+  pendingHistoryMigration: BrowsingHistoryEntry[];
   generationJobs: Record<string, GenerationJob>;
   siteWorlds: Record<string, SiteWorld>;
   providerConnections: ProviderConnection[];
@@ -116,6 +118,7 @@ export interface BrowserState {
   cancelTabGeneration: (tabId: string) => boolean;
   recoverInterruptedJobs: () => void;
   hydrateArtifacts: (artifacts: PageArtifact[]) => void;
+  hydrateBrowsingHistory: (entries: BrowsingHistoryEntry[]) => void;
   hydrateSiteWorlds: (siteWorlds: SiteWorld[]) => void;
   upsertSiteWorld: (siteWorld: SiteWorld) => void;
   upsertProviderConnection: (connection: ProviderConnection) => void;
@@ -133,6 +136,7 @@ export interface BrowserState {
   openGenerationDebug: () => string;
   removeBrowsingHistoryEntry: (id: string) => void;
   clearBrowsingHistory: (profileId?: string) => void;
+  finishBrowsingHistoryMigration: () => void;
   setSettingsSection: (section: string) => void;
   setModel: (id: string) => void;
   setProfile: (id: string) => void;
@@ -254,6 +258,7 @@ export const useBrowserStore = create<BrowserState>()(
       codexSelection: DEFAULT_CODEX_SELECTION,
       artifacts: {},
       browsingHistory: [],
+      pendingHistoryMigration: [],
       generationJobs: {},
       siteWorlds: {},
       providerConnections: [],
@@ -715,17 +720,7 @@ export const useBrowserStore = create<BrowserState>()(
         const state = get();
         const job = activeCurrentJob(state, jobId);
         if (!job) return false;
-        set({
-          generationJobs: {
-            ...state.generationJobs,
-            [jobId]: {
-              ...job,
-              previewHtml: html,
-              previewRevision: revision ?? (job.previewRevision ?? 0) + 1,
-              updatedAt: new Date().toISOString(),
-            },
-          },
-        });
+        setGenerationPreviewFrame(jobId, html, revision);
         return true;
       },
       commitArtifact: (jobId, artifact) => {
@@ -990,6 +985,26 @@ export const useBrowserStore = create<BrowserState>()(
           },
         }));
       },
+      hydrateBrowsingHistory: (entries) => {
+        if (entries.length === 0) return;
+        set((state) => {
+          const byId = new Map(state.browsingHistory.map((entry) => [entry.id, entry]));
+          for (const entry of entries) {
+            const current = byId.get(entry.id);
+            if (!current || entry.updatedAt >= current.updatedAt) byId.set(entry.id, entry);
+          }
+          const grouped = new Map<string, BrowsingHistoryEntry[]>();
+          for (const entry of byId.values()) {
+            const profile = grouped.get(entry.profileId) ?? [];
+            profile.push(entry);
+            grouped.set(entry.profileId, profile);
+          }
+          return {
+            browsingHistory: [...grouped.values()].flatMap((profile) =>
+              profile.sort((left, right) => right.openedAt.localeCompare(left.openedAt)).slice(0, 100)),
+          };
+        });
+      },
       hydrateSiteWorlds: (siteWorlds) => {
         if (siteWorlds.length === 0) return;
         set((state) => {
@@ -1137,6 +1152,7 @@ export const useBrowserStore = create<BrowserState>()(
         set((state) => ({
           browsingHistory: state.browsingHistory.filter((entry) => entry.profileId !== (profileId ?? state.activeProfileId)),
         })),
+      finishBrowsingHistoryMigration: () => set({ pendingHistoryMigration: [] }),
       setSettingsSection: (section) =>
         set((state) => ({
           tabs: state.tabs.map((tab) => {
@@ -1385,7 +1401,7 @@ export const useBrowserStore = create<BrowserState>()(
     }),
     {
       name: "vibesurfer-browser-state",
-      version: 13,
+      version: 14,
       skipHydration: import.meta.env.VIBESURFER_STORYBOOK === true,
       migrate: (persistedState, version) => migrateBrowserState(persistedState, version) as BrowserState,
       partialize: (state) => ({
@@ -1400,11 +1416,12 @@ export const useBrowserStore = create<BrowserState>()(
         },
         preferences: state.preferences,
         codexSelection: state.codexSelection,
-        artifacts: state.preferences.reopenSession && persistArtifactsInUiStorage() ? state.artifacts : {},
-        browsingHistory: state.browsingHistory,
-        generationJobs: state.preferences.reopenSession ? state.generationJobs : {},
-        siteWorlds: state.preferences.reopenSession ? state.siteWorlds : {},
-        providerConnections: state.providerConnections,
+        artifacts: state.preferences.reopenSession && persistHostOwnedStateInUiStorage() ? state.artifacts : {},
+        browsingHistory: persistHostOwnedStateInUiStorage() ? state.browsingHistory : [],
+        pendingHistoryMigration: state.pendingHistoryMigration,
+        generationJobs: state.preferences.reopenSession ? persistableGenerationJobs(state) : {},
+        siteWorlds: state.preferences.reopenSession && persistHostOwnedStateInUiStorage() ? state.siteWorlds : {},
+        providerConnections: persistHostOwnedStateInUiStorage() ? state.providerConnections : [],
         generationSettings: state.generationSettings,
       }),
       onRehydrateStorage: () => (state) => state?.recoverInterruptedJobs(),
@@ -2014,6 +2031,12 @@ export function migrateBrowserState(persistedState: unknown, version = 0): Parti
   const browsingHistory = Array.isArray(source.browsingHistory)
     ? source.browsingHistory.filter(isRecord).flatMap((entry) => migrateBrowsingHistoryEntry(entry, activeProfileId))
     : [];
+  const persistedHistoryMigration = Array.isArray(source.pendingHistoryMigration)
+    ? source.pendingHistoryMigration.filter(isRecord).flatMap((entry) => migrateBrowsingHistoryEntry(entry, activeProfileId))
+    : [];
+  const pendingHistoryMigration = version < 14
+    ? browsingHistory
+    : persistedHistoryMigration;
   const siteWorlds = Object.fromEntries(Object.entries(recordOf<unknown>(source.siteWorlds)).flatMap(([id, world]) => {
     const migrated = migrateSiteWorld(world, id, activeProfileId, activeProfile.worldPrompt);
     return migrated ? [[id, migrated]] : [];
@@ -2024,12 +2047,14 @@ export function migrateBrowserState(persistedState: unknown, version = 0): Parti
         .map((connection) => ({ ...connection, profileId: optionalString(connection.profileId) ?? activeProfileId })) as ProviderConnection[]
     : [];
   const requestedActiveModelId = stringValue(source.activeModelId) || MODELS[0].id;
-  const activeModelId = isSelectableModel(requestedActiveModelId, providerConnections, activeProfileId)
+  const waitsForHostRuntimeState = !persistHostOwnedStateInUiStorage();
+  const activeModelId = waitsForHostRuntimeState
+    || isSelectableModel(requestedActiveModelId, providerConnections, activeProfileId)
     ? requestedActiveModelId
     : MODELS[0].id;
   const tabs = tabsWithOpeners.map((tab) => ({
     ...tab,
-    generatedWith: tab.generatedWith && !tab.artifactId
+    generatedWith: !waitsForHostRuntimeState && tab.generatedWith && !tab.artifactId
       && !isSelectableModel(tab.generatedWith, providerConnections, activeProfileId)
       ? MODELS[0].id
       : tab.generatedWith,
@@ -2056,6 +2081,7 @@ export function migrateBrowserState(persistedState: unknown, version = 0): Parti
     codexSelection,
     artifacts,
     browsingHistory,
+    pendingHistoryMigration,
     generationJobs,
     siteWorlds,
     providerConnections,
@@ -2523,9 +2549,26 @@ function isSelectableModel(modelId: string, connections: ProviderConnection[], p
   );
 }
 
-function persistArtifactsInUiStorage() {
+function persistHostOwnedStateInUiStorage() {
   if (typeof window === "undefined") return true;
   return !Boolean((window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__);
+}
+
+function persistableGenerationJobs(state: BrowserState): Record<string, GenerationJob> {
+  const referenced = new Set<string>();
+  const collect = (tabs: BrowserTab[]) => {
+    for (const tab of tabs) {
+      if (tab.generationJobId) referenced.add(tab.generationJobId);
+      if (tab.luckyJobId) referenced.add(tab.luckyJobId);
+    }
+  };
+  collect(state.tabs);
+  for (const workspace of Object.values(state.profileWorkspaces)) collect(workspace.tabs);
+  return Object.fromEntries(Object.entries(state.generationJobs).flatMap(([id, job]) => {
+    if (!referenced.has(id) && ["completed", "failed", "cancelled"].includes(job.status)) return [];
+    const { previewHtml: _previewHtml, previewRevision: _previewRevision, progress: _progress, ...persisted } = job;
+    return [[id, persisted]];
+  }));
 }
 
 function createId(prefix: string) {

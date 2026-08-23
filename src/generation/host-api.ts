@@ -5,7 +5,10 @@ import { normalizeCapabilityManifest } from "./capability-manifest";
 import { normalizeDynamicManifest } from "./dynamic-manifest";
 import type {
   ArtifactSitePatch,
+  BrowsingHistoryEntry,
   FaviconDescriptor,
+  FaviconSource,
+  JsonValue,
   PageArtifact,
   ProviderConnection,
   ProviderConnectionStatus,
@@ -20,7 +23,27 @@ export interface RuntimeStatus {
   workerAvailable: boolean;
   workerDescription: string;
   activeJobs: number;
+  idleWorkers: number;
+  spawnedWorkers: number;
+  reusedWorkers: number;
+  spawnedMediaWorkers: number;
+  reusedMediaWorkers: number;
   storageReady: boolean;
+  storageQueueDepth: number;
+}
+
+export interface Page<T> {
+  items: T[];
+  nextCursor?: string;
+}
+
+export interface ArtifactSummary {
+  id: string;
+  profileId: string;
+  siteId: string;
+  url: string;
+  title: string;
+  createdAt: string;
 }
 
 export interface GenerationJobRecord {
@@ -82,6 +105,20 @@ interface ArtifactRecord {
   payload: Record<string, unknown>;
 }
 
+interface BrowsingHistoryRecord {
+  id: string;
+  profileId: string;
+  url: string;
+  title: string;
+  status: BrowsingHistoryEntry["status"];
+  openedAt: string;
+  updatedAt: string;
+  favicon?: FaviconSource;
+  artifactId?: string;
+  generationJobId?: string;
+  errorMessage?: string;
+}
+
 export interface SiteWorldRecord {
   id: string;
   profileId: string;
@@ -134,13 +171,57 @@ export async function listPersistedArtifacts(profileId: string, limit = 32): Pro
   });
 }
 
+export async function getPersistedArtifactsByIds(profileId: string, ids: string[]): Promise<PageArtifact[]> {
+  if (!isTauri() || ids.length === 0) return [];
+  const records = await invoke<ArtifactRecord[]>("get_artifacts_by_ids", { profileId, ids: [...new Set(ids)].slice(0, 64) });
+  return records.flatMap((record) => {
+    if (record.profileId !== profileId || !ids.includes(record.id)) return [];
+    const artifact = fromArtifactRecord(record);
+    return artifact ? [artifact] : [];
+  });
+}
+
+export async function listPersistedArtifactSummaries(
+  profileId: string,
+  limit = 50,
+  cursor?: string,
+): Promise<Page<ArtifactSummary>> {
+  if (!isTauri()) return { items: [] };
+  return invoke<Page<ArtifactSummary>>("list_artifact_summaries", { profileId, limit, cursor });
+}
+
 export async function listPersistedGenerationJobs(
   profileId: string,
   limit = 50,
-  offset = 0,
-): Promise<GenerationJobRecord[]> {
-  if (!isTauri()) return [];
-  return invoke<GenerationJobRecord[]>("list_generation_jobs", { profileId, limit, offset });
+  cursor?: string,
+): Promise<Page<GenerationJobRecord>> {
+  if (!isTauri()) return { items: [] };
+  return invoke<Page<GenerationJobRecord>>("list_generation_jobs", { profileId, limit, cursor });
+}
+
+export async function listPersistedBrowsingHistory(
+  profileId: string,
+  limit = 100,
+  cursor?: string,
+): Promise<Page<BrowsingHistoryEntry>> {
+  if (!isTauri()) return { items: [] };
+  const page = await invoke<Page<BrowsingHistoryRecord>>("list_browsing_history", { profileId, limit, cursor });
+  return { items: page.items, nextCursor: page.nextCursor };
+}
+
+export async function upsertPersistedBrowsingHistory(entries: BrowsingHistoryEntry[]): Promise<number> {
+  if (!isTauri() || entries.length === 0) return 0;
+  return invoke<number>("upsert_browsing_history_batch", { records: entries.slice(0, 500) });
+}
+
+export async function deletePersistedBrowsingHistoryEntry(profileId: string, id: string): Promise<number> {
+  if (!isTauri()) return 0;
+  return invoke<number>("delete_browsing_history_entry", { profileId, id });
+}
+
+export async function clearPersistedBrowsingHistory(profileId: string): Promise<number> {
+  if (!isTauri()) return 0;
+  return invoke<number>("clear_browsing_history", { profileId });
 }
 
 export async function getPersistedGenerationActivity(
@@ -191,7 +272,7 @@ export async function getPersistedSiteSession(profileId: string, siteWorldId: st
   if (!isTauri()) return undefined;
   const record = await invoke<SiteSessionRecord | null>("get_site_session", { profileId, siteWorldId });
   if (!record || record.profileId !== profileId || record.siteWorldId !== siteWorldId) return undefined;
-  return { ...record.payload, profileId, siteWorldId, revision: record.revision, updatedAt: record.updatedAt } as unknown as SiteSessionState;
+  return fromSiteSessionRecord(record, profileId, siteWorldId);
 }
 
 export async function savePersistedSiteSession(session: SiteSessionState): Promise<boolean> {
@@ -205,6 +286,45 @@ export async function savePersistedSiteSession(session: SiteSessionState): Promi
       payload: structuredClone(session) as unknown as Record<string, unknown>,
     } satisfies SiteSessionRecord,
   });
+}
+
+export async function applyPersistedSiteSessionAction(input: {
+  profileId: string;
+  siteWorldId: string;
+  action: string;
+  fields: Record<string, string[]>;
+}): Promise<SiteSessionState> {
+  if (!isTauri()) throw new Error("Host site sessions require the desktop runtime.");
+  const record = await invoke<SiteSessionRecord>("apply_site_session_action", { request: input });
+  return fromSiteSessionRecord(record, input.profileId, input.siteWorldId);
+}
+
+export async function applyPersistedSiteSessionPatches(input: {
+  profileId: string;
+  siteWorldId: string;
+  canonicalPageUrl: string;
+  patches: Array<{ regionId: string; html: string; revision: number }>;
+  modelState?: JsonValue;
+}): Promise<SiteSessionState> {
+  if (!isTauri()) throw new Error("Host site sessions require the desktop runtime.");
+  const record = await invoke<SiteSessionRecord>("apply_site_session_patches", {
+    request: {
+      profileId: input.profileId,
+      siteWorldId: input.siteWorldId,
+      canonicalPageUrl: input.canonicalPageUrl,
+      patches: input.patches,
+      updateModelState: input.modelState !== undefined,
+      modelState: input.modelState ?? null,
+    },
+  });
+  return fromSiteSessionRecord(record, input.profileId, input.siteWorldId);
+}
+
+function fromSiteSessionRecord(record: SiteSessionRecord, profileId: string, siteWorldId: string): SiteSessionState {
+  if (record.profileId !== profileId || record.siteWorldId !== siteWorldId) {
+    throw new Error("The host returned a site session from another scope.");
+  }
+  return { ...record.payload, profileId, siteWorldId, revision: record.revision, updatedAt: record.updatedAt } as unknown as SiteSessionState;
 }
 
 export async function deletePersistedSiteWorld(profileId: string, id: string): Promise<number> {

@@ -2,24 +2,28 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJSONStorage } from "zustand/middleware";
 import { useBrowserStore } from "../store/browser-store";
-import type { PageArtifact, SiteWorld } from "../types/browser";
+import type { PageArtifact, ProviderConnection, SiteWorld } from "../types/browser";
 
 const mocks = vi.hoisted(() => ({
   getPersistedArtifact: vi.fn(),
-  listPersistedArtifacts: vi.fn(),
+  getPersistedArtifactsByIds: vi.fn(),
+  listPersistedBrowsingHistory: vi.fn(),
   listPersistedSiteWorlds: vi.fn(),
   listProviderConnections: vi.fn(),
   savePersistedSiteWorld: vi.fn(),
+  upsertPersistedBrowsingHistory: vi.fn(),
   isTauri: vi.fn(() => true),
 }));
 
 vi.mock("../lib/platform", () => ({ isTauri: mocks.isTauri }));
 vi.mock("./host-api", () => ({
   getPersistedArtifact: mocks.getPersistedArtifact,
-  listPersistedArtifacts: mocks.listPersistedArtifacts,
+  getPersistedArtifactsByIds: mocks.getPersistedArtifactsByIds,
+  listPersistedBrowsingHistory: mocks.listPersistedBrowsingHistory,
   listPersistedSiteWorlds: mocks.listPersistedSiteWorlds,
   listProviderConnections: mocks.listProviderConnections,
   savePersistedSiteWorld: mocks.savePersistedSiteWorld,
+  upsertPersistedBrowsingHistory: mocks.upsertPersistedBrowsingHistory,
 }));
 
 import { useGenerationRuntime } from "./use-generation-runtime";
@@ -44,10 +48,12 @@ describe("generation runtime hydration", () => {
     useBrowserStore.setState(initialState, true);
     mocks.isTauri.mockReturnValue(true);
     mocks.getPersistedArtifact.mockReset().mockResolvedValue(undefined);
-    mocks.listPersistedArtifacts.mockReset().mockResolvedValue([]);
+    mocks.getPersistedArtifactsByIds.mockReset().mockResolvedValue([]);
+    mocks.listPersistedBrowsingHistory.mockReset().mockResolvedValue({ items: [] });
     mocks.listProviderConnections.mockReset().mockResolvedValue([]);
     mocks.listPersistedSiteWorlds.mockReset().mockResolvedValue([siteWorld()]);
     mocks.savePersistedSiteWorld.mockReset().mockResolvedValue(true);
+    mocks.upsertPersistedBrowsingHistory.mockReset().mockResolvedValue(0);
   });
 
   afterEach(() => {
@@ -61,45 +67,69 @@ describe("generation runtime hydration", () => {
     await waitFor(() => {
       expect(useBrowserStore.getState().siteWorlds["site-hydrated"]).toEqual(siteWorld());
     });
-    expect(mocks.listPersistedArtifacts).toHaveBeenCalledWith("personal", 32);
+    expect(mocks.getPersistedArtifactsByIds).toHaveBeenCalledWith("personal", []);
     expect(mocks.listPersistedSiteWorlds).toHaveBeenCalledWith("personal");
     expect(mocks.listProviderConnections).toHaveBeenCalledWith("personal");
   });
 
-  it("loads a small recent window plus deduplicated artifacts referenced by restored tabs", async () => {
+  it("loads only current and fallback artifacts needed by restored tabs", async () => {
     const recent = pageArtifact("artifact-recent");
-    const referenced = pageArtifact("artifact-history");
+    const fallback = pageArtifact("artifact-fallback");
+    const historyOnly = pageArtifact("artifact-history");
     const baseTab = useBrowserStore.getState().tabs[0];
     const baseEntry = baseTab.history[0];
     useBrowserStore.setState({
       tabs: [{
         ...baseTab,
         artifactId: recent.id,
-        opener: { tabId: "source-tab", artifactId: referenced.id },
+        fallbackArtifactId: fallback.id,
+        opener: { tabId: "source-tab", artifactId: historyOnly.id },
         history: [
           { ...baseEntry, id: "history-recent", artifactId: recent.id },
-          { ...baseEntry, id: "history-referenced-one", artifactId: referenced.id },
-          { ...baseEntry, id: "history-referenced-two", artifactId: referenced.id },
+          { ...baseEntry, id: "history-referenced-one", artifactId: historyOnly.id },
+          { ...baseEntry, id: "history-referenced-two", artifactId: historyOnly.id },
         ],
         historyIndex: 2,
       }],
       activeTabId: baseTab.id,
     });
-    mocks.listPersistedArtifacts.mockResolvedValue([recent]);
-    mocks.getPersistedArtifact.mockImplementation(async (_profileId: string, id: string) =>
-      id === referenced.id ? referenced : undefined);
+    mocks.getPersistedArtifactsByIds.mockResolvedValue([recent, fallback]);
 
     render(<RuntimeHarness />);
 
     await waitFor(() => {
       expect(useBrowserStore.getState().artifacts).toMatchObject({
         [recent.id]: recent,
-        [referenced.id]: referenced,
+        [fallback.id]: fallback,
       });
     });
-    expect(mocks.listPersistedArtifacts).toHaveBeenCalledWith("personal", 32);
-    expect(mocks.getPersistedArtifact).toHaveBeenCalledTimes(1);
-    expect(mocks.getPersistedArtifact).toHaveBeenCalledWith("personal", referenced.id);
+    expect(useBrowserStore.getState().artifacts[historyOnly.id]).toBeUndefined();
+    expect(mocks.getPersistedArtifactsByIds).toHaveBeenCalledWith("personal", [recent.id, fallback.id]);
+    expect(mocks.getPersistedArtifact).not.toHaveBeenCalled();
+  });
+
+  it("keeps a custom model selected after its host connection hydrates", async () => {
+    const connection = providerConnection("openai:evo-local");
+    useBrowserStore.setState({ activeModelId: "openai:evo-local", providerConnections: [] });
+    mocks.listProviderConnections.mockResolvedValue([connection]);
+
+    render(<RuntimeHarness />);
+
+    await waitFor(() => {
+      expect(useBrowserStore.getState().providerConnections).toEqual([connection]);
+    });
+    expect(useBrowserStore.getState().activeModelId).toBe("openai:evo-local");
+  });
+
+  it("falls back only after host hydration confirms a custom model is unavailable", async () => {
+    useBrowserStore.setState({ activeModelId: "openai:removed-model", providerConnections: [] });
+
+    render(<RuntimeHarness />);
+
+    await waitFor(() => {
+      expect(mocks.listProviderConnections).toHaveBeenCalledWith("personal");
+      expect(useBrowserStore.getState().activeModelId).toBe("mock:preview");
+    });
   });
 });
 
@@ -152,5 +182,17 @@ function pageArtifact(id: string): PageArtifact {
     settingsFingerprint: "test",
     createdAt: "2026-08-12T00:00:00.000Z",
     warnings: [],
+  };
+}
+
+function providerConnection(modelId: string): ProviderConnection {
+  return {
+    id: "evo",
+    profileId: "personal",
+    kind: "openai",
+    displayName: "Evo",
+    enabled: true,
+    status: "valid",
+    modelIds: [modelId],
   };
 }

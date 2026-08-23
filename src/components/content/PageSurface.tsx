@@ -8,6 +8,7 @@ import {
   compileGeneratedArtifactDocument,
 } from "../../lib/generated-document";
 import { activatePersistedSiteWorld } from "../../generation/host-api";
+import { useGenerationPreviewStore } from "../../generation/preview-store";
 import { attachDynamicFrame, handleDynamicAction } from "../../dynamic/runtime";
 import { LocalSpeechPlayer } from "../../audio/local-speech";
 import { FrameMediaController } from "../../media/frame-media-controller";
@@ -62,6 +63,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
     return artifactId ? state.artifacts[artifactId] : undefined;
   });
   const job = useBrowserStore((state) => tab.generationJobId ? state.generationJobs[tab.generationJobId] : undefined);
+  const preview = useGenerationPreviewStore((state) => tab.generationJobId ? state.previews[tab.generationJobId] : undefined);
   const navigate = useBrowserStore((state) => state.navigate);
   const addTab = useBrowserStore((state) => state.addTab);
   const setLoadState = useBrowserStore((state) => state.setLoadState);
@@ -100,7 +102,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
   const isGenerating = job?.status === "queued" || job?.status === "running";
   const generationFailed = job?.status === "failed" || job?.status === "cancelled";
   const hasRecoverableArtifact = Boolean(artifact);
-  const hasPreview = Boolean(job?.previewHtml);
+  const hasPreview = Boolean(preview?.html);
   const legacyPrompt = artifact ? undefined : tab.prompt ?? tab.title;
   const legacyArtifactId = artifact ? undefined : tab.artifactId ?? `legacy-${tab.id}`;
   const legacyUrl = artifact
@@ -123,7 +125,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
     }
     try {
       const shouldShowPreview = hasPreview && (isGenerating || generationFailed || !artifact);
-      if (shouldShowPreview && job?.previewHtml) {
+      if (shouldShowPreview && job && preview?.html) {
         const url = job.normalizedUrl ?? job.requestedUrl ?? tab.virtualLocation?.url ?? tab.location;
         const title = job.provisionalTitle ?? artifact?.title ?? tab.title ?? "Generating page";
         const document = compileGeneratedArtifactDocument({
@@ -131,7 +133,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
           nonce: frameIdentity.nonce,
           url,
           title,
-          html: job.previewHtml,
+          html: preview.html,
           browserTheme: theme,
           voiceSettings: job.generationSettingsSnapshot.voice,
           mediaPermissions: {
@@ -142,7 +144,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
         return {
           ok: true as const,
           document,
-          renderPayload: { ...document.payload, revision: job.previewRevision ?? 0, renderMode: "preview" as const },
+          renderPayload: { ...document.payload, revision: preview.revision, renderMode: "preview" as const },
           sourceArtifactId: artifact?.id ?? job.sourceArtifactId ?? frameIdentity.key,
           sourceUrl: url,
           isPreview: true,
@@ -169,7 +171,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
         return {
           ok: true as const,
           document,
-          renderPayload: { ...document.payload, revision: (job?.previewRevision ?? 0) + 1, renderMode: "final" as const },
+          renderPayload: { ...document.payload, revision: (preview?.revision ?? 0) + 1, renderMode: "final" as const },
           sourceArtifactId: artifact.id,
           sourceUrl: artifact.url,
           isPreview: false,
@@ -193,7 +195,7 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
         message: error instanceof Error ? error.message : "The generated document could not be prepared.",
       };
     }
-  }, [artifact, currentGenerationSettings.capabilities.audioSpeechEnabled, currentGenerationSettings.capabilities.externalMediaEnabled, frameIdentity.key, frameIdentity.nonce, generationFailed, hasPreview, hasRecoverableArtifact, isGenerating, job, legacyArtifactId, legacyPrompt, legacyUrl, tab.location, tab.title, tab.virtualLocation?.url, theme]);
+  }, [artifact, currentGenerationSettings.capabilities.audioSpeechEnabled, currentGenerationSettings.capabilities.externalMediaEnabled, frameIdentity.key, frameIdentity.nonce, generationFailed, hasPreview, hasRecoverableArtifact, isGenerating, job, legacyArtifactId, legacyPrompt, legacyUrl, preview, tab.location, tab.title, tab.virtualLocation?.url, theme]);
 
   const documentKey = compiledResult?.ok
     ? `${compiledResult.document.artifactId}:${compiledResult.document.nonce}:${tab.reloadKey}`
@@ -593,8 +595,8 @@ function GeneratedPageSurface({ tab, onLinkHover }: { tab: BrowserTab; onLinkHov
         open={sourceOpen}
         onOpenChange={setSourceOpen}
         title={compiledResult.document.payload.title}
-        source={compiledResult.isPreview && job?.previewHtml
-          ? job.previewHtml
+        source={compiledResult.isPreview && preview?.html
+          ? preview.html
           : artifact?.html ?? compiledResult.document.payload.html}
       />
     </ArtifactFrameShell>

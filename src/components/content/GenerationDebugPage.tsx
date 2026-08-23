@@ -11,17 +11,16 @@ import { ArtifactSandboxFrame } from "./ArtifactSandboxFrame";
 export function GenerationDebugPage() {
   const settings = useBrowserStore((state) => state.generationSettings);
   const animationsEnabled = useBrowserStore((state) => state.preferences.animations);
-  const activeProfileId = useBrowserStore((state) => state.activeProfileId);
-  const artifacts = useBrowserStore((state) => state.artifacts);
+  const latestArtifactId = useBrowserStore((state) => Object.values(state.artifacts)
+    .filter((artifact) => !artifact.profileId || artifact.profileId === state.activeProfileId)
+    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.id);
+  const latestArtifact = useBrowserStore((state) => latestArtifactId ? state.artifacts[latestArtifactId] : undefined);
   const patchCapabilitySettings = useBrowserStore((state) => state.patchCapabilitySettings);
   const [sandboxStatus, setSandboxStatus] = useState<"connecting" | "ready" | "error">("connecting");
   const fixture = useMemo(
     () => buildGenerationDebugFixture(settings, animationsEnabled),
     [animationsEnabled, settings],
   );
-  const latestArtifact = useMemo(() => Object.values(artifacts)
-    .filter((artifact) => !artifact.profileId || artifact.profileId === activeProfileId)
-    .sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0], [activeProfileId, artifacts]);
   const directorPrompt = latestArtifact?.modelExchanges?.find((exchange) => exchange.purpose === "page-director")?.prompt ?? "";
   const builderPrompt = latestArtifact?.modelExchanges?.find((exchange) => exchange.purpose === "page-builder")?.prompt ?? "";
   const manifest = new Map(latestArtifact?.capabilityManifest?.map((entry) => [entry.id, entry]) ?? []);

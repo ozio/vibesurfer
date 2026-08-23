@@ -229,16 +229,25 @@ export const HostCancelCommandSchema = z
   })
   .strict();
 
+export const HostResetCommandSchema = z
+  .object({
+    type: z.literal("reset"),
+    requestId: IdSchema,
+  })
+  .strict();
+
 export type InitializeCommand = z.infer<typeof InitializeCommandSchema>;
 export type HostGenerateCommand = z.infer<typeof HostGenerateCommandSchema>;
 export type ProviderVerifyCommand = z.infer<typeof ProviderVerifyCommandSchema>;
 export type HostCancelCommand = z.infer<typeof HostCancelCommandSchema>;
+export type HostResetCommand = z.infer<typeof HostResetCommandSchema>;
 export type WorkerInput =
   | WorkerCommand
   | InitializeCommand
   | HostGenerateCommand
   | ProviderVerifyCommand
-  | HostCancelCommand;
+  | HostCancelCommand
+  | HostResetCommand;
 
 export type GenerationErrorCode =
   | "invalid-command"

@@ -11,31 +11,87 @@ use std::{
     env,
     path::{Path, PathBuf},
     process::Command,
-    sync::Arc,
 };
 
 use codex_adapter::CodexCatalog;
-use media::{LocalSpeechCacheRequest, MediaAssetResponse, MediaMusicRequest, MediaService, MediaSpeechRequest, SaveMediaConnectionInput, StoreLocalSpeechCacheRequest};
+use media::{
+    LocalSpeechCacheRequest, MediaAssetResponse, MediaMusicRequest, MediaService,
+    MediaSpeechRequest, SaveMediaConnectionInput, StoreLocalSpeechCacheRequest,
+};
 use native_menu::{build_native_menu, emit_native_menu_command, update_native_menu_state};
 use protocol::{
-    ArtifactRecord, GenerationActivityDetail, GenerationJobRecord, GenerationStartRequest, GenerationStartResult, MediaConnectionRecord, ProviderConnectionRecord,
-    ProviderVerifyRequest, RuntimeStatus, SiteSessionRecord, SiteWorldRecord, WORKER_PROTOCOL_VERSION,
+    ArtifactRecord, ArtifactSummaryPage, BrowsingHistoryPage, BrowsingHistoryRecord,
+    GenerationActivityDetail, GenerationJobPage, GenerationStartRequest, GenerationStartResult,
+    MediaConnectionRecord, ProviderConnectionRecord, ProviderVerifyRequest, RuntimeStatus,
+    SiteSessionActionRequest, SiteSessionPatchRequest, SiteSessionRecord, SiteWorldRecord,
+    WORKER_PROTOCOL_VERSION,
 };
 use secrets::{MediaSecretVault, SecretVault};
 use serde::Serialize;
 use serde_json::{json, Value};
-use storage::Storage;
+use storage::StorageHandle;
 use tauri::{ipc::Channel, AppHandle, Manager, State};
 use tauri_plugin_deep_link::DeepLinkExt;
 use worker::WorkerManager;
 use zeroize::Zeroizing;
 
 struct AppRuntime {
-    storage: Arc<Storage>,
+    storage: StorageHandle,
     secrets: SecretVault,
     media_secrets: MediaSecretVault,
     media: MediaService,
     worker: WorkerManager,
+}
+
+fn resolve_app_data_dir(
+    default_app_data: &Path,
+    test_app_data: Option<PathBuf>,
+) -> std::io::Result<PathBuf> {
+    let Some(test_app_data) = test_app_data else {
+        return Ok(default_app_data.to_path_buf());
+    };
+    if !test_app_data.is_absolute() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "VIBESURFER_TEST_DATA_DIR must be an absolute path",
+        ));
+    }
+    if !test_app_data.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "VIBESURFER_TEST_DATA_DIR must be an existing directory",
+        ));
+    }
+
+    let test_app_data = test_app_data.canonicalize()?;
+    let default_app_data = canonicalize_path_for_comparison(default_app_data)?;
+    if test_app_data.starts_with(&default_app_data) || default_app_data.starts_with(&test_app_data)
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "VIBESURFER_TEST_DATA_DIR must not alias, contain, or be inside the production path",
+        ));
+    }
+    Ok(test_app_data)
+}
+
+fn canonicalize_path_for_comparison(path: &Path) -> std::io::Result<PathBuf> {
+    if path.exists() {
+        return path.canonicalize();
+    }
+    let parent = path.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "application data path has no parent",
+        )
+    })?;
+    let file_name = path.file_name().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "application data path has no final component",
+        )
+    })?;
+    Ok(parent.canonicalize()?.join(file_name))
 }
 
 #[derive(Debug, Serialize)]
@@ -86,7 +142,7 @@ fn provider_connection_id(provider: &Value) -> Result<&str, String> {
         .ok_or_else(|| "provider connection id is required".into())
 }
 
-fn bound_provider_record(
+async fn bound_provider_record(
     runtime: &AppRuntime,
     profile_id: &str,
     connection_id: &str,
@@ -96,9 +152,12 @@ fn bound_provider_record(
         .secrets
         .ensure_connection_scope(profile_id, connection_id, secret_ref)
         .map_err(|error| error.to_string())?;
+    let profile_id = profile_id.to_owned();
+    let connection_id = connection_id.to_owned();
     let provider = runtime
         .storage
-        .list_providers(profile_id)
+        .run(move |storage| storage.list_providers(&profile_id))
+        .await
         .map_err(|error| error.to_string())?
         .into_iter()
         .find(|provider| provider.id == connection_id)
@@ -151,6 +210,7 @@ fn provider_for_worker(
     }))
 }
 
+#[cfg(test)]
 fn delete_secret_before_provider_record(
     delete_secret: impl FnOnce() -> Result<(), String>,
     delete_provider: impl FnOnce() -> Result<usize, String>,
@@ -371,6 +431,7 @@ async fn runtime_status(
     runtime: State<'_, AppRuntime>,
 ) -> Result<RuntimeStatus, String> {
     let worker = WorkerManager::discover(&app);
+    let (spawned_media_workers, reused_media_workers) = runtime.media.local_worker_counts();
     Ok(RuntimeStatus {
         protocol_version: WORKER_PROTOCOL_VERSION,
         worker_available: worker.is_ok(),
@@ -378,7 +439,13 @@ async fn runtime_status(
             .map(|command| command.description)
             .unwrap_or_else(|error| error.to_string()),
         active_jobs: runtime.worker.active_job_count().await,
+        idle_workers: runtime.worker.idle_worker_count().await,
+        spawned_workers: runtime.worker.spawned_worker_count(),
+        reused_workers: runtime.worker.reused_worker_count(),
+        spawned_media_workers,
+        reused_media_workers,
         storage_ready: true,
+        storage_queue_depth: runtime.storage.queue_depth(),
     })
 }
 
@@ -422,27 +489,32 @@ fn delete_provider_secret(
 }
 
 #[tauri::command]
-fn save_artifact(artifact: ArtifactRecord, runtime: State<'_, AppRuntime>) -> Result<(), String> {
+async fn save_artifact(
+    artifact: ArtifactRecord,
+    runtime: State<'_, AppRuntime>,
+) -> Result<(), String> {
     runtime
         .storage
-        .save_artifact(&artifact)
+        .run(move |storage| storage.save_artifact(&artifact))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn get_artifact(
+async fn get_artifact(
     id: String,
     profile_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<Option<ArtifactRecord>, String> {
     runtime
         .storage
-        .artifact(&id, &profile_id)
+        .run(move |storage| storage.artifact(&id, &profile_id))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn get_cached_artifact(
+async fn get_cached_artifact(
     profile_id: String,
     site_id: String,
     url: String,
@@ -450,164 +522,300 @@ fn get_cached_artifact(
 ) -> Result<Option<ArtifactRecord>, String> {
     runtime
         .storage
-        .latest_artifact_for_url(&profile_id, &site_id, &url)
+        .run(move |storage| storage.latest_artifact_for_url(&profile_id, &site_id, &url))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn list_artifacts(
+async fn list_artifacts(
     profile_id: String,
     limit: Option<usize>,
     runtime: State<'_, AppRuntime>,
 ) -> Result<Vec<ArtifactRecord>, String> {
+    let limit = limit.unwrap_or(32);
     runtime
         .storage
-        .list_artifacts(&profile_id, limit.unwrap_or(32))
+        .run(move |storage| storage.list_artifacts(&profile_id, limit))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn list_generation_jobs(
+async fn get_artifacts_by_ids(
+    profile_id: String,
+    ids: Vec<String>,
+    runtime: State<'_, AppRuntime>,
+) -> Result<Vec<ArtifactRecord>, String> {
+    runtime
+        .storage
+        .run(move |storage| storage.artifacts_by_ids(&profile_id, &ids))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn list_artifact_summaries(
     profile_id: String,
     limit: Option<usize>,
-    offset: Option<usize>,
+    cursor: Option<String>,
     runtime: State<'_, AppRuntime>,
-) -> Result<Vec<GenerationJobRecord>, String> {
+) -> Result<ArtifactSummaryPage, String> {
+    let limit = limit.unwrap_or(50);
     runtime
         .storage
-        .list_generation_jobs(&profile_id, limit.unwrap_or(50), offset.unwrap_or(0))
+        .run(move |storage| storage.artifact_summaries(&profile_id, limit, cursor.as_deref()))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn get_generation_activity(
+async fn list_generation_jobs(
+    profile_id: String,
+    limit: Option<usize>,
+    cursor: Option<String>,
+    runtime: State<'_, AppRuntime>,
+) -> Result<GenerationJobPage, String> {
+    let limit = limit.unwrap_or(50);
+    runtime
+        .storage
+        .run(move |storage| storage.generation_job_page(&profile_id, limit, cursor.as_deref()))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn upsert_browsing_history_batch(
+    records: Vec<BrowsingHistoryRecord>,
+    runtime: State<'_, AppRuntime>,
+) -> Result<usize, String> {
+    runtime
+        .storage
+        .run(move |storage| storage.upsert_browsing_history(&records))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn list_browsing_history(
+    profile_id: String,
+    limit: Option<usize>,
+    cursor: Option<String>,
+    runtime: State<'_, AppRuntime>,
+) -> Result<BrowsingHistoryPage, String> {
+    let limit = limit.unwrap_or(100);
+    runtime
+        .storage
+        .run(move |storage| storage.browsing_history(&profile_id, limit, cursor.as_deref()))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn delete_browsing_history_entry(
+    profile_id: String,
+    id: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<usize, String> {
+    runtime
+        .storage
+        .run(move |storage| storage.delete_browsing_history_entry(&profile_id, &id))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn clear_browsing_history(
+    profile_id: String,
+    runtime: State<'_, AppRuntime>,
+) -> Result<usize, String> {
+    runtime
+        .storage
+        .run(move |storage| storage.clear_browsing_history(&profile_id))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn get_generation_activity(
     profile_id: String,
     job_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<Option<GenerationActivityDetail>, String> {
     runtime
         .storage
-        .generation_activity(&profile_id, &job_id)
+        .run(move |storage| storage.generation_activity(&profile_id, &job_id))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn delete_profile_artifacts(
+async fn delete_profile_artifacts(
     profile_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<usize, String> {
     runtime
         .storage
-        .delete_profile_artifacts(&profile_id)
+        .run(move |storage| storage.delete_profile_artifacts(&profile_id))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn upsert_site_world(
+async fn upsert_site_world(
     site_world: SiteWorldRecord,
     runtime: State<'_, AppRuntime>,
 ) -> Result<bool, String> {
     runtime
         .storage
-        .upsert_site_world(&site_world)
+        .run(move |storage| storage.upsert_site_world(&site_world))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn get_site_world(
+async fn get_site_world(
     id: String,
     profile_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<Option<SiteWorldRecord>, String> {
     runtime
         .storage
-        .site_world(&id, &profile_id)
+        .run(move |storage| storage.site_world(&id, &profile_id))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn upsert_site_session(
+async fn upsert_site_session(
     session: SiteSessionRecord,
     runtime: State<'_, AppRuntime>,
 ) -> Result<bool, String> {
-    runtime.storage.upsert_site_session(&session).map_err(|error| error.to_string())
+    runtime
+        .storage
+        .run(move |storage| storage.upsert_site_session(&session))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn get_site_session(
+async fn get_site_session(
     profile_id: String,
     site_world_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<Option<SiteSessionRecord>, String> {
-    runtime.storage.site_session(&profile_id, &site_world_id).map_err(|error| error.to_string())
+    runtime
+        .storage
+        .run(move |storage| storage.site_session(&profile_id, &site_world_id))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn list_site_worlds(
+async fn apply_site_session_action(
+    request: SiteSessionActionRequest,
+    runtime: State<'_, AppRuntime>,
+) -> Result<SiteSessionRecord, String> {
+    runtime
+        .storage
+        .run(move |storage| storage.apply_site_session_action(&request))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn apply_site_session_patches(
+    request: SiteSessionPatchRequest,
+    runtime: State<'_, AppRuntime>,
+) -> Result<SiteSessionRecord, String> {
+    runtime
+        .storage
+        .run(move |storage| storage.apply_site_session_patches(&request))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+async fn list_site_worlds(
     profile_id: String,
     limit: Option<usize>,
     runtime: State<'_, AppRuntime>,
 ) -> Result<Vec<SiteWorldRecord>, String> {
+    let limit = limit.unwrap_or(500);
     runtime
         .storage
-        .list_site_worlds(&profile_id, limit.unwrap_or(500))
+        .run(move |storage| storage.list_site_worlds(&profile_id, limit))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn delete_site_world(
+async fn delete_site_world(
     id: String,
     profile_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<usize, String> {
     runtime
         .storage
-        .delete_site_world(&id, &profile_id)
+        .run(move |storage| storage.delete_site_world(&id, &profile_id))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn delete_profile_site_worlds(
+async fn delete_profile_site_worlds(
     profile_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<usize, String> {
     runtime
         .storage
-        .delete_profile_site_worlds(&profile_id)
+        .run(move |storage| storage.delete_profile_site_worlds(&profile_id))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn archive_profile_site_worlds(
+async fn archive_profile_site_worlds(
     profile_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<usize, String> {
+    let timestamp = chrono::Utc::now().to_rfc3339();
     runtime
         .storage
-        .archive_profile_site_worlds(&profile_id, &chrono::Utc::now().to_rfc3339())
+        .run(move |storage| storage.archive_profile_site_worlds(&profile_id, &timestamp))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn activate_site_world(
+async fn activate_site_world(
     profile_id: String,
     id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<bool, String> {
+    let timestamp = chrono::Utc::now().to_rfc3339();
     runtime
         .storage
-        .activate_site_world(&profile_id, &id, &chrono::Utc::now().to_rfc3339())
+        .run(move |storage| storage.activate_site_world(&profile_id, &id, &timestamp))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn delete_profile_data(
+async fn delete_profile_data(
     profile_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<usize, String> {
-    let providers = runtime
+    let lookup_profile_id = profile_id.clone();
+    let (providers, media_connections) = runtime
         .storage
-        .list_providers(&profile_id)
+        .run(move |storage| {
+            Ok((
+                storage.list_providers(&lookup_profile_id)?,
+                storage.list_media_connections(&lookup_profile_id)?,
+            ))
+        })
+        .await
         .map_err(|error| error.to_string())?;
     for provider in &providers {
         runtime
@@ -615,10 +823,6 @@ fn delete_profile_data(
             .delete(&provider.secret_ref)
             .map_err(|error| error.to_string())?;
     }
-    let media_connections = runtime
-        .storage
-        .list_media_connections(&profile_id)
-        .map_err(|error| error.to_string())?;
     for connection in &media_connections {
         runtime
             .media_secrets
@@ -628,12 +832,13 @@ fn delete_profile_data(
     runtime.media.delete_profile_cache(&profile_id)?;
     runtime
         .storage
-        .delete_profile_data(&profile_id)
+        .run(move |storage| storage.delete_profile_data(&profile_id))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn upsert_provider_connection(
+async fn upsert_provider_connection(
     provider: ProviderConnectionRecord,
     runtime: State<'_, AppRuntime>,
 ) -> Result<(), String> {
@@ -648,9 +853,11 @@ fn upsert_provider_connection(
     {
         return Err("provider credential was not found".into());
     }
+    let profile_id = provider.profile_id.clone();
     if let Some(existing) = runtime
         .storage
-        .list_providers(&provider.profile_id)
+        .run(move |storage| storage.list_providers(&profile_id))
+        .await
         .map_err(|error| error.to_string())?
         .into_iter()
         .find(|existing| existing.id == provider.id)
@@ -667,43 +874,45 @@ fn upsert_provider_connection(
     }
     runtime
         .storage
-        .upsert_provider(&provider)
+        .run(move |storage| storage.upsert_provider(&provider))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn list_provider_connections(
+async fn list_provider_connections(
     profile_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<Vec<ProviderConnectionRecord>, String> {
     runtime
         .storage
-        .list_providers(&profile_id)
+        .run(move |storage| storage.list_providers(&profile_id))
+        .await
         .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-fn delete_provider_connection(
+async fn delete_provider_connection(
     id: String,
     profile_id: String,
     secret_ref: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<(), String> {
-    bound_provider_record(&runtime, &profile_id, &id, &secret_ref)?;
-    delete_secret_before_provider_record(
-        || {
-            runtime
-                .secrets
-                .delete(&secret_ref)
-                .map_err(|error| error.to_string())
-        },
-        || {
-            runtime
-                .storage
-                .delete_provider(&id, &profile_id)
-                .map_err(|error| error.to_string())
-        },
-    )
+    bound_provider_record(&runtime, &profile_id, &id, &secret_ref).await?;
+    runtime
+        .secrets
+        .delete(&secret_ref)
+        .map_err(|error| error.to_string())?;
+    let removed = runtime
+        .storage
+        .run(move |storage| storage.delete_provider(&id, &profile_id))
+        .await
+        .map_err(|error| error.to_string())?;
+    if removed == 0 {
+        Err("provider connection was not found".into())
+    } else {
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -718,7 +927,8 @@ async fn verify_provider_connection(
         &request.profile_id,
         &connection_id,
         &request.credential_ref,
-    )?;
+    )
+    .await?;
     let provider = provider_for_worker(&provider_record, &request.provider)?;
     let credential = runtime
         .secrets
@@ -733,9 +943,13 @@ async fn verify_provider_connection(
     } else {
         ("invalid", None)
     };
+    let provider_id = provider_record.id;
     runtime
         .storage
-        .update_provider_status(&provider_record.id, status, verified_at.as_deref())
+        .run(move |storage| {
+            storage.update_provider_status(&provider_id, status, verified_at.as_deref())
+        })
+        .await
         .map_err(|error| error.to_string())?;
     result.map_err(|error| error.to_string())
 }
@@ -770,7 +984,12 @@ async fn save_media_connection(
         last_verified_at: Some(chrono::Utc::now().to_rfc3339()),
         voices,
     };
-    if let Err(error) = runtime.storage.upsert_media_connection(&record) {
+    let stored_record = record.clone();
+    if let Err(error) = runtime
+        .storage
+        .run(move |storage| storage.upsert_media_connection(&stored_record))
+        .await
+    {
         let _ = runtime.media_secrets.delete(&record.secret_ref);
         return Err(error.to_string());
     }
@@ -778,12 +997,16 @@ async fn save_media_connection(
 }
 
 #[tauri::command]
-fn list_media_connections(
+async fn list_media_connections(
     profile_id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<Vec<MediaConnectionRecord>, String> {
     media::validate_identifier(&profile_id)?;
-    runtime.storage.list_media_connections(&profile_id).map_err(|error| error.to_string())
+    runtime
+        .storage
+        .run(move |storage| storage.list_media_connections(&profile_id))
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -794,46 +1017,86 @@ async fn verify_media_connection(
 ) -> Result<MediaConnectionRecord, String> {
     media::validate_identifier(&profile_id)?;
     media::validate_identifier(&id)?;
-    let mut record = runtime.storage.media_connection(&profile_id, &id)
+    let lookup_profile_id = profile_id.clone();
+    let lookup_id = id.clone();
+    let mut record = runtime
+        .storage
+        .run(move |storage| storage.media_connection(&lookup_profile_id, &lookup_id))
+        .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "media connection was not found".to_owned())?;
-    if record.provider != "elevenlabs" { return Err("unsupported media provider".into()); }
-    runtime.media_secrets.ensure_connection_scope(&profile_id, &id, &record.secret_ref)
+    if record.provider != "elevenlabs" {
+        return Err("unsupported media provider".into());
+    }
+    runtime
+        .media_secrets
+        .ensure_connection_scope(&profile_id, &id, &record.secret_ref)
         .map_err(|error| error.to_string())?;
-    let api_key = runtime.media_secrets.get(&record.secret_ref).map_err(|error| error.to_string())?;
+    let api_key = runtime
+        .media_secrets
+        .get(&record.secret_ref)
+        .map_err(|error| error.to_string())?;
     match runtime.media.verify_elevenlabs(api_key.as_str()).await {
         Ok(voices) => {
             record.voices = voices;
             record.status = "valid".into();
             record.last_verified_at = Some(chrono::Utc::now().to_rfc3339());
-            runtime.storage.upsert_media_connection(&record).map_err(|error| error.to_string())?;
+            let stored_record = record.clone();
+            runtime
+                .storage
+                .run(move |storage| storage.upsert_media_connection(&stored_record))
+                .await
+                .map_err(|error| error.to_string())?;
             Ok(record)
         }
         Err(error) => {
             record.status = "invalid".into();
             record.last_verified_at = None;
-            runtime.storage.upsert_media_connection(&record).map_err(|storage_error| storage_error.to_string())?;
+            let stored_record = record.clone();
+            runtime
+                .storage
+                .run(move |storage| storage.upsert_media_connection(&stored_record))
+                .await
+                .map_err(|storage_error| storage_error.to_string())?;
             Err(error)
         }
     }
 }
 
 #[tauri::command]
-fn delete_media_connection(
+async fn delete_media_connection(
     profile_id: String,
     id: String,
     runtime: State<'_, AppRuntime>,
 ) -> Result<(), String> {
     media::validate_identifier(&profile_id)?;
     media::validate_identifier(&id)?;
-    let record = runtime.storage.media_connection(&profile_id, &id)
+    let lookup_profile_id = profile_id.clone();
+    let lookup_id = id.clone();
+    let record = runtime
+        .storage
+        .run(move |storage| storage.media_connection(&lookup_profile_id, &lookup_id))
+        .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "media connection was not found".to_owned())?;
-    runtime.media_secrets.ensure_connection_scope(&profile_id, &id, &record.secret_ref)
+    runtime
+        .media_secrets
+        .ensure_connection_scope(&profile_id, &id, &record.secret_ref)
         .map_err(|error| error.to_string())?;
-    runtime.media_secrets.delete(&record.secret_ref).map_err(|error| error.to_string())?;
-    let removed = runtime.storage.delete_media_connection(&profile_id, &id).map_err(|error| error.to_string())?;
-    if removed == 0 { Err("media connection was not found".into()) } else { Ok(()) }
+    runtime
+        .media_secrets
+        .delete(&record.secret_ref)
+        .map_err(|error| error.to_string())?;
+    let removed = runtime
+        .storage
+        .run(move |storage| storage.delete_media_connection(&profile_id, &id))
+        .await
+        .map_err(|error| error.to_string())?;
+    if removed == 0 {
+        Err("media connection was not found".into())
+    } else {
+        Ok(())
+    }
 }
 
 #[tauri::command]
@@ -848,20 +1111,43 @@ async fn render_media_speech(
     if request.engine == "system" {
         return runtime.media.render_system_speech(&request).await;
     }
-    let connection_id = request.connection_id.as_deref().ok_or("media connection is required")?;
-    let connection = runtime.storage.media_connection(&request.profile_id, connection_id)
+    let connection_id = request
+        .connection_id
+        .as_deref()
+        .ok_or("media connection is required")?;
+    let profile_id = request.profile_id.clone();
+    let connection_id_owned = connection_id.to_owned();
+    let connection = runtime
+        .storage
+        .run(move |storage| storage.media_connection(&profile_id, &connection_id_owned))
+        .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "media connection was not found".to_owned())?;
-    if connection.provider != "elevenlabs" || request.provider != "elevenlabs" || connection.status != "valid" {
+    if connection.provider != "elevenlabs"
+        || request.provider != "elevenlabs"
+        || connection.status != "valid"
+    {
         return Err("a verified ElevenLabs media connection is required".into());
     }
-    if !connection.voices.iter().any(|voice| voice.id == request.voice) {
+    if !connection
+        .voices
+        .iter()
+        .any(|voice| voice.id == request.voice)
+    {
         return Err("the requested voice is not in the verified media catalog".into());
     }
-    runtime.media_secrets.ensure_connection_scope(&request.profile_id, connection_id, &connection.secret_ref)
+    runtime
+        .media_secrets
+        .ensure_connection_scope(&request.profile_id, connection_id, &connection.secret_ref)
         .map_err(|error| error.to_string())?;
-    let api_key = runtime.media_secrets.get(&connection.secret_ref).map_err(|error| error.to_string())?;
-    runtime.media.render_elevenlabs_speech(&request, api_key.as_str()).await
+    let api_key = runtime
+        .media_secrets
+        .get(&connection.secret_ref)
+        .map_err(|error| error.to_string())?;
+    runtime
+        .media
+        .render_elevenlabs_speech(&request, api_key.as_str())
+        .await
 }
 
 #[tauri::command]
@@ -885,16 +1171,33 @@ async fn generate_media_music(
     request: MediaMusicRequest,
     runtime: State<'_, AppRuntime>,
 ) -> Result<MediaAssetResponse, String> {
-    let connection = runtime.storage.media_connection(&request.profile_id, &request.connection_id)
+    let profile_id = request.profile_id.clone();
+    let connection_id = request.connection_id.clone();
+    let connection = runtime
+        .storage
+        .run(move |storage| storage.media_connection(&profile_id, &connection_id))
+        .await
         .map_err(|error| error.to_string())?
         .ok_or_else(|| "media connection was not found".to_owned())?;
     if connection.provider != "elevenlabs" || connection.status != "valid" {
         return Err("a verified ElevenLabs media connection is required".into());
     }
-    runtime.media_secrets.ensure_connection_scope(&request.profile_id, &request.connection_id, &connection.secret_ref)
+    runtime
+        .media_secrets
+        .ensure_connection_scope(
+            &request.profile_id,
+            &request.connection_id,
+            &connection.secret_ref,
+        )
         .map_err(|error| error.to_string())?;
-    let api_key = runtime.media_secrets.get(&connection.secret_ref).map_err(|error| error.to_string())?;
-    runtime.media.generate_elevenlabs_music(&request, api_key.as_str()).await
+    let api_key = runtime
+        .media_secrets
+        .get(&connection.secret_ref)
+        .map_err(|error| error.to_string())?;
+    runtime
+        .media
+        .generate_elevenlabs_music(&request, api_key.as_str())
+        .await
 }
 
 #[tauri::command]
@@ -946,7 +1249,7 @@ async fn start_generation(
         })?;
         let connection_id = provider_connection_id(&requested_provider)?.to_owned();
         let provider_record =
-            bound_provider_record(&runtime, &input.profile_id, &connection_id, &secret_ref)?;
+            bound_provider_record(&runtime, &input.profile_id, &connection_id, &secret_ref).await?;
         let provider = provider_for_worker(&provider_record, &requested_provider)?;
         input
             .request
@@ -1034,10 +1337,57 @@ pub fn run() {
     let mut builder = tauri::Builder::default();
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(|_, _, _| {}));
+        if env::var_os("VIBESURFER_TEST_DATA_DIR").is_none() {
+            builder = builder.plugin(tauri_plugin_single_instance::init(|_, _, _| {}));
+        }
     }
 
     builder
+        .register_asynchronous_uri_scheme_protocol("vibeasset", |context, request, responder| {
+            let allowed_method = matches!(
+                *request.method(),
+                tauri::http::Method::GET | tauri::http::Method::HEAD
+            );
+            let head_only = request.method() == tauri::http::Method::HEAD;
+            let allowed = context.webview_label() == "main" && allowed_method;
+            let app = context.app_handle().clone();
+            let path = request.uri().path().to_owned();
+            tauri::async_runtime::spawn(async move {
+                let asset = if allowed {
+                    app.state::<AppRuntime>().media.protocol_asset(&path).await
+                } else {
+                    Err("local asset request is not allowed".into())
+                };
+                let response = match asset {
+                    Ok(asset) => {
+                        let asset_path = asset.path.clone();
+                        match tokio::task::spawn_blocking(move || std::fs::read(asset_path)).await {
+                            Ok(Ok(bytes)) if bytes.len() as u64 == asset.byte_size => {
+                                tauri::http::Response::builder()
+                                    .status(tauri::http::StatusCode::OK)
+                                    .header(tauri::http::header::CONTENT_TYPE, asset.mime_type)
+                                    .header(tauri::http::header::CONTENT_LENGTH, asset.byte_size)
+                                    .header(
+                                        tauri::http::header::CACHE_CONTROL,
+                                        "private, max-age=31536000, immutable",
+                                    )
+                                    .header(tauri::http::header::ACCESS_CONTROL_ALLOW_ORIGIN, "*")
+                                    .header(tauri::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff")
+                                    .body(if head_only { Vec::new() } else { bytes })
+                            }
+                            _ => tauri::http::Response::builder()
+                                .status(tauri::http::StatusCode::NOT_FOUND)
+                                .body(Vec::new()),
+                        }
+                    }
+                    Err(_) => tauri::http::Response::builder()
+                        .status(tauri::http::StatusCode::NOT_FOUND)
+                        .body(Vec::new()),
+                }
+                .unwrap_or_else(|_| tauri::http::Response::new(Vec::new()));
+                responder.respond(response);
+            });
+        })
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_opener::init())
         .on_menu_event(|app, event| emit_native_menu_command(app, event.id().as_ref()))
@@ -1045,10 +1395,14 @@ pub fn run() {
             let (menu, native_menu_items) = build_native_menu(app.handle())?;
             app.set_menu(menu)?;
             app.manage(native_menu_items);
-            let app_data = app.path().app_data_dir()?;
-            let storage = Arc::new(Storage::open(&app_data.join("vibesurfer.sqlite3"))?);
-            let media = MediaService::new(app_data.join("media-cache"))
-                .map_err(std::io::Error::other)?;
+            let default_app_data = app.path().app_data_dir()?;
+            let app_data = resolve_app_data_dir(
+                &default_app_data,
+                env::var_os("VIBESURFER_TEST_DATA_DIR").map(PathBuf::from),
+            )?;
+            let storage = StorageHandle::open(&app_data.join("vibesurfer.sqlite3"))?;
+            let media =
+                MediaService::new(app_data.join("media-cache")).map_err(std::io::Error::other)?;
             app.manage(AppRuntime {
                 storage,
                 secrets: SecretVault,
@@ -1084,13 +1438,21 @@ pub fn run() {
             get_artifact,
             get_cached_artifact,
             list_artifacts,
+            get_artifacts_by_ids,
+            list_artifact_summaries,
             list_generation_jobs,
+            upsert_browsing_history_batch,
+            list_browsing_history,
+            delete_browsing_history_entry,
+            clear_browsing_history,
             get_generation_activity,
             delete_profile_artifacts,
             upsert_site_world,
             get_site_world,
             upsert_site_session,
             get_site_session,
+            apply_site_session_action,
+            apply_site_session_patches,
             list_site_worlds,
             delete_site_world,
             delete_profile_site_worlds,
@@ -1130,17 +1492,30 @@ fn is_supported_deep_link(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::{Cell, RefCell};
+    use std::{
+        cell::{Cell, RefCell},
+        sync::atomic::{AtomicU64, Ordering},
+    };
 
     use serde_json::json;
 
     use super::{
         delete_secret_before_provider_record, discover_codex_with, is_supported_deep_link,
-        provider_connection_id, provider_for_worker, validated_window_corner_radius, CodexProbe,
-        CodexProbeState, ProviderConnectionRecord,
+        provider_connection_id, provider_for_worker, resolve_app_data_dir,
+        validated_window_corner_radius, CodexProbe, CodexProbeState, ProviderConnectionRecord,
     };
     use crate::native_menu::{native_menu_command, NATIVE_MENU_COMMANDS};
     use std::path::{Path, PathBuf};
+
+    static TEST_DIRECTORY_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+    fn temporary_test_root(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "vibesurfer-{label}-{}-{}",
+            std::process::id(),
+            TEST_DIRECTORY_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+        ))
+    }
 
     fn provider_record() -> ProviderConnectionRecord {
         ProviderConnectionRecord {
@@ -1155,6 +1530,40 @@ mod tests {
             last_verified_at: None,
             payload: json!({ "modelIds": ["openai:gpt-test"] }),
         }
+    }
+
+    #[test]
+    fn test_data_dir_must_be_isolated_from_production() {
+        let root = temporary_test_root("isolated-data-dir");
+        let production = root.join("production");
+        let isolated = root.join("isolated");
+        std::fs::create_dir_all(&production).unwrap();
+        std::fs::create_dir_all(&isolated).unwrap();
+
+        assert_eq!(
+            resolve_app_data_dir(&production, Some(isolated.clone())).unwrap(),
+            isolated.canonicalize().unwrap()
+        );
+        assert!(resolve_app_data_dir(&production, Some(production.clone())).is_err());
+        assert!(resolve_app_data_dir(&production, Some(root.clone())).is_err());
+        assert!(resolve_app_data_dir(&production, Some(production.join("nested"))).is_err());
+        assert!(resolve_app_data_dir(&production, Some(PathBuf::from("relative"))).is_err());
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_data_dir_rejects_a_symlink_to_production() {
+        let root = temporary_test_root("symlinked-data-dir");
+        let production = root.join("production");
+        let alias = root.join("alias");
+        std::fs::create_dir_all(&production).unwrap();
+        std::os::unix::fs::symlink(&production, &alias).unwrap();
+
+        assert!(resolve_app_data_dir(&production, Some(alias)).is_err());
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -1200,7 +1609,10 @@ mod tests {
                     .map(|_| id.as_str())
             })
             .collect::<BTreeSet<_>>();
-        let actual = NATIVE_MENU_COMMANDS.iter().copied().collect::<BTreeSet<_>>();
+        let actual = NATIVE_MENU_COMMANDS
+            .iter()
+            .copied()
+            .collect::<BTreeSet<_>>();
 
         assert_eq!(actual, expected);
     }

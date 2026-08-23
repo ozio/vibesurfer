@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::BTreeMap;
 
 pub const WORKER_PROTOCOL_VERSION: u32 = 1;
 
@@ -39,6 +40,47 @@ pub struct ArtifactRecord {
     pub payload: Value,
 }
 
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactSummary {
+    pub id: String,
+    pub profile_id: String,
+    pub site_id: String,
+    pub url: String,
+    pub title: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArtifactSummaryPage {
+    pub items: Vec<ArtifactSummary>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowsingHistoryRecord {
+    pub id: String,
+    pub profile_id: String,
+    pub url: String,
+    pub title: String,
+    pub status: String,
+    pub opened_at: String,
+    pub updated_at: String,
+    pub favicon: Option<Value>,
+    pub artifact_id: Option<String>,
+    pub generation_job_id: Option<String>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BrowsingHistoryPage {
+    pub items: Vec<BrowsingHistoryRecord>,
+    pub next_cursor: Option<String>,
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SiteWorldRecord {
@@ -61,6 +103,37 @@ pub struct SiteSessionRecord {
     pub revision: i64,
     pub updated_at: String,
     pub payload: Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteSessionActionRequest {
+    pub profile_id: String,
+    pub site_world_id: String,
+    pub action: String,
+    #[serde(default)]
+    pub fields: BTreeMap<String, Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteRegionPatch {
+    pub region_id: String,
+    pub html: String,
+    pub revision: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SiteSessionPatchRequest {
+    pub profile_id: String,
+    pub site_world_id: String,
+    pub canonical_page_url: String,
+    pub patches: Vec<SiteRegionPatch>,
+    #[serde(default)]
+    pub update_model_state: bool,
+    #[serde(default)]
+    pub model_state: Value,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -106,7 +179,13 @@ pub struct RuntimeStatus {
     pub worker_available: bool,
     pub worker_description: String,
     pub active_jobs: usize,
+    pub idle_workers: usize,
+    pub spawned_workers: u64,
+    pub reused_workers: u64,
+    pub spawned_media_workers: u64,
+    pub reused_media_workers: u64,
     pub storage_ready: bool,
+    pub storage_queue_depth: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -120,6 +199,13 @@ pub struct GenerationJobRecord {
     pub error_payload: Option<Value>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerationJobPage {
+    pub items: Vec<GenerationJobRecord>,
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -280,4 +280,33 @@ describe("Rust host JSONL compatibility", () => {
     expect(JSON.stringify(outputs)).not.toContain(secret);
     await runtime.close();
   });
+
+  it("resets reusable workers and clears every retained credential", async () => {
+    const outputs: Output[] = [];
+    const runtime = new WorkerRuntime((output) => void outputs.push(output as Output));
+    await runtime.handleLine(JSON.stringify({
+      v: 1,
+      type: "provider.upsert",
+      requestId: "upsert-1",
+      connection: {
+        id: "reusable-provider",
+        kind: "openai-compatible",
+        displayName: "Reusable provider",
+        baseUrl: "http://127.0.0.1:8080/v1",
+        supportsStructuredOutputs: false,
+      },
+      credentials: { apiKey: "must-not-survive-reset" },
+    }));
+    await runtime.handleLine(JSON.stringify({ type: "reset", requestId: "reset-1" }));
+    await runtime.handleLine(JSON.stringify({ v: 1, type: "provider.list", requestId: "list-1" }));
+
+    expect(outputs).toContainEqual(expect.objectContaining({ type: "ack", requestId: "reset-1", accepted: true }));
+    expect(outputs.find((output) => output.type === "provider.list.result")).toMatchObject({
+      connections: expect.arrayContaining([
+        expect.objectContaining({ id: "reusable-provider", hasCredentials: false }),
+      ]),
+    });
+    expect(JSON.stringify(outputs)).not.toContain("must-not-survive-reset");
+    await runtime.close();
+  });
 });

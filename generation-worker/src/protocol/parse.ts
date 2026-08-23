@@ -1,6 +1,7 @@
 import {
   HostCancelCommandSchema,
   HostGenerateCommandSchema,
+  HostResetCommandSchema,
   InitializeCommandSchema,
   ProviderVerifyCommandSchema,
   WorkerCommandSchema,
@@ -38,6 +39,8 @@ export function parseCommandLine(line: string): ParseCommandResult {
       ? InitializeCommandSchema
       : rawType === "provider.verify"
         ? ProviderVerifyCommandSchema
+        : rawType === "reset"
+          ? HostResetCommandSchema
         : rawType === "generate" && "request" in (raw as object)
           ? HostGenerateCommandSchema
           : rawType === "cancel" && !("v" in (raw as object))
