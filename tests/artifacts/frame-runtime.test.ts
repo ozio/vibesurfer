@@ -319,6 +319,16 @@ describe("artifact frame runtime", () => {
           <vibe-video id="video" data-pacing="fast" data-aspect-ratio="9:16">
             <figure data-vibe-scene data-kind="image" data-transition="crossfade" data-motion="ken-burns-in" data-duration-ms="2000" data-music-track="ambient-glass"><figcaption>First scene</figcaption><p data-vibe-narration>Measured narration.</p></figure>
             <figure data-vibe-scene data-kind="credits" data-transition="dip-black" data-motion="credits-roll" data-music-track="credits-drift"><figcaption>Second scene</figcaption></figure>
+            <p data-vibe-video-caption aria-live="polite"></p>
+            <div data-vibe-video-controls>
+              <button id="video-toggle" type="button" data-vibe-video-action="toggle"><span data-vibe-video-visible-when="not-playing">Play</span><span data-vibe-video-visible-when="playing" hidden>Pause</span></button>
+              <button type="button" data-vibe-video-action="stop">Stop</button>
+              <input type="range" data-vibe-video-seek value="0">
+              <output data-vibe-video-time="combined">0:00 / --:--</output>
+              <button id="video-mute" type="button" data-vibe-video-action="mute"><span data-vibe-video-visible-when="unmuted">Mute</span><span data-vibe-video-visible-when="muted" hidden>Unmute</span></button>
+              <input id="video-volume" type="range" data-vibe-video-volume value="1">
+              <button type="button" data-vibe-video-action="skip-music" data-vibe-video-visible-when="waiting" hidden>Play without music</button>
+            </div>
           </vibe-video>
         </main>`,
       }));
@@ -344,11 +354,15 @@ describe("artifact frame runtime", () => {
         video.addEventListener(name, () => mediaEvents.push(name));
       }
       expect(video.querySelector("[data-vibe-video-controls]")).not.toBeNull();
-      expect(video.querySelector('[data-vibe-video-time="duration"]')).toHaveTextContent("--:--");
+      expect(video.querySelector('[data-vibe-video-time="combined"]')).toHaveTextContent("0:00 / --:--");
+      expect(video.querySelector("[data-vibe-video-status], [data-vibe-video-transcript]")).toBeNull();
+      expect(video.querySelector('[data-vibe-video-action="fullscreen"]')).toBeNull();
       expect(video.querySelector('[data-vibe-scene]:nth-of-type(1)')).not.toHaveAttribute("hidden");
       expect(video.querySelector('[data-vibe-scene]:nth-of-type(2)')).toHaveAttribute("hidden");
-      const play = video.querySelector<HTMLButtonElement>("[data-vibe-video-play]")!;
+      const play = video.querySelector<HTMLButtonElement>("#video-toggle")!;
+      const authoredToggleText = play.textContent;
       play.click();
+      expect(harness.document.activeElement).toBe(play);
       expect(mediaEvents).toContain("loadstart");
       const prepare = port.messages.find((message) => message.type === "media-prepare")!;
       expect(prepare.plan).toMatchObject({
@@ -367,14 +381,22 @@ describe("artifact frame runtime", () => {
       port.dispatch({ protocol: ARTIFACT_BRIDGE_PROTOCOL, version: ARTIFACT_BRIDGE_VERSION, type: "media-state", ...identity, state: { videoId: "video", status: "playing", currentTimeMs: 0, durationMs: 8_000, paused: false, muted: false, volume: 1, activeSceneIndex: 0 } });
       expect(mediaEvents).toContain("play");
       expect(play).toHaveAttribute("aria-pressed", "true");
+      expect(play.textContent).toBe(authoredToggleText);
+      expect(play.querySelector('[data-vibe-video-visible-when="playing"]')).not.toHaveAttribute("hidden");
+      expect(play.querySelector('[data-vibe-video-visible-when="not-playing"]')).toHaveAttribute("hidden");
       expect(video.querySelector<HTMLInputElement>("[data-vibe-video-seek]")).toHaveAttribute("max", "8000");
       expect(video.querySelector<HTMLInputElement>("[data-vibe-video-seek]")).toHaveAttribute("aria-valuemax", "8000");
-      expect(video.querySelector('[data-vibe-video-time="duration"]')).toHaveTextContent("0:08");
+      expect(video.querySelector('[data-vibe-video-time="combined"]')).toHaveTextContent("0:00 / 0:08");
       expect(video.querySelector("[data-vibe-video-caption]")).toHaveTextContent("Measured narration.");
-      expect(video.querySelector("[data-vibe-video-transcript]")).toHaveTextContent("Measured narration.");
+      expect(video.querySelector("[data-vibe-video-transcript]")).toBeNull();
       expect((video as HTMLElement & { duration: number; paused: boolean; readyState: number }).duration).toBe(8);
       expect((video as HTMLElement & { duration: number; paused: boolean; readyState: number }).paused).toBe(false);
       expect((video as HTMLElement & { duration: number; paused: boolean; readyState: number }).readyState).toBe(4);
+      const volumeControl = video.querySelector<HTMLInputElement>("#video-volume")!;
+      volumeControl.value = "0.2";
+      volumeControl.dispatchEvent(new harness.window.Event("input", { bubbles: true }));
+      expect(port.messages.at(-1)).toEqual(expect.objectContaining({ type: "media-command", videoId: "video", action: "set-volume", volume: 0.2 }));
+      expect(volumeControl).toHaveValue("0.2");
       (video as HTMLElement & { volume: number }).volume = 0.4;
       (video as HTMLElement & { muted: boolean }).muted = true;
       expect(port.messages).toEqual(expect.arrayContaining([
@@ -383,6 +405,8 @@ describe("artifact frame runtime", () => {
       ]));
       port.dispatch({ protocol: ARTIFACT_BRIDGE_PROTOCOL, version: ARTIFACT_BRIDGE_VERSION, type: "media-state", ...identity, state: { videoId: "video", status: "playing", currentTimeMs: 1_000, durationMs: 8_000, paused: false, muted: true, volume: 0.4, activeSceneIndex: 0 } });
       expect(mediaEvents).toContain("volumechange");
+      expect(video).toHaveAttribute("data-vibe-video-muted", "true");
+      expect(video.querySelector("#video-mute")).toHaveAttribute("aria-pressed", "true");
       (video as HTMLElement & { fastSeek(seconds: number): void }).fastSeek(6);
       (video as HTMLElement & { fastSeek(seconds: number): void }).fastSeek(6);
       expect(port.messages).toContainEqual(expect.objectContaining({ type: "media-command", videoId: "video", action: "seek", currentTimeMs: 6000 }));
@@ -405,6 +429,8 @@ describe("artifact frame runtime", () => {
       ]);
       (video as HTMLElement & { stop(): void }).stop();
       expect(port.messages.at(-1)).toEqual(expect.objectContaining({ type: "media-command", action: "stop" }));
+      expect(video.querySelector('[data-vibe-video-time="combined"]')).toHaveTextContent("0:00 / 0:08");
+      expect(video.querySelector('[data-vibe-scene]:nth-of-type(1)')).not.toHaveAttribute("hidden");
       expect(harness.jsdomErrors).toEqual([]);
     } finally {
       harness.close();
@@ -428,10 +454,10 @@ describe("artifact frame runtime", () => {
       harness.window.dispatchEvent(new harness.window.MessageEvent("message", { data: { protocol: ARTIFACT_BRIDGE_PROTOCOL, version: ARTIFACT_BRIDGE_VERSION, type: "init", instanceId: bootstrap.instanceId, ...identity }, source: harness.window, ports: [port as unknown as MessagePort] }));
       port.dispatch(renderCommand({
         title: "Timeline-owned animation",
-        html: '<vibe-video id="stable-animation" data-aspect-ratio="16:9"><section data-vibe-scene data-kind="text" data-transition="crossfade" data-motion="stagger"><h1 data-vibe-layer>One reveal</h1><p data-vibe-layer>Never restart.</p></section></vibe-video>',
+        html: '<vibe-video id="stable-animation" data-aspect-ratio="16:9"><section data-vibe-scene data-kind="text" data-transition="crossfade" data-motion="stagger"><h1 data-vibe-layer>One reveal</h1><p data-vibe-layer>Never restart.</p></section><div data-vibe-video-controls><button type="button" data-vibe-video-action="toggle">Play</button></div></vibe-video>',
       }));
       const video = harness.document.querySelector<HTMLElement>("#stable-animation")!;
-      video.querySelector<HTMLButtonElement>("[data-vibe-video-play]")!.click();
+      video.querySelector<HTMLButtonElement>('[data-vibe-video-action="toggle"]')!.click();
       const prepare = port.messages.find((message) => message.type === "media-prepare")!;
       port.dispatch({ ...envelopeForRuntime(), type: "media-timeline", requestId: prepare.requestId, timeline: { videoId: "stable-animation", durationMs: 4_000, warnings: [], scenes: [{ id: prepare.plan.scenes[0].id, startMs: 0, durationMs: 4_000, narrationDurationMs: 0 }] } });
       const created = animate.mock.calls.length;
@@ -442,6 +468,44 @@ describe("artifact frame runtime", () => {
       expect(animations.every((animation) => animation.pause.mock.calls.length > 0)).toBe(true);
       expect(animations.every((animation) => animation.play.mock.calls.length === 0)).toBe(true);
       expect(animations.every((animation) => Number(animation.currentTime) >= 1_100 && Number(animation.currentTime) < 1_150)).toBe(true);
+      expect(harness.jsdomErrors).toEqual([]);
+    } finally {
+      harness.close();
+    }
+  });
+
+  test("upgrades old model-authored YouTube chrome in place without adding a second player UI", () => {
+    const harness = createRuntimeHarness();
+    try {
+      Object.defineProperty(harness.window.navigator, "userActivation", { configurable: true, value: { isActive: true, hasBeenActive: true } });
+      const bootstrap = harness.parentMessages[0] as BootstrapMessage;
+      const port = new FakeMessagePort();
+      harness.window.dispatchEvent(new harness.window.MessageEvent("message", { data: { protocol: ARTIFACT_BRIDGE_PROTOCOL, version: ARTIFACT_BRIDGE_VERSION, type: "init", instanceId: bootstrap.instanceId, ...identity }, source: harness.window, ports: [port as unknown as MessagePort] }));
+      port.dispatch(renderCommand({
+        title: "Saved YouTube artifact",
+        html: `<vibe-video id="youtube-video" data-aspect-ratio="16:9">
+          <section data-vibe-scene data-kind="text" data-transition="cut" data-motion="still"><h1>Opening bell</h1></section>
+          <div class="player-controls"><button id="old-play" type="button" data-vibe-video-action="play">▶</button><div class="progress" aria-hidden="true"><span></span></div><span class="time">2:31 / 6:42</span><button type="button" data-vibe-video-action="mute">🔊</button><button type="button" data-vibe-video-action="fullscreen">Fullscreen</button></div>
+        </vibe-video>`,
+      }));
+
+      const video = harness.document.querySelector<HTMLElement>("#youtube-video")!;
+      expect(video.querySelectorAll("[data-vibe-video-controls]")).toHaveLength(1);
+      expect(video.querySelector("[data-vibe-video-status], [data-vibe-video-caption], [data-vibe-video-transcript]")).toBeNull();
+      expect(video.querySelector('[data-vibe-video-action="fullscreen"]')).toBeNull();
+      expect(video.querySelector("#old-play")).toHaveAttribute("data-vibe-video-action", "toggle");
+      expect(video.querySelector(".time")).toHaveAttribute("data-vibe-video-time", "combined");
+      expect(video.querySelector(".time")).toHaveTextContent("0:00 / --:--");
+      expect(video.querySelector(".progress")).toHaveAttribute("data-vibe-video-seek");
+      expect(video.querySelector(".progress")).toHaveAttribute("role", "slider");
+      expect(video.querySelector(".progress")).not.toHaveAttribute("aria-hidden");
+
+      video.querySelector<HTMLButtonElement>("#old-play")!.click();
+      const prepare = port.messages.find((message) => message.type === "media-prepare")!;
+      port.dispatch({ ...envelopeForRuntime(), type: "media-timeline", requestId: prepare.requestId, timeline: { videoId: "youtube-video", durationMs: 12_000, warnings: [], scenes: [{ id: prepare.plan.scenes[0].id, startMs: 0, durationMs: 12_000, narrationDurationMs: 0 }] } });
+      port.dispatch({ ...envelopeForRuntime(), type: "media-state", state: { videoId: "youtube-video", status: "playing", currentTimeMs: 3_000, durationMs: 12_000, paused: false, muted: false, volume: 1, activeSceneIndex: 0 } });
+      expect(video.querySelector(".time")).toHaveTextContent("0:03 / 0:12");
+      expect(video.querySelector<HTMLElement>(".progress > span")?.style.inlineSize).toBe("25%");
       expect(harness.jsdomErrors).toEqual([]);
     } finally {
       harness.close();
@@ -460,10 +524,10 @@ describe("artifact frame runtime", () => {
       harness.window.dispatchEvent(new harness.window.MessageEvent("message", { data: { protocol: ARTIFACT_BRIDGE_PROTOCOL, version: ARTIFACT_BRIDGE_VERSION, type: "init", instanceId: bootstrap.instanceId, ...identity }, source: harness.window, ports: [port as unknown as MessagePort] }));
       port.dispatch(renderCommand({
         title: "Reduced media motion",
-        html: '<vibe-video id="reduced"><section data-vibe-scene data-kind="title" data-transition="zoom" data-motion="stagger"><h1 data-vibe-layer>One</h1></section><section data-vibe-scene data-kind="credits" data-transition="wipe" data-motion="credits-roll"><p data-vibe-layer>Two</p></section></vibe-video>',
+        html: '<vibe-video id="reduced"><section data-vibe-scene data-kind="title" data-transition="zoom" data-motion="stagger"><h1 data-vibe-layer>One</h1></section><section data-vibe-scene data-kind="credits" data-transition="wipe" data-motion="credits-roll"><p data-vibe-layer>Two</p></section><div data-vibe-video-controls><button type="button" data-vibe-video-action="toggle">Play</button><input type="range" data-vibe-video-seek value="0"></div></vibe-video>',
       }));
       const video = harness.document.querySelector<HTMLElement>("#reduced")!;
-      video.querySelector<HTMLButtonElement>("[data-vibe-video-play]")!.click();
+      video.querySelector<HTMLButtonElement>('[data-vibe-video-action="toggle"]')!.click();
       const prepare = port.messages.find((message) => message.type === "media-prepare")!;
       port.dispatch({ ...envelopeForRuntime(), type: "media-timeline", requestId: prepare.requestId, timeline: { videoId: "reduced", durationMs: 10_000, warnings: [], scenes: [{ id: prepare.plan.scenes[0].id, startMs: 0, durationMs: 4_000, narrationDurationMs: 0 }, { id: prepare.plan.scenes[1].id, startMs: 4_000, durationMs: 6_000, narrationDurationMs: 0 }] } });
       port.dispatch({ ...envelopeForRuntime(), type: "media-state", state: { videoId: "reduced", status: "paused", currentTimeMs: 7_000, durationMs: 10_000, paused: true, muted: false, volume: 1, activeSceneIndex: 1 } });
@@ -493,7 +557,8 @@ describe("artifact frame runtime", () => {
       expect(legacy.querySelectorAll("[data-vibe-narration]")).toHaveLength(1);
       expect(legacy.querySelector("[data-vibe-narration]")).toHaveTextContent("First cue. Second cue.");
       expect(legacy.querySelector("[data-at-ms], [data-pause-after-ms], [data-vibe-music]")).toBeNull();
-      legacy.querySelector<HTMLButtonElement>("[data-vibe-video-play]")!.click();
+      expect(legacy.querySelector("[data-vibe-video-controls], [data-vibe-video-status], [data-vibe-video-transcript]")).toBeNull();
+      void (legacy as HTMLElement & { play(): Promise<void> }).play();
       const prepare = port.messages.find((message) => message.type === "media-prepare")!;
       expect(prepare.plan).toMatchObject({
         scenes: [{ desiredDurationMs: 2_500, narration: { text: "First cue. Second cue." }, musicTrack: "documentary-pulse" }],

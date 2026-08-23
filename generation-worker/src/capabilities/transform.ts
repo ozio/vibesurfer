@@ -354,8 +354,9 @@ const VIDEO_SCENE_KIND_SET = new Set<string>(VIDEO_SCENE_KINDS);
 const VIDEO_TRANSITION_SET = new Set<string>(VIDEO_TRANSITIONS);
 const VIDEO_MOTION_SET = new Set<string>(VIDEO_MOTIONS);
 const VIDEO_MUSIC_TRACK_SET = new Set<string>([...VIDEO_MUSIC_TRACKS, "inherit", "silence"]);
-const VIDEO_CONTROL_ACTION_SET = new Set(["play", "pause", "toggle", "stop", "mute", "fullscreen"]);
-const VIDEO_TIME_ROLE_SET = new Set(["current", "duration"]);
+const VIDEO_CONTROL_ACTION_SET = new Set(["play", "pause", "toggle", "stop", "mute", "skip-music"]);
+const VIDEO_TIME_ROLE_SET = new Set(["current", "duration", "combined"]);
+const VIDEO_VISIBLE_STATE_SET = new Set(["idle", "preparing", "ready", "playing", "paused", "waiting", "ended", "error", "not-playing", "muted", "unmuted"]);
 const UNSAFE_MEDIA_VALUE = /(?:https?:|data:|blob:|file:|javascript:)/i;
 const SAFE_MEDIA_IDENTIFIER = /^[A-Za-z0-9_-]{1,160}$/;
 const LEGACY_VIDEO_MUSIC: Readonly<Record<string, string>> = {
@@ -394,6 +395,64 @@ function inferredVideoAspectRatio(pageUrl?: string): string {
   return "16:9";
 }
 
+function directElementChildren(element: ElementNode): ElementNode[] {
+  return element.childNodes.filter((node): node is ElementNode => "tagName" in node);
+}
+
+function normalizeAuthoredVideoControls(document: DocumentNode, video: ElementNode): void {
+  const descendants = elements(document).filter((element) => element !== video && isWithin(element, video));
+  const groups = directElementChildren(video).filter((element) => {
+    if (getAttribute(element, "data-vibe-scene") !== undefined || getAttribute(element, "data-vibe-video-scene") !== undefined) return false;
+    return getAttribute(element, "data-vibe-video-controls") !== undefined
+      || descendants.some((control) => control !== element && isWithin(control, element)
+        && (getAttribute(control, "data-vibe-video-action") !== undefined
+          || getAttribute(control, "data-vibe-video-play") !== undefined
+          || getAttribute(control, "data-vibe-video-restart") !== undefined
+          || getAttribute(control, "data-vibe-video-seek") !== undefined
+          || getAttribute(control, "data-vibe-video-volume") !== undefined
+          || getAttribute(control, "data-vibe-video-time") !== undefined));
+  });
+
+  for (const group of groups) {
+    setAttribute(group, "data-vibe-video-controls", "");
+    const controls = descendants.filter((element) => isWithin(element, group));
+    for (const legacy of controls.filter((element) => getAttribute(element, "data-vibe-video-play") !== undefined)) {
+      if (getAttribute(legacy, "data-vibe-video-action") === undefined) setAttribute(legacy, "data-vibe-video-action", "toggle");
+    }
+    for (const legacy of controls.filter((element) => getAttribute(element, "data-vibe-video-restart") !== undefined)) {
+      if (getAttribute(legacy, "data-vibe-video-action") === undefined) setAttribute(legacy, "data-vibe-video-action", "stop");
+    }
+    const play = controls.filter((element) => getAttribute(element, "data-vibe-video-action") === "play");
+    const hasPauseOrToggle = controls.some((element) => ["pause", "toggle"].includes(getAttribute(element, "data-vibe-video-action") ?? ""));
+    if (play.length === 1 && !hasPauseOrToggle) setAttribute(play[0]!, "data-vibe-video-action", "toggle");
+
+    if (!controls.some((element) => getAttribute(element, "data-vibe-video-time") !== undefined)) {
+      const staticTime = controls.find((element) => directElementChildren(element).length === 0
+        && /^\s*\d{1,3}:\d{2}\s*\/\s*(?:\d{1,3}:\d{2}|--:--)\s*$/.test(nodeText(element)));
+      if (staticTime) {
+        setAttribute(staticTime, "data-vibe-video-time", "combined");
+        replaceChildren(staticTime, "0:00 / --:--");
+      }
+    }
+
+    if (!controls.some((element) => getAttribute(element, "data-vibe-video-seek") !== undefined)) {
+      const visualSeek = controls.find((element) => {
+        const hint = `${getAttribute(element, "class") ?? ""} ${getAttribute(element, "role") ?? ""}`;
+        return /(?:^|[\s_-])(?:progress|timeline|seek|scrub)(?:$|[\s_-])/i.test(hint)
+          && getAttribute(element, "data-vibe-video-time") === undefined;
+      });
+      if (visualSeek) {
+        setAttribute(visualSeek, "data-vibe-video-seek", "");
+        setAttribute(visualSeek, "role", "slider");
+        setAttribute(visualSeek, "tabindex", "0");
+        removeAttribute(visualSeek, "aria-hidden");
+        const fill = directElementChildren(visualSeek)[0];
+        if (fill) setAttribute(fill, "data-vibe-video-progress-fill", "");
+      }
+    }
+  }
+}
+
 function sanitizePseudoVideo(document: DocumentNode, selected: ReadonlySet<CapabilityId>, settings: GenerationSettings, pageUrl?: string): ArtifactWarning[] {
   if (!selected.has("pseudo-video")) return [];
   const warnings: ArtifactWarning[] = [];
@@ -421,15 +480,27 @@ function sanitizePseudoVideo(document: DocumentNode, selected: ReadonlySet<Capab
         && hasVerifiedExternalMediaConnection(settings) && settings.voice.musicMode === "generate-if-requested") setAttribute(video, "data-music-intent", musicIntent);
     else removeAttribute(video, "data-music-intent");
 
+    normalizeAuthoredVideoControls(document, video);
+
     for (const control of elements(document).filter((element) => isWithin(element, video))) {
       removeAttribute(control, "autoplay");
       for (const attribute of [...control.attrs]) {
         if (/(?:midi|audio-url|voice-url|music-url|music-src)/i.test(attribute.name)) removeAttribute(control, attribute.name);
       }
       const action = getAttribute(control, "data-vibe-video-action");
+      if (action === "fullscreen" || getAttribute(control, "data-vibe-video-fullscreen") !== undefined) {
+        removeNode(control);
+        continue;
+      }
       if (action !== undefined && !VIDEO_CONTROL_ACTION_SET.has(action)) removeAttribute(control, "data-vibe-video-action");
       const timeRole = getAttribute(control, "data-vibe-video-time");
       if (timeRole !== undefined && !VIDEO_TIME_ROLE_SET.has(timeRole)) removeAttribute(control, "data-vibe-video-time");
+      const visibleWhen = getAttribute(control, "data-vibe-video-visible-when");
+      if (visibleWhen !== undefined) {
+        const states = visibleWhen.split(/[\s,|]+/).filter((state) => VIDEO_VISIBLE_STATE_SET.has(state));
+        if (states.length) setAttribute(control, "data-vibe-video-visible-when", states.join(" "));
+        else removeAttribute(control, "data-vibe-video-visible-when");
+      }
     }
 
     const scenes = elements(document).filter((element) => (getAttribute(element, "data-vibe-scene") !== undefined

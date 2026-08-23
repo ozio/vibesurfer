@@ -44,8 +44,8 @@ function pseudoVideoBuilderContract(settings: GenerationSettings): string {
     : [settings.voice.voice || "af_heart"];
   const narration = settings.capabilities.audioSpeechEnabled
     ? settings.voice.engine === "cloud" && (!settings.capabilities.externalMediaEnabled || !hasVerifiedMediaConnection)
-      ? "Cloud narration has no enabled verified connection. You may use one data-vibe-narration per scene for visible captions and transcript, but omit data-voice; playback will use a caption-only hold."
-      : `Narration is available through safe voice IDs: ${voiceIds.join("|")}. Put zero or one <p data-vibe-narration lang="..." data-voice="optional-listed-id">spoken text</p> inside each scene; it also becomes captions and transcript.`
+      ? "Cloud narration has no enabled verified connection. You may use one data-vibe-narration per scene as visible scene copy and caption source, but omit data-voice; playback will use a caption-only hold."
+      : `Narration is available through safe voice IDs: ${voiceIds.join("|")}. Put zero or one <p data-vibe-narration lang="..." data-voice="optional-listed-id">spoken text</p> inside each scene; it is the source for speech and any authored caption region.`
     : "Narration is disabled: do not emit data-vibe-narration.";
   const music = settings.voice.musicMode === "off"
     ? "Background music is disabled: use data-music-track=\"silence\"."
@@ -56,8 +56,9 @@ function pseudoVideoBuilderContract(settings: GenerationSettings): string {
     "data-duration-ms is optional desired hold time 1000..120000, never a speech cutoff. Put visible headings/copy/images in the scene and mark automatically animated children data-vibe-layer.",
     narration,
     music,
-    "Optional custom controls use data-vibe-video-action=play|pause|toggle|stop|mute|fullscreen, data-vibe-video-seek, data-vibe-video-volume, and data-vibe-video-time=current|duration. The trusted runtime supplies any missing controls, timing, captions and transcript.",
-    "Do not emit audio/video URLs, raw MIDI notes, executable code, autoplay, external requests, or fake controls.",
+    "You own all visible player chrome; the trusted runtime never inserts fallback controls, status text, captions or transcript. Author a stable control region yourself. Use data-vibe-video-action=play|pause|toggle|stop|mute, data-vibe-video-seek on a range or designed seek rail, data-vibe-video-volume, and data-vibe-video-time=current|duration|combined. Every visible clock and progress rail must carry one of these bindings; never print guessed time such as 2:31 / 6:42.",
+    "For one-button play/pause, keep its geometry fixed and use nested data-vibe-video-visible-when=not-playing and data-vibe-video-visible-when=playing labels/icons; do the same with unmuted/muted inside the mute button. If narration is enabled, author data-vibe-video-caption in a fixed overlay or fixed-height region when subtitles fit the design. Do not add fullscreen, internal Ready/Playing status copy, or a transcript unless the page itself explicitly requires transcript content.",
+    "Do not emit audio/video URLs, raw MIDI notes, executable code, autoplay, external requests, unbound timeline UI, or fake controls.",
   ].join(" ");
 }
 
@@ -270,7 +271,7 @@ const descriptors: readonly CapabilityDescriptor[] = [
     builderContract: "Use one declarative <vibe-video> scene timeline. The trusted runtime owns time, audio and controls.",
     execution: "trusted-runtime",
     maxInstances: 1,
-    version: "3",
+    version: "4",
     noticeIds: [],
     compact: true,
     available: always,

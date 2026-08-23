@@ -40,7 +40,7 @@ export const GENERATION_CAPABILITY_OPTIONS: readonly GenerationCapabilityOption[
   { id: "micro-widgets", title: "Micro-widgets", description: "Progress, countdown, rating, poll, terminal, price, and waveform primitives.", execution: "trusted-runtime" },
   { id: "carousel", title: "Carousels", description: "User-controlled horizontal collections with readable fallbacks.", execution: "trusted-runtime" },
   { id: "slideshow", title: "Slideshows", description: "Lightweight galleries with previous, next, and play controls.", execution: "trusted-runtime" },
-  { id: "pseudo-video", title: "Pseudo-video players", description: "Local multi-scene timelines with seek, captions, transcript, and fullscreen.", execution: "trusted-runtime" },
+  { id: "pseudo-video", title: "Pseudo-video players", description: "Local multi-scene timelines with model-authored controls, captions, speech, and music.", execution: "trusted-runtime" },
   { id: "speech", title: "Read-aloud controls", description: "User-triggered speech for bounded visible page text.", execution: "trusted-runtime" },
   { id: "sound", title: "Procedural sound", description: "User-triggered confirm, alert, chime, and tick tones.", execution: "trusted-runtime" },
 ];

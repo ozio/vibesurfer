@@ -42,6 +42,10 @@ describe("generation debug fixture", () => {
     expect(document.querySelector("vibe-video [data-vibe-narration]")?.textContent).toContain("Every evening");
     expect(document.querySelector('[data-music-track="documentary-pulse"]')).not.toBeNull();
     expect(document.querySelector('[data-kind="credits"]')).not.toBeNull();
+    expect(document.querySelector('[data-vibe-video-time="combined"]')).not.toBeNull();
+    expect(document.querySelector("[data-vibe-video-volume]")).not.toBeNull();
+    expect(document.querySelector('[data-vibe-video-visible-when="muted"]')).not.toBeNull();
+    expect(document.querySelector('[data-vibe-video-action="fullscreen"], [data-vibe-video-status], [data-vibe-video-transcript]')).toBeNull();
   });
 
   it("removes each capability marker independently when its setting is off", () => {

@@ -366,7 +366,7 @@ function GenerationSettings() {
       </section>
       <section className="settings-group voice-audio-settings">
         <h2>Voice &amp; Audio</h2>
-        <SettingSwitchRow title="Narration" description="Allow pseudo-video scenes to turn their visible narration text into seekable speech, captions, and transcript." checked={settings.capabilities.audioSpeechEnabled} onCheckedChange={(audioSpeechEnabled) => patchCapabilitySettings({ audioSpeechEnabled })} />
+        <SettingSwitchRow title="Narration" description="Allow pseudo-video scenes to turn their visible narration text into seekable speech and authored captions." checked={settings.capabilities.audioSpeechEnabled} onCheckedChange={(audioSpeechEnabled) => patchCapabilitySettings({ audioSpeechEnabled })} />
         <label className="settings-field">
           <span><strong>Speech engine</strong><small>Russian automatically uses the macOS system voice because Kokoro has no Russian voice.</small></span>
           <select value={settings.voice.engine} onChange={(event) => {

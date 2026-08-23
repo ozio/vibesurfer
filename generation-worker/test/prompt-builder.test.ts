@@ -228,6 +228,10 @@ describe("two-stage prompt layering", () => {
     expect(builder.prompt).toContain("TikTok, Reels and Shorts use 9:16");
     expect(builder.prompt).toContain("Narration is disabled");
     expect(builder.prompt).toContain('data-music-track="silence"');
+    expect(builder.prompt).toContain("trusted runtime never inserts fallback controls");
+    expect(builder.prompt).toContain("data-vibe-video-time=current|duration|combined");
+    expect(builder.prompt).toContain("never print guessed time such as 2:31 / 6:42");
+    expect(builder.prompt).toContain("Do not add fullscreen");
     expect(builder.prompt).not.toContain("must-not-leak");
     expect(builder.prompt).not.toContain("data-music-intent on");
   });

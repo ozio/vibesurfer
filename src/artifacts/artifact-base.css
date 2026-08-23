@@ -36,6 +36,7 @@
     display: block;
     position: relative;
     isolation: isolate;
+    overflow: hidden !important;
     overflow-anchor: none;
   }
   :where(vibe-video, [data-vibe-pseudo-video])[data-aspect-ratio="9:16"] { --vibe-video-aspect-ratio: 9 / 16; }
@@ -54,13 +55,19 @@
     aspect-ratio: var(--vibe-video-aspect-ratio) !important;
     overflow: hidden !important;
     contain: layout paint;
+    -webkit-user-select: none;
+    user-select: none;
   }
   :where(vibe-video, [data-vibe-pseudo-video]) > [data-vibe-scene][hidden],
   :where(vibe-video, [data-vibe-pseudo-video]) > [data-vibe-video-scene][hidden] { display: none !important; }
-  :where([data-vibe-video-controls]) { display: flex; align-items: center; flex-wrap: wrap; gap: .5rem; }
-  :where([data-vibe-video-controls] label) { display: flex; align-items: center; gap: .35rem; }
-  :where([data-vibe-video-controls] [data-vibe-video-seek]) { min-width: 8rem; }
-  :where([data-vibe-video-controls] [data-vibe-video-action="toggle"], [data-vibe-video-controls] [data-vibe-video-play]) { min-inline-size: 4.5rem; }
+  :where(vibe-video, [data-vibe-pseudo-video]) > :where([data-vibe-scene], [data-vibe-video-scene]) :where(img, svg, canvas) {
+    -webkit-user-drag: none;
+  }
+  :where([data-vibe-video-seek]:not(input)) { cursor: pointer; touch-action: none; }
+  :where([data-vibe-video-action="mute"][aria-pressed="true"]) {
+    filter: saturate(.35);
+    box-shadow: inset 0 0 0 2px currentColor;
+  }
   :where(vibe-video, [data-vibe-pseudo-video]) > [data-vibe-video-caption] {
     min-block-size: 3em;
     max-block-size: 3em;

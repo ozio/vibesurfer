@@ -42,6 +42,10 @@ interface DisposableToneNode {
   dispose(): void;
 }
 
+interface DisposableToneSource extends DisposableToneNode {
+  stop(time?: number): void;
+}
+
 export interface VideoMediaSessionOptions {
   profileId: string;
   voice: VoiceAudioSettings;
@@ -59,11 +63,13 @@ export class VideoMediaSession {
   readonly #options: VideoMediaSessionOptions;
   readonly #localSpeech = new SpeechAssetRenderer();
   readonly #speech = new Map<string, PreparedSpeech>();
+  readonly #speechBuffers = new Map<string, AudioBuffer>();
   readonly #midi = new Map<string, PreparedMidi>();
   #plan?: VideoPlan;
   #timeline?: VideoTimeline;
   #tone?: ToneNamespace;
   #audioNodes: DisposableToneNode[] = [];
+  #narrationNodes: DisposableToneSource[] = [];
   #master?: InstanceType<ToneNamespace["Gain"]>;
   #musicBus?: InstanceType<ToneNamespace["Gain"]>;
   #narrationBus?: InstanceType<ToneNamespace["Gain"]>;
@@ -94,9 +100,11 @@ export class VideoMediaSession {
       activeSession.pause();
       activeSession.#deactivateAudioGraph();
     }
+    activeSession = this;
     const generation = ++this.#generation;
     this.#deactivateAudioGraph();
     this.#speech.clear();
+    this.#speechBuffers.clear();
     this.#midi.clear();
     this.#generatedMusic = undefined;
     this.#musicInFlight = false;
@@ -146,6 +154,11 @@ export class VideoMediaSession {
       timeline.warnings.push(error instanceof Error ? error.message : "Built-in music could not be prepared.");
     });
     if (generation !== this.#generation || this.#disposed) return;
+    // Timeline readiness must not depend on Web Audio output. In particular,
+    // WKWebView may keep its AudioContext suspended until the subsequent Play
+    // command. Speech has already been rendered and its exact host duration is
+    // enough to make the visual timeline seekable; decode and output graph
+    // creation happen from play() below.
     this.#options.onTimeline(requestId, timeline);
     if (wantsGeneratedMusic && this.#musicInFlight) {
       this.#setStatus("waiting", { completed: 0, total: 1, label: "Preparing music" });
@@ -169,11 +182,16 @@ export class VideoMediaSession {
       activeSession = this;
       const tone = await this.#ensureTone();
       await tone.start();
+      const rawContext = tone.getContext().rawContext as AudioContext;
+      if (rawContext.state === "suspended") await rawContext.resume();
+      if (rawContext.state !== "running") throw new Error(`Audio output is ${rawContext.state}.`);
       if (!this.#master) await this.#activateAudioGraph();
       const transport = tone.getTransport();
       if (this.#currentTimeMs >= this.#timeline.durationMs) this.#currentTimeMs = 0;
       transport.seconds = this.#currentTimeMs / 1_000;
-      transport.start();
+      const audioStartTime = tone.now() + 0.025;
+      this.#scheduleNarration(audioStartTime);
+      transport.start(audioStartTime);
       this.#status = "playing";
       this.#startTimer();
       this.#emitState();
@@ -193,6 +211,7 @@ export class VideoMediaSession {
       this.#currentTimeMs = Math.min(this.#timeline?.durationMs ?? 0, transport.seconds * 1_000);
       transport.pause();
     }
+    this.#stopNarrationNodes();
     this.#stopTimer();
     if (this.#status !== "idle" && this.#status !== "error" && this.#status !== "ended") this.#status = "paused";
     this.#emitState();
@@ -205,6 +224,7 @@ export class VideoMediaSession {
       transport.stop();
       transport.seconds = 0;
     }
+    this.#stopNarrationNodes();
     this.#currentTimeMs = 0;
     this.#stopTimer();
     this.#status = this.#timeline ? "ready" : "idle";
@@ -217,6 +237,7 @@ export class VideoMediaSession {
     if (this.#tone && this.#master) {
       this.#tone.getTransport().seconds = this.#currentTimeMs / 1_000;
       this.#syncMusicForCurrentScene(true);
+      if (this.#status === "playing") this.#scheduleNarration(this.#tone.now() + 0.025);
     }
     if (this.#status === "ended" && this.#currentTimeMs < this.#timeline.durationMs) this.#status = "paused";
     this.#emitState();
@@ -353,7 +374,34 @@ export class VideoMediaSession {
   async #decode(blob: Blob): Promise<AudioBuffer> {
     const tone = await this.#ensureTone();
     const raw = tone.getContext().rawContext as AudioContext;
-    return raw.decodeAudioData(await blob.arrayBuffer());
+    const encoded = await blob.arrayBuffer();
+    return new Promise<AudioBuffer>((resolve, reject) => {
+      let settled = false;
+      let timeout = 0;
+      const succeed = (buffer: AudioBuffer) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve(buffer);
+      };
+      const fail = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        reject(error);
+      };
+      timeout = window.setTimeout(() => fail(new Error("Audio decoding timed out.")), 5_000);
+      try {
+        // WebKit versions embedded by supported macOS releases do not all
+        // return the Promise overload reliably. Supplying callbacks as well
+        // keeps decoding deterministic; `finish` de-duplicates engines that
+        // invoke a callback and resolve the Promise.
+        const result = raw.decodeAudioData(encoded, succeed, fail);
+        if (result && typeof result.then === "function") void result.then(succeed, fail);
+      } catch (error) {
+        fail(error instanceof Error ? error : new Error("Audio could not be decoded."));
+      }
+    });
   }
 
   async #activateAudioGraph(): Promise<void> {
@@ -374,9 +422,7 @@ export class VideoMediaSession {
         if (!prepared?.blob || !timing || !this.#narrationBus) continue;
         try {
           const buffer = await this.#decode(prepared.blob);
-          const player = new tone.Player(buffer).connect(this.#narrationBus);
-          player.sync().start((timing.startMs + 350) / 1_000);
-          this.#audioNodes.push(player);
+          this.#speechBuffers.set(scene.id, buffer);
         } catch (error) {
           this.#timeline.warnings.push(error instanceof Error ? error.message : `Could not decode narration for ${scene.id}.`);
         }
@@ -391,6 +437,7 @@ export class VideoMediaSession {
       transport.pause();
       transport.cancel();
     }
+    this.#stopNarrationNodes();
     this.#disposeMusicNodes();
     for (const node of this.#audioNodes.splice(0)) {
       try { node.dispose(); } catch { /* already released */ }
@@ -399,6 +446,34 @@ export class VideoMediaSession {
     this.#musicBus = undefined;
     this.#narrationBus = undefined;
     this.#activeTrack = "";
+  }
+
+  #scheduleNarration(audioStartTime: number): void {
+    this.#stopNarrationNodes();
+    if (!this.#timeline || !this.#plan || !this.#tone || !this.#narrationBus) return;
+    for (const scene of this.#plan.scenes) {
+      const buffer = this.#speechBuffers.get(scene.id);
+      const prepared = this.#speech.get(scene.id);
+      const timing = this.#timeline.scenes.find((candidate) => candidate.id === scene.id);
+      if (!buffer || !prepared || !timing) continue;
+      const narrationStartMs = timing.startMs + 350;
+      const narrationDurationMs = Math.min(prepared.durationMs, buffer.duration * 1_000);
+      const narrationEndMs = narrationStartMs + narrationDurationMs;
+      if (this.#currentTimeMs >= narrationEndMs) continue;
+      const delaySeconds = Math.max(0, narrationStartMs - this.#currentTimeMs) / 1_000;
+      const offsetSeconds = Math.max(0, this.#currentTimeMs - narrationStartMs) / 1_000;
+      if (offsetSeconds >= buffer.duration) continue;
+      const player = new this.#tone.Player(buffer).connect(this.#narrationBus);
+      player.start(audioStartTime + delaySeconds, offsetSeconds);
+      this.#narrationNodes.push(player);
+    }
+  }
+
+  #stopNarrationNodes(): void {
+    for (const node of this.#narrationNodes.splice(0)) {
+      try { node.stop(); } catch { /* source may not have reached its scheduled start */ }
+      try { node.dispose(); } catch { /* already released */ }
+    }
   }
 
   async #preloadMidi(plan: VideoPlan): Promise<void> {
@@ -566,6 +641,7 @@ export class VideoMediaSession {
           this.seek(0);
         } else {
           this.#tone.getTransport().pause();
+          this.#stopNarrationNodes();
           this.#status = "ended";
           this.#stopTimer();
         }

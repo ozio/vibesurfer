@@ -22,10 +22,14 @@ const audio = vi.hoisted(() => ({
     cancel: vi.fn(),
   },
   gains: [] as Array<{ gain: { rampTo: ReturnType<typeof vi.fn> }; dispose: ReturnType<typeof vi.fn> }>,
-  players: [] as Array<{ start: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
+  players: [] as Array<{ start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn>; sync: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
   parts: [] as Array<{ start: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }>,
   context: {
-    rawContext: { state: "suspended", decodeAudioData: vi.fn(async () => ({ duration: 8 })) },
+    rawContext: {
+      state: "suspended",
+      decodeAudioData: vi.fn(async () => ({ duration: 8 })),
+      resume: vi.fn(async () => { audio.context.rawContext.state = "running"; }),
+    },
     dispose: vi.fn(),
   },
 }));
@@ -40,7 +44,7 @@ vi.mock("./media-host-api", () => ({
 
 vi.mock("../audio/local-speech", () => ({
   SpeechAssetRenderer: class {
-    render = vi.fn(async () => ({ blob: new Blob([new Uint8Array([1])], { type: "audio/wav" }), durationMs: 1_000 }));
+    render = vi.fn(async () => ({ blob: { arrayBuffer: async () => new ArrayBuffer(8) } as Blob, durationMs: 1_000 }));
     dispose = vi.fn();
   },
 }));
@@ -66,10 +70,11 @@ vi.mock("tone", () => {
   }
   class Player {
     start = vi.fn();
+    stop = vi.fn();
+    sync = vi.fn(() => this);
     dispose = vi.fn();
     constructor(_input?: unknown) { audio.players.push(this); }
     connect() { return this; }
-    sync() { return this; }
   }
   class PolySynth {
     dispose = vi.fn();
@@ -99,6 +104,7 @@ vi.mock("tone", () => {
     getTransport: () => audio.transport,
     getContext: () => audio.context,
     setContext: vi.fn(),
+    now: () => 10,
     start: vi.fn(async () => undefined),
   };
 });
@@ -150,7 +156,7 @@ beforeEach(() => {
   host.renderSpeech.mockReset();
   host.cancel.mockReset();
   host.getLocal.mockReset().mockResolvedValue(undefined);
-  host.cacheLocal.mockReset();
+  host.cacheLocal.mockReset().mockResolvedValue(undefined);
   audio.transport.seconds = 0;
   audio.transport.start.mockClear();
   audio.transport.pause.mockClear();
@@ -161,6 +167,7 @@ beforeEach(() => {
   audio.parts.splice(0);
   audio.context.rawContext.state = "suspended";
   audio.context.rawContext.decodeAudioData.mockClear();
+  audio.context.rawContext.resume.mockClear();
   audio.context.dispose.mockClear();
 });
 
@@ -196,6 +203,69 @@ describe("VideoMediaSession", () => {
     }));
     expect(media.timelines[0]?.scenes[0]?.durationMs).toBe(6_250);
     expect(media.states.some((state) => state.progress?.label === "Rendering offline narration")).toBe(true);
+    media.value.dispose();
+  });
+
+  it("schedules audible narration on the audio clock and rebuilds it without duplicates after pause or seek", async () => {
+    const media = session({ ...baseVoice, musicMode: "off" });
+    await media.value.prepare("prepare-narration", plan({ scenes: [{
+      id: "spoken",
+      kind: "text",
+      transition: "cut",
+      motion: "still",
+      musicTrack: "silence",
+      narration: { text: "A seekable spoken line.", lang: "en", voice: "af_heart" },
+    }] }));
+    expect(media.timelines[0]?.warnings).toEqual([]);
+    expect(audio.context.rawContext.decodeAudioData).not.toHaveBeenCalled();
+    expect(audio.gains).toHaveLength(0);
+    expect(audio.players).toHaveLength(0);
+
+    await media.value.play();
+    expect(audio.context.rawContext.decodeAudioData).toHaveBeenCalledOnce();
+    expect(audio.context.rawContext.resume).toHaveBeenCalledOnce();
+    expect(audio.players).toHaveLength(1);
+    expect(audio.players[0]?.sync).not.toHaveBeenCalled();
+    expect(audio.players[0]?.start).toHaveBeenCalledWith(10.375, 0);
+
+    audio.transport.seconds = 0.6;
+    media.value.pause();
+    expect(audio.players[0]?.stop).toHaveBeenCalledOnce();
+    const playerCountWhilePaused = audio.players.length;
+    media.value.seek(0.8 * 1_000);
+    expect(audio.players).toHaveLength(playerCountWhilePaused);
+
+    await media.value.play();
+    expect(audio.players).toHaveLength(playerCountWhilePaused + 1);
+    expect(audio.players.at(-1)?.start).toHaveBeenCalledWith(10.025, 0.45);
+    const beforePlayingSeek = audio.players.at(-1)!;
+    media.value.seek(900);
+    expect(beforePlayingSeek.stop).toHaveBeenCalledOnce();
+    expect(audio.players.at(-1)?.start).toHaveBeenCalledWith(10.025, 0.55);
+    media.value.dispose();
+  });
+
+  it("returns the exact timeline before Web Audio initialization and keeps visual playback alive when one narration decode fails", async () => {
+    const media = session({ ...baseVoice, musicMode: "off" });
+    await media.value.prepare("prepare-before-audio", plan({ scenes: [{
+      id: "spoken",
+      kind: "text",
+      transition: "cut",
+      motion: "still",
+      musicTrack: "silence",
+      narration: { text: "The timeline must not wait for output initialization.", lang: "en", voice: "af_heart" },
+    }] }));
+
+    expect(media.timelines).toHaveLength(1);
+    expect(media.states.at(-1)?.status).toBe("ready");
+    expect(audio.gains).toHaveLength(0);
+    audio.context.rawContext.decodeAudioData.mockRejectedValueOnce(new DOMException("decode failed", "EncodingError"));
+
+    await media.value.play();
+
+    expect(media.states.at(-1)?.status).toBe("playing");
+    expect(media.timelines[0]?.warnings).toEqual([expect.stringContaining("decode")]);
+    expect(audio.transport.start).toHaveBeenCalledOnce();
     media.value.dispose();
   });
 

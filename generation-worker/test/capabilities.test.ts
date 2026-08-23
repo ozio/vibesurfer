@@ -146,6 +146,28 @@ describe("capability compiler", () => {
     expect((await compile("https://vimeo.com/123", ' data-aspect-ratio="4:5"')).html).toContain('data-aspect-ratio="4:5"');
   });
 
+  it("binds model-authored player chrome instead of allowing fake time or runtime fallback UI", async () => {
+    const settings = { ...generationCommand().settings, images: { mode: "off" as const, fetchExternal: false, safeContent: true }, minInternalLinks: 0 };
+    const result = await transformHtml({
+      html: `<!doctype html><html><head><title>Video chrome</title></head><body><vibe-video><section data-vibe-scene>Frame</section><div class="player-controls"><button data-vibe-video-action="play">▶</button><div class="progress" aria-hidden="true"><span></span></div><span class="time">2:31 / 6:42</span><button data-vibe-video-action="mute">🔊</button><button data-vibe-video-action="fullscreen">Fullscreen</button></div></vibe-video></body></html>`,
+      url: "https://youtube.com/watch?v=test",
+      title: "Video chrome",
+      settings,
+      selectedCapabilities: ["pseudo-video"],
+      browserTheme: "native",
+      artifactSeed: "video-chrome",
+      signal: new AbortController().signal,
+    });
+    expect(result.html).toContain('data-vibe-video-controls=""');
+    expect(result.html).toContain('data-vibe-video-action="toggle"');
+    expect(result.html).toContain('data-vibe-video-seek=""');
+    expect(result.html).toContain('data-vibe-video-progress-fill=""');
+    expect(result.html).toContain('data-vibe-video-time="combined"');
+    expect(result.html).not.toContain("2:31 / 6:42");
+    expect(result.html).not.toContain("Fullscreen");
+    expect(result.html).not.toContain('data-vibe-video-action="fullscreen"');
+  });
+
   it("switches narration, music and external generation independently", async () => {
     const base = generationCommand().settings;
     const markup = `<!doctype html><html><head><title>Layers</title></head><body><vibe-video data-music-intent="quiet glass score"><section data-vibe-scene data-kind="text" data-transition="cut" data-motion="still" data-music-track="ambient-glass"><p data-vibe-narration>Spoken caption</p></section></vibe-video></body></html>`;
